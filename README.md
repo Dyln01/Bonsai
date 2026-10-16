@@ -4,7 +4,6 @@
 # Bonsai
 
 ### **Build on colibri engine**
-</div>
 
 **Run full-size dense 27B-class LLMs (and MoE siblings) on 8 GB mini-PCs — no GPU, no downsizing.**
 Mmap'd trunk + hot-neuron paging + per-prompt neuron selection (GRIFFIN) + 8-bit KV cache +
@@ -12,6 +11,8 @@ flash-tile prefill + self-speculative decoding, composed by a single one-knob la
 
 Built as a research patch stack on the open-source **colibri** inference engine (Apache-2.0,
 not included — see *Engine* below).
+
+</div>
 
 ## Why this exists
 
