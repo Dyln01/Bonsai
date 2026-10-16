@@ -1,5 +1,6 @@
 <div align="center">
-<img src="./logo.png" width=256 height=256/>   
+<img src="./logo.png" width=256 height=256 />   
+   
 # Bonsai
 
 ### **Build on colibri engine**
