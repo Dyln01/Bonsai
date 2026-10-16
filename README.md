@@ -1,6 +1,5 @@
 <div align="center">
-![alt text](https://static.vecteezy.com/system/resources/previews/012/626/627/non_2x/japanese-bonsai-tree-logo-free-vector.jpg)
-   
+<img src="https://static.vecteezy.com/system/resources/previews/012/626/627/non_2x/japanese-bonsai-tree-logo-free-vector.jpg">   
 # Bonsai
 
 ### **Build on colibri engine**
