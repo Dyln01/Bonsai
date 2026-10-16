@@ -12,6 +12,8 @@ flash-tile prefill + self-speculative decoding, composed by a single one-knob la
 Built as a research patch stack on the open-source **colibri** inference engine (Apache-2.0,
 not included — see *Engine* below).
 
+*formerly `qwen36-minipc` — the launcher command stays `q36-minipc`*
+
 </div>
 
 ## Why this exists
