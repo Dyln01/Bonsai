@@ -1,5 +1,5 @@
 <div align="center">
-<img src="./logo.png" width=128 height=128 />   
+<img src="./logo.png" width=180 height=180 />   
    
 # Bonsai
 
