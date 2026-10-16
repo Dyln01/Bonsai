@@ -1,0 +1,26 @@
+{
+  "A_defaults_f32kv_int8dense": {
+    "peak_rss_mb": 804.5,
+    "ttft_s": 74.2,
+    "decode_tok_s": 0.85,
+    "rc": 0
+  },
+  "B_kv8_v2": {
+    "peak_rss_mb": 673.8,
+    "ttft_s": 112.21,
+    "decode_tok_s": 0.56,
+    "rc": 0
+  },
+  "C_int4dense": {
+    "peak_rss_mb": 728.0,
+    "ttft_s": 76.64,
+    "decode_tok_s": 0.83,
+    "rc": 0
+  },
+  "D_kv8_int4dense": {
+    "peak_rss_mb": 595.6,
+    "ttft_s": 112.3,
+    "decode_tok_s": 0.56,
+    "rc": 0
+  }
+}

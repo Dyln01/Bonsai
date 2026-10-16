@@ -1,0 +1,8 @@
+# Housekeeping
+*.o
+*.d
+qwen36
+*.exe
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,26 @@
+{
+  "f32": {
+    "peak_rss_mb": 373.1,
+    "projected_pool_gb": 1.66,
+    "rc": 0,
+    "tokens": 48,
+    "tok_s_avg": 21.06
+  },
+  "kv8": {
+    "peak_rss_mb": 372.3,
+    "projected_pool_gb": 0.43,
+    "rc": 0,
+    "tokens": 48,
+    "tok_s_avg": 33.62
+  },
+  "kvtq4": {
+    "peak_rss_mb": 361.0,
+    "projected_pool_gb": 0.22,
+    "rc": 0,
+    "tokens": 48,
+    "tok_s_avg": 33.69
+  },
+  "ctx2048_f32": 371.3,
+  "ctx2048_kv8": 372.2,
+  "ctx2048_kvtq4": 360.8
+}

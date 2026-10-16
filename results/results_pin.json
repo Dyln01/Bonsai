@@ -1,0 +1,16 @@
+{
+  "cold": {
+    "rc": 0,
+    "tok_s": 99.31,
+    "hit_pct": 64.5
+  },
+  "pin_auto": {
+    "rc": 0,
+    "tok_s": 139.36,
+    "hit_pct": 88.5,
+    "pin_lines": [
+      "[PIN] auto: seeding from /home/dylan/synth_models/synth_std/.coli_usage",
+      "[PIN] placement: 0 VRAM + 383 RAM expert (0.6 GB warm) in 0s da /home/dylan/synth_models/synth_std/.coli_usage"
+    ]
+  }
+}

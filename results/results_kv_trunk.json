@@ -1,0 +1,27 @@
+{
+  "kv_131072_f32": {
+    "peak_rss_mb": 175.9,
+    "rc": 0
+  },
+  "kv_131072_kv8": {
+    "peak_rss_mb": 178.4,
+    "rc": 0
+  },
+  "kv_131072_kvtq4": {
+    "peak_rss_mb": 176.7,
+    "rc": 0
+  },
+  "trunk_resident_default": {
+    "peak_rss_mb": 878.2,
+    "rc": 0
+  },
+  "trunk_trunk_mmap0": {
+    "peak_rss_mb": 1842.6,
+    "rc": 0
+  },
+  "trunk_trunk_mmap0_pilot": {
+    "peak_rss_mb": 1847.8,
+    "rc": 0
+  },
+  "determinism_pass": true
+}

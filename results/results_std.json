@@ -1,0 +1,104 @@
+{
+  "meta": {
+    "date": "2026-10-11 14:19:08",
+    "engine": "/home/dylan/colibri/c/colibri",
+    "model": "/home/dylan/synth_models/synth_std",
+    "io_emulation": {
+      "lat_us": 100.0,
+      "bw_mbps": 3500.0
+    },
+    "note": "synthetic container (random weights) \u2014 no real model downloaded"
+  },
+  "runs": [
+    {
+      "tokens": 448,
+      "decode_s": 4.791,
+      "tok_s": 93.51,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 195.4,
+      "label": "cold_cap8_direct_r0",
+      "wall_s": 5.7,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 4.296,
+      "tok_s": 104.28,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 194.4,
+      "label": "cold_cap8_direct_pipe1_r0",
+      "wall_s": 4.74,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 3.884,
+      "tok_s": 115.35,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 195.5,
+      "label": "cold_cap8_uring_r0",
+      "wall_s": 4.3,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 3.456,
+      "tok_s": 129.62,
+      "hit_pct": 97.5,
+      "peak_rss_mb": 911.4,
+      "label": "cold_cap64_direct_pipe1_r0",
+      "wall_s": 4.06,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 3.736,
+      "tok_s": 119.91,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 195.3,
+      "label": "cold_cap8_warm_pagecache_r0",
+      "wall_s": 4.11,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 4.284,
+      "tok_s": 104.57,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 194.2,
+      "label": "steady_cap8_sata_emul_r0",
+      "wall_s": 4.74,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 4.106,
+      "tok_s": 109.1,
+      "hit_pct": 64.5,
+      "peak_rss_mb": 194.2,
+      "label": "longctx_128k_f32kv_r0",
+      "wall_s": 4.52,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 4.628,
+      "tok_s": 96.8,
+      "hit_pct": 64.3,
+      "peak_rss_mb": 190.5,
+      "label": "longctx_128k_kv8_r0",
+      "wall_s": 5.06,
+      "rc": 0
+    },
+    {
+      "tokens": 448,
+      "decode_s": 5.273,
+      "tok_s": 84.95,
+      "hit_pct": 62.9,
+      "peak_rss_mb": 191.4,
+      "label": "longctx_128k_kvtq4_r0",
+      "wall_s": 5.72,
+      "rc": 0
+    }
+  ]
+}
