@@ -1,4 +1,6 @@
-# qwen36-minipc
+# Bonsai
+
+### **Build on colibri engine**
 
 **Run full-size dense 27B-class LLMs (and MoE siblings) on 8 GB mini-PCs — no GPU, no downsizing.**
 Mmap'd trunk + hot-neuron paging + per-prompt neuron selection (GRIFFIN) + 8-bit KV cache +
