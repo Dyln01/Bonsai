@@ -63,7 +63,7 @@ else
 fi
 
 case "$CMD" in
-  serve)  exec env $COMMON SERVE=1 OPENAI=1 "$ENGINE" "$CAP" 4 ;;
+  serve)  exec env $COMMON SERVE=1 OPENAI=1 ${Q36_SLOTS:+KV_SLOTS=$Q36_SLOTS} "$ENGINE" "$CAP" 4 ;;
   chat)   exec env $COMMON N_NEW=512 COLI_TEMP=0.7 "$ENGINE" "$CAP" 4 /dev/stdin ;;
   bench)
     PF="${ARG3:-/tmp/q36bench_prompt.txt}"

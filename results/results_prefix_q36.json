@@ -1,0 +1,302 @@
+{
+  "mux_on": {
+    "rows": [
+      {
+        "id": "c0t1",
+        "conv": 0,
+        "turn": 1,
+        "np": 1608,
+        "dt_s": 4.025,
+        "stat": "DONE c0t1 STAT 1 173310.225 0.0 0.28 1608 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1608"
+      },
+      {
+        "id": "c1t1",
+        "conv": 1,
+        "turn": 1,
+        "np": 1645,
+        "dt_s": 4.103,
+        "stat": "DONE c1t1 STAT 1 125078.174 0.0 0.30 1645 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1645"
+      },
+      {
+        "id": "c0t2",
+        "conv": 0,
+        "turn": 2,
+        "np": 1736,
+        "dt_s": 0.373,
+        "stat": "DONE c0t2 STAT 1 140193.467 0.0 0.30 1736 1",
+        "prefix": "reusing 1608 of 1736 prompt tokens (93%)"
+      },
+      {
+        "id": "c1t2",
+        "conv": 1,
+        "turn": 2,
+        "np": 1773,
+        "dt_s": 0.385,
+        "stat": "DONE c1t2 STAT 1 236518.448 0.0 0.30 1773 1",
+        "prefix": "reusing 1645 of 1773 prompt tokens (93%)"
+      },
+      {
+        "id": "c0t3",
+        "conv": 0,
+        "turn": 3,
+        "np": 1864,
+        "dt_s": 0.393,
+        "stat": "DONE c0t3 STAT 1 151699.029 0.0 0.30 1864 1",
+        "prefix": "reusing 1736 of 1864 prompt tokens (93%)"
+      },
+      {
+        "id": "c1t3",
+        "conv": 1,
+        "turn": 3,
+        "np": 1901,
+        "dt_s": 0.414,
+        "stat": "DONE c1t3 STAT 1 161238.310 0.0 0.30 1901 1",
+        "prefix": "reusing 1773 of 1901 prompt tokens (93%)"
+      }
+    ],
+    "rc": 0,
+    "max_tok": 1
+  },
+  "mux_off": {
+    "rows": [
+      {
+        "id": "c0t1",
+        "conv": 0,
+        "turn": 1,
+        "np": 1608,
+        "dt_s": 4.022,
+        "stat": "DONE c0t1 STAT 1 153092.468 0.0 0.28 1608 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1608"
+      },
+      {
+        "id": "c1t1",
+        "conv": 1,
+        "turn": 1,
+        "np": 1645,
+        "dt_s": 4.09,
+        "stat": "DONE c1t1 STAT 1 144029.958 0.0 0.30 1645 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1645"
+      },
+      {
+        "id": "c0t2",
+        "conv": 0,
+        "turn": 2,
+        "np": 1736,
+        "dt_s": 4.288,
+        "stat": "DONE c0t2 STAT 1 104515.050 0.0 0.30 1736 1",
+        "prefix": "no reuse: held=1608 cap=4096 prompt=1736 (diverged)"
+      },
+      {
+        "id": "c1t2",
+        "conv": 1,
+        "turn": 2,
+        "np": 1773,
+        "dt_s": 4.477,
+        "stat": "DONE c1t2 STAT 1 126662.445 0.0 0.30 1773 1",
+        "prefix": "no reuse: held=1645 cap=4096 prompt=1773 (diverged)"
+      },
+      {
+        "id": "c0t3",
+        "conv": 0,
+        "turn": 3,
+        "np": 1864,
+        "dt_s": 4.845,
+        "stat": "DONE c0t3 STAT 1 121138.704 0.0 0.30 1864 1",
+        "prefix": "no reuse: held=1736 cap=4096 prompt=1864 (diverged)"
+      },
+      {
+        "id": "c1t3",
+        "conv": 1,
+        "turn": 3,
+        "np": 1901,
+        "dt_s": 4.792,
+        "stat": "DONE c1t3 STAT 1 127307.447 0.0 0.31 1901 1",
+        "prefix": "no reuse: held=1773 cap=4096 prompt=1901 (diverged)"
+      }
+    ],
+    "rc": 0,
+    "max_tok": 1
+  },
+  "single_on": {
+    "rows": [
+      {
+        "id": "c0t1",
+        "conv": 0,
+        "turn": 1,
+        "np": 1608,
+        "dt_s": 4.086,
+        "stat": "DONE c0t1 STAT 1 57696.746 0.0 0.27 1608 1",
+        "prefix": "no reuse: held=0 cap=1609 prompt=1608"
+      },
+      {
+        "id": "c1t1",
+        "conv": 1,
+        "turn": 1,
+        "np": 1645,
+        "dt_s": 0.121,
+        "stat": "DONE c1t1 STAT 1 92850.511 0.0 0.27 1645 1",
+        "prefix": "reusing 1608 of 1645 prompt tokens (98%)"
+      },
+      {
+        "id": "c0t2",
+        "conv": 0,
+        "turn": 2,
+        "np": 1736,
+        "dt_s": 4.304,
+        "stat": "DONE c0t2 STAT 1 76016.724 0.0 0.28 1736 1",
+        "prefix": "no reuse: held=1645 cap=1737 prompt=1736 (diverged)"
+      },
+      {
+        "id": "c1t2",
+        "conv": 1,
+        "turn": 2,
+        "np": 1773,
+        "dt_s": 4.519,
+        "stat": "DONE c1t2 STAT 1 50180.650 0.0 0.28 1773 1",
+        "prefix": "no reuse: held=1736 cap=1774 prompt=1773 (diverged)"
+      },
+      {
+        "id": "c0t3",
+        "conv": 0,
+        "turn": 3,
+        "np": 1864,
+        "dt_s": 5.045,
+        "stat": "DONE c0t3 STAT 1 44939.781 0.0 0.28 1864 1",
+        "prefix": "no reuse: held=1773 cap=1865 prompt=1864 (diverged)"
+      },
+      {
+        "id": "c1t3",
+        "conv": 1,
+        "turn": 3,
+        "np": 1901,
+        "dt_s": 5.549,
+        "stat": "DONE c1t3 STAT 1 52421.891 0.0 0.28 1901 1",
+        "prefix": "no reuse: held=1864 cap=1902 prompt=1901 (diverged)"
+      }
+    ],
+    "rc": 0,
+    "max_tok": 1
+  },
+  "single_off": {
+    "rows": [
+      {
+        "id": "c0t1",
+        "conv": 0,
+        "turn": 1,
+        "np": 1608,
+        "dt_s": 4.605,
+        "stat": "DONE c0t1 STAT 1 50410.848 0.0 0.27 1608 1",
+        "prefix": "no reuse: held=0 cap=1609 prompt=1608"
+      },
+      {
+        "id": "c1t1",
+        "conv": 1,
+        "turn": 1,
+        "np": 1645,
+        "dt_s": 4.365,
+        "stat": "DONE c1t1 STAT 1 84083.074 0.0 0.27 1645 1",
+        "prefix": "no reuse: held=1608 cap=1646 prompt=1645 (diverged)"
+      },
+      {
+        "id": "c0t2",
+        "conv": 0,
+        "turn": 2,
+        "np": 1736,
+        "dt_s": 4.315,
+        "stat": "DONE c0t2 STAT 1 72223.025 0.0 0.28 1736 1",
+        "prefix": "no reuse: held=1645 cap=1737 prompt=1736 (diverged)"
+      },
+      {
+        "id": "c1t2",
+        "conv": 1,
+        "turn": 2,
+        "np": 1773,
+        "dt_s": 4.809,
+        "stat": "DONE c1t2 STAT 1 80166.747 0.0 0.28 1773 1",
+        "prefix": "no reuse: held=1736 cap=1774 prompt=1773 (diverged)"
+      },
+      {
+        "id": "c0t3",
+        "conv": 0,
+        "turn": 3,
+        "np": 1864,
+        "dt_s": 4.631,
+        "stat": "DONE c0t3 STAT 1 62774.639 0.0 0.28 1864 1",
+        "prefix": "no reuse: held=1773 cap=1865 prompt=1864 (diverged)"
+      },
+      {
+        "id": "c1t3",
+        "conv": 1,
+        "turn": 3,
+        "np": 1901,
+        "dt_s": 5.456,
+        "stat": "DONE c1t3 STAT 1 80560.702 0.0 0.28 1901 1",
+        "prefix": "no reuse: held=1864 cap=1902 prompt=1901 (diverged)"
+      }
+    ],
+    "rc": 0,
+    "max_tok": 1
+  },
+  "mux_agent": {
+    "rows": [
+      {
+        "id": "c0t1",
+        "conv": 0,
+        "turn": 1,
+        "np": 1608,
+        "dt_s": 4.377,
+        "stat": "DONE c0t1 STAT 24 111.553 0.0 0.28 1608 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1608"
+      },
+      {
+        "id": "c1t1",
+        "conv": 1,
+        "turn": 1,
+        "np": 1645,
+        "dt_s": 4.251,
+        "stat": "DONE c1t1 STAT 24 120.274 0.0 0.30 1645 1",
+        "prefix": "no reuse: held=0 cap=4096 prompt=1645"
+      },
+      {
+        "id": "c0t2",
+        "conv": 0,
+        "turn": 2,
+        "np": 1736,
+        "dt_s": 4.817,
+        "stat": "DONE c0t2 STAT 24 99.761 0.0 0.30 1736 1",
+        "prefix": "no reuse: held=1631 cap=4096 prompt=1736 (diverged)"
+      },
+      {
+        "id": "c1t2",
+        "conv": 1,
+        "turn": 2,
+        "np": 1773,
+        "dt_s": 4.886,
+        "stat": "DONE c1t2 STAT 24 120.592 0.0 0.30 1773 1",
+        "prefix": "no reuse: held=1668 cap=4096 prompt=1773 (diverged)"
+      },
+      {
+        "id": "c0t3",
+        "conv": 0,
+        "turn": 3,
+        "np": 1864,
+        "dt_s": 4.977,
+        "stat": "DONE c0t3 STAT 24 125.440 0.0 0.30 1864 1",
+        "prefix": "no reuse: held=1759 cap=4096 prompt=1864 (diverged)"
+      },
+      {
+        "id": "c1t3",
+        "conv": 1,
+        "turn": 3,
+        "np": 1901,
+        "dt_s": 5.123,
+        "stat": "DONE c1t3 STAT 24 121.690 0.0 0.31 1901 1",
+        "prefix": "no reuse: held=1796 cap=4096 prompt=1901 (diverged)"
+      }
+    ],
+    "rc": 0,
+    "max_tok": 24
+  }
+}
