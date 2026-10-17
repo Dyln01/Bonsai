@@ -118,9 +118,11 @@ multiplier is worth more than every remaining RAM optimization combined.
   synth_coder30: 267 tensors / 378 MB (11 F16 + 128 experts int4-gs64),
   parse-verified. MoE head (router + fused experts [+ shared expert]) or
   dense head (`mlp.` prefix, the shared-expert path) by container class;
-  qk-norms iff the container's meta has them. Stock-safe by construction:
-  an MTP-unaware engine never requests an `mtp.*` tensor and ignores the
-  new meta keys (regression arm running).
+  qk-norms iff the container's meta has them. Stock-safe by construction AND
+  measured: an MTP-unaware engine never requests an `mtp.*` tensor and ignores
+  the new meta keys — a full stock run on synth_coder30 with the head present
+  completed rc=0, RSS 3.03 GB (cold-MoE TTFT 1225 s is the vhdx container's
+  cold cost, unrelated to the head).
 - **PINNED — the q36_spec_step integration** (L5663): proposal sits beside
   the lookup pick (draft into `d[]`, gate via `spec_gate_pick(SPEC_SRC_MTP)`,
   `spec_gate_draft_cost` for the head's per-draft time); a `cur_src` field
