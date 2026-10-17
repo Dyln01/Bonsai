@@ -6,8 +6,8 @@
 ### **Build on colibri engine**
 
 **Run full-size dense 27B-class LLMs (and MoE siblings) on 8 GB mini-PCs — no GPU, no downsizing.**
-Mmap'd trunk + hot-neuron paging + per-prompt neuron selection (GRIFFIN) + 8-bit KV cache +
-flash-tile prefill + self-speculative decoding, composed by a single one-knob launcher.
+Mmap'd trunk + hot-neuron paging + per-prompt neuron selection (GRIFFIN) + tiered KV cache
+(fp8 → polar/int4) + flash-tile prefill + self-speculative decoding, composed by a single one-knob launcher.
 
 Built as a research patch stack on the open-source **colibri** inference engine (Apache-2.0,
 not included — see *Engine* below).
@@ -45,7 +45,11 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
    (training-free, calibration-free, works on unmodified containers).
 4. **KV8 + flash-tile prefill** — e4m3 KV (parity-proven 256/256 codes) and 2.4x TTFT cut;
    KV8+int4 = -26% RSS at 8k ctx.
-5. **q36-minipc launcher** — one command composing the right profile per model class
+5. **KV_TQ (4/3-bit KV)** — PolarQuant & rotated-int4 KV rows behind the same scale-hoisted
+   read path (parity-gated incl. radius/linearity): −19% total RSS vs f32 at 8k, −23 MB vs
+   KV8; tier ladder ends at 40 B/row @ head_dim 128. RAM lever, decode-price labeled in
+   `docs/KVTQ_QWEN36.md`.
+6. **q36-minipc launcher** — one command composing the right profile per model class
    (auto-detects dense vs MoE): `serve|chat|bench|seed|calibrate|sort|doctor`.
 
 ## Quick start (assumes a colibri engine checkout + converted container)
@@ -71,10 +75,10 @@ Levels: `Q36_LEVEL=eco|balanced|quality` · dial: `Q36_HOT_FRAC=1.0` = exact ful
 ## Repo layout
 
 ```
-docs/     the six research reports (TRUNK_MAP, HOT-NEURON, GRIFFIN, KV8, FLASH, integration)
-          + research map + final low-RAM results
+docs/     the research reports (TRUNK_MAP, HOT-NEURON, GRIFFIN, KV8, KV_TQ, FLASH, integration)
+          + research map + install guide + final low-RAM results
 tools/    q36-minipc launcher, hot_sort.py, calibration pipeline, patch scripts (engine edits)
-engine/   qwen36.c patch stack snapshot + kv8_fused.h + kv8_parity.c + backups
+engine/   qwen36.c patch stack snapshot + kv8_fused.h + kv_tq.h + parity gates + backups
 scripts/  synthetic container generators (no real checkpoints) + experiment drivers
 results/  measured JSON from every battery
 ```
