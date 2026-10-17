@@ -18,6 +18,10 @@ There are two things to install:
 > downloaded or used in testing). Real-container quality validation is the
 > declared open step — see the README *Status* section.
 
+Once installed, **[docs/COMMANDS.md](COMMANDS.md) lists every command, knob
+and log line** — launcher, engine, wire protocol, generators, drivers, patch
+scripts and verification.
+
 ---
 
 ## 1. Requirements

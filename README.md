@@ -56,6 +56,7 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
 
 **Full install guide (Linux native + Windows/WSL2, dependencies, models, verification,
 troubleshooting): [docs/INSTALL.md](docs/INSTALL.md)** — start there.
+**Every command, knob and log line, copy-paste ready: [docs/COMMANDS.md](docs/COMMANDS.md)**.
 
 ```bash
 # install
