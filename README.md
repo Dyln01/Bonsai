@@ -50,6 +50,9 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
 
 ## Quick start (assumes a colibri engine checkout + converted container)
 
+**Full install guide (Linux native + Windows/WSL2, dependencies, models, verification,
+troubleshooting): [docs/INSTALL.md](docs/INSTALL.md)** — start there.
+
 ```bash
 # install
 cp tools/q36-minipc.sh ~/bin/q36-minipc && cp tools/hot_sort.py ~/bin/
