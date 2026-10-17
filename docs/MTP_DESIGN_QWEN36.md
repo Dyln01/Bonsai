@@ -111,6 +111,42 @@ self-speculation (no separate draft model to download) reports up to 2.3×.
 On the mini-PC target (RAM-bound, 3.4–12 tok/s decode), a 2× decode
 multiplier is worth more than every remaining RAM optimization combined.
 
+## Implementation status (2026-10-16, end of session 2)
+
+- **DONE — synthetic head generator** (`scripts/gen_mtp_head_synth.py`): adds
+  `model-mtp.safetensors` + `meta.mtp=1` to any qwen36 container. Ran on
+  synth_coder30: 267 tensors / 378 MB (11 F16 + 128 experts int4-gs64),
+  parse-verified. MoE head (router + fused experts [+ shared expert]) or
+  dense head (`mlp.` prefix, the shared-expert path) by container class;
+  qk-norms iff the container's meta has them. Stock-safe by construction:
+  an MTP-unaware engine never requests an `mtp.*` tensor and ignores the
+  new meta keys (regression arm running).
+- **PINNED — the q36_spec_step integration** (L5663): proposal sits beside
+  the lookup pick (draft into `d[]`, gate via `spec_gate_pick(SPEC_SRC_MTP)`,
+  `spec_gate_draft_cost` for the head's per-draft time); a `cur_src` field
+  replaces the hardcoded `SPEC_SRC_LOOKUP` in `q36_spec_settle`'s
+  `spec_gate_result` (L5634) and the report line; verify/rollback machinery
+  (`q36_spec_alloc`/`rollback`/`settle`, L5596–5637) is reused untouched.
+- **PINNED — head-KV semantics**: the head accumulates its own rows from the
+  first decode position onward (q38 semantics: standing rows' streams after
+  each verify); the post-prompt window is initially short and the gate's
+  acceptance EMA judges whether drafting pays — real-context quality is a
+  Phase 5 question, mechanics are exact.
+- **NEXT (the engine patcher, `tools/patch_mtp.py`)**: meta keys `mtp`/
+  `mtp_layers` in the Cfg G()-parse (L2123 group); `MTPHead` struct (a Layer
+  + `QW fc` + three norms + own f32 K/V pool + resident int4 experts — the
+  head's experts bypass the LRU store, ~340 MB resident on the 30B synth);
+  loader reads `mtp.*` from `model-mtp.safetensors` via st_read/load_tq;
+  head forward = the S=1 attention path (matmul_d, rmsnorm_row,
+  rope_head_partial, qk-norm, own-KV score/softmax, o_proj, attn gate) +
+  the MoE layer-runner pattern (L3882) + `mtp.norm` → shared lm_head; hidden
+  capture at the `step_ex` lm_head seam (per-row, gated on `m->mtp.loaded`);
+  `Q36_MTP=1`, `Q36_MTP_DRAFTS=1|2|3|0`, `Q36_MTP_FORCE=accept|mixed|cycle|rowN`
+  (oracle = the existing `g_q36_oracle`); report line `[qwen36 MTP]`;
+  model_free hook. Gates: `Q36_MTP_FORCE=accept` reproduces oracle text
+  byte-exactly; `Q36_MTP` unset ⇒ stock byte-identity; then the draft-cost
+  battery.
+
 ## References
 
 - in-tree: `docs/speculative.md` (the wiring guide), `spec_draft.h`
