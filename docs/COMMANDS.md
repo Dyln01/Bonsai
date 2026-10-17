@@ -12,6 +12,7 @@ yours to fill.
 | You want to… | Use |
 |---|---|
 | install from scratch | [INSTALL.md](INSTALL.md) |
+| **benchmark a dense 27B (Qwen3.8-27B class), start to finish** | [BENCH_DENSE27B.md](BENCH_DENSE27B.md) |
 | chat / serve / benchmark a model | §2 the `q36-minipc` launcher |
 | drive the engine binary directly, custom knobs | §3–4 |
 | build an agent client against the server | §5 wire protocol |

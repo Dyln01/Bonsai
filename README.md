@@ -77,7 +77,8 @@ Levels: `Q36_LEVEL=eco|balanced|quality` · dial: `Q36_HOT_FRAC=1.0` = exact ful
 
 ```
 docs/     the research reports (TRUNK_MAP, HOT-NEURON, GRIFFIN, KV8, KV_TQ, PREFIX-REUSE,
-          FLASH, integration) + research map + install guide + final low-RAM results
+          FLASH, integration) + research map + install guide + command reference
+          + dense-27B benchmark walkthrough + final low-RAM results
 tools/    q36-minipc launcher, hot_sort.py, calibration pipeline, patch scripts (engine edits)
 engine/   qwen36.c patch stack snapshot + kv8_fused.h + kv_tq.h + parity gates + backups
 scripts/  synthetic container generators (no real checkpoints) + experiment drivers
