@@ -12,7 +12,7 @@ LEVEL="${Q36_LEVEL:-balanced}"
 CMD="${1:-help}"
 MODEL="${2:-}"
 ARG3="${3:-}"
-ENGINE="$HOME/colibri/c/qwen36"
+ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 TOOLS="$HOME/bin"
 
 die() { echo "q36-minipc: $*" >&2; exit 2; }
@@ -36,17 +36,29 @@ case "$LEVEL" in
   *) die "unknown Q36_LEVEL '$LEVEL' (eco|balanced|quality)" ;;
 esac
 
+# ---- KV tier (Q36_KVQ): f32 | kv8 (default) | tq4 | tq3 ----
+#   tq4 = KV_TQ=4 codec 1 (rotated int4, n/2 B/row, ~0.10 rel L2 — 2x under KV8)
+#   tq3 = KV_TQ=3 codec 0 (PolarQuant-3, ~0.31 B/row @ HD=128 — the RAM extreme)
+KVQ="${Q36_KVQ:-kv8}"
+case "$KVQ" in
+  f32)  KVENV="KV8=0" ;;
+  kv8)  KVENV="KV8=$KV8V" ;;
+  tq4)  KVENV="KV_TQ=4 KV_TQ_CODEC=1" ;;
+  tq3)  KVENV="KV_TQ=3 KV_TQ_CODEC=0" ;;
+  *) die "unknown Q36_KVQ '$KVQ' (f32|kv8|tq4|tq3)" ;;
+esac
+
 RAM_GB="${Q36_RAM_GB:-$(awk '/MemTotal/ {printf "%d", $2/1048576+0.5}' /proc/meminfo 2>/dev/null || echo 8)}"
 if [ "$RAM_GB" -lt 8 ] && [ "$CAP" -gt 24 ]; then CAP=24; echo "[minipc] RAM<8GB: cap capped to 24"; fi
 
 # ---- compose the profile ----
 if [ "$CLASS" = moe ]; then
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 CAP_RAISE=0 PIN=auto WIDE=$WIDE PILOT=2 SMOOTH=0.30 CONF_LIMIT=0.92 USAGE_SAVE=1 KVSAVE=1 KV8=$KV8V RAM_GB=$RAM_GB"
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 CAP_RAISE=0 PIN=auto WIDE=$WIDE PILOT=2 SMOOTH=0.30 CONF_LIMIT=0.92 USAGE_SAVE=1 KVSAVE=1 $KVENV RAM_GB=$RAM_GB"
 else
   # dense: trunk on disk; GRIFFIN by default (works on unmodified containers);
   # TRUNK_WARM fills the page cache once. HOT_LAYERS/FRAC still honored if user sets them.
   FRAC="${Q36_HOT_FRAC:-$FRAC}"
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 KV8=$KV8V RAM_GB=$RAM_GB"
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV RAM_GB=$RAM_GB"
   [ -n "${Q36_HOT_LAYERS:-}" ] && COMMON="$COMMON HOT_LAYERS=$Q36_HOT_LAYERS"
 fi
 
@@ -108,7 +120,7 @@ PYEOF
     ;;
   doctor)
     echo "== engine =="; ls -la "$ENGINE" | awk '{print $5, $9}'
-    echo "== knobs present in binary =="; for k in TRUNK_MAP GRIFFIN HOT_FRAC TRUNK_WARM HOT_PROFILE HOT_LAYERS KV8 Q36_FLASH; do
+    echo "== knobs present in binary =="; for k in TRUNK_MAP GRIFFIN HOT_FRAC TRUNK_WARM HOT_PROFILE HOT_LAYERS KV8 KV_TQ KV_TQ_CODEC Q36_FLASH; do
       c=$(grep -c "$k" "$HOME/colibri/c/qwen36.c"); echo "  $k: $c refs"
     done
     echo "== model: $MODEL ($CLASS, num_experts=$NEXP)"
@@ -125,10 +137,11 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc calibrate <model_dir>          (dense) HOT_PROFILE run; Q36_CORPUS=<file>
   q36-minipc sort      <model_dir> [prof]   (dense) hot-sort a copy via hot_sort.py
   q36-minipc doctor    <model_dir>          knob/model/level report
-Env: Q36_LEVEL=eco|balanced|quality · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
+Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
-Dense profile: TRUNK_MAP + GRIFFIN + HOT_FRAC + TRUNK_WARM + KV8 (frac 1.0 = exact full model)
-MoE profile:   cap + PIN=auto + PILOT=2 + WIDE + KV8 (exact routing, full capability)
+KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)
+Dense profile: TRUNK_MAP + GRIFFIN + HOT_FRAC + TRUNK_WARM + KV tier (frac 1.0 = exact full model)
+MoE profile:   cap + PIN=auto + PILOT=2 + WIDE + KV tier (exact routing, full capability)
 EOF
     ;;
 esac

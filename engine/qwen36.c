@@ -232,6 +232,17 @@ static int qwen36_max_ctx(void) {
 #include "kv8_fused.h"
 /* KV8 tile staging: rows dequantized per pass; 256 rows x 64 f32 = 64 KiB/side */
 #define KV8_TILE_ROWS 256   /* KV8: fp8-e4m3 KV rows (opt-in, qwen36 port of the GLM engine path) */
+#include "kv_tq.h"   /* KV_TQ=<bits> [KV_TQ_CODEC=0|1]: packed KV rows, GLM-side codecs (PolarQuant / rotated int4) */
+
+/* KV_TQ row dequant into staging WITHOUT the per-row scale, mirroring
+ * kv8_dequant_noscale: the radius scales the reconstruction linearly
+ * (y = radius * unit direction), so dequant(r=1)*scale == dequant(r=scale)
+ * and the caller keeps KV8's scale hoisting (multiply once per row, outside
+ * the element loop). tq==0 falls through to the KV8 decoder. */
+static inline void q36_kv_dequant_noscale(const uint8_t *src, float *dst, int kvd, int tq, int bits, int codec) {
+    if (tq) coli_kvq_dequant_row(src, 1.f, dst, kvd, bits, codec);
+    else kv8_dequant_noscale(src, dst, kvd);
+}
 #include "spec_draft.h" /* prompt-lookup drafts and the gate that decides when they pay (COLI_LOOKUP=1) */
 #include "pin_pool.h"   /* riuso del prefisso tra turni (shared) */
 #include "decode_batch.h" /* ColiSubmit + coli_submit_ext: le chiavi key=value di SUBMIT */
@@ -1071,6 +1082,7 @@ typedef struct {
     uint8_t **ehit;
     float **K, **V; int kv_len, max_t, kv_cap;
     int kv8;                     /* KV8=1: K/V stored as fp8-e4m3 + per-row f32 scale (Kscale/Vscale) */
+    int kv_tq, tq_bits, tq_codec, kvq_row_b;  /* KV_TQ=bits [codec]: packed rows (kvq_row_b B/row) + per-row f32 radius */
     float **Kscale, **Vscale;     /* [n_layers][kv_heads*max_t] when kv8 */
     float *kv8_stage;             /* per-thread dequant staging: [attn_sc_thr][2*KV8_TILE_ROWS*kvd] */
     /* What the current attention and DeltaNet state was built from, so a
@@ -3336,7 +3348,16 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
     for (int s = 0; s < S; s++) for (int kvh = 0; kvh < KV; kvh++) {
         int t = mr ? mr[s].pos : pos_base + s;
         float *Kl = mr ? mr[s].seq->K[layer] : m->K[layer], *Vl = mr ? mr[s].seq->V[layer] : m->V[layer];
-        if (m->kv8) {
+        if (m->kv_tq) {
+            float *Ks = mr ? mr[s].seq->Kscale[layer] : m->Kscale[layer];
+            float *Vs = mr ? mr[s].seq->Vscale[layer] : m->Vscale[layer];
+            uint8_t *K8 = (uint8_t*)Kl, *V8 = (uint8_t*)Vl;
+            int rb = m->kvq_row_b;
+            Ks[(int64_t)kvh*m->max_t + t] = coli_kvq_quant_row(
+                k + (int64_t)s*KV*kvd + kvh*kvd, K8 + ((int64_t)kvh*m->max_t + t)*rb, kvd, m->tq_bits, m->tq_codec);
+            Vs[(int64_t)kvh*m->max_t + t] = coli_kvq_quant_row(
+                vv + (int64_t)s*KV*kvd + kvh*kvd, V8 + ((int64_t)kvh*m->max_t + t)*rb, kvd, m->tq_bits, m->tq_codec);
+        } else if (m->kv8) {
             float *Ks = mr ? mr[s].seq->Kscale[layer] : m->Kscale[layer];
             float *Vs = mr ? mr[s].seq->Vscale[layer] : m->Vscale[layer];
             Ks[(int64_t)kvh*m->max_t + t] = coli_kv8_quant_row(
@@ -3361,24 +3382,25 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
          * original per-row path, so a row's bits never depend on S there. */
         const int QB = q36_flash_tile("Q36_FLASH_QB", 64, 8, 512);
         const int TB = q36_flash_tile("Q36_FLASH_TB", 128, 16, 2048);
-        if (getenv("Q36_FLASH_DEBUG")) fprintf(stderr, "[flash] engaged S=%d QB=%d TB=%d H=%d kv8=%d\n", S, QB, TB, H, m->kv8);
+        if (getenv("Q36_FLASH_DEBUG")) fprintf(stderr, "[flash] engaged S=%d QB=%d TB=%d H=%d kv8=%d tq=%d\n", S, QB, TB, H, m->kv8, m->kv_tq);
         #pragma omp parallel
         {
             float *sc  = malloc((size_t)QB*q_per_kv*TB*sizeof(float));
             float *acc = malloc((size_t)QB*q_per_kv*kvd*sizeof(float));
             float *mxv = malloc((size_t)QB*q_per_kv*sizeof(float));
             float *lvs = malloc((size_t)QB*q_per_kv*sizeof(float));
-            float *kq  = m->kv8 ? malloc((size_t)TB*kvd*sizeof(float)) : NULL;
-            float *vq  = m->kv8 ? malloc((size_t)TB*kvd*sizeof(float)) : NULL;
-            if (!sc || !acc || !mxv || !lvs || (m->kv8 && (!kq || !vq))) { fprintf(stderr, "OOM flash attn\n"); exit(1); }
+            float *kq  = (m->kv8 || m->kv_tq) ? malloc((size_t)TB*kvd*sizeof(float)) : NULL;
+            float *vq  = (m->kv8 || m->kv_tq) ? malloc((size_t)TB*kvd*sizeof(float)) : NULL;
+            if (!sc || !acc || !mxv || !lvs || ((m->kv8 || m->kv_tq) && (!kq || !vq))) { fprintf(stderr, "OOM flash attn\n"); exit(1); }
             #pragma omp for schedule(dynamic)
             for (int s0 = 0; s0 < S; s0 += QB) {
                 int rows = S - s0 < QB ? S - s0 : QB;
                 for (int kvh = 0; kvh < KV; kvh++) {
                     const float *Kl_f = m->K[layer], *Vl_f = m->V[layer];
                     const uint8_t *Kl8 = (const uint8_t*)m->K[layer], *Vl8 = (const uint8_t*)m->V[layer];
-                    const float *Ksc = m->kv8 ? m->Kscale[layer] : NULL;
-                    const float *Vsc = m->kv8 ? m->Vscale[layer] : NULL;
+                    const float *Ksc = (m->kv8 || m->kv_tq) ? m->Kscale[layer] : NULL;
+                    const float *Vsc = (m->kv8 || m->kv_tq) ? m->Vscale[layer] : NULL;
+                    const int rb = m->kv_tq ? m->kvq_row_b : kvd;   /* packed-row stride (bytes) */
                     int64_t kbase = (int64_t)kvh*m->max_t;
                     memset(acc, 0, (size_t)QB*q_per_kv*kvd*sizeof(float));
                     for (int l = 0; l < rows*q_per_kv; l++) { mxv[l] = -1e30f; lvs[l] = 0.f; }
@@ -3387,8 +3409,8 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                         int tn = tmax - t0; if (tn > TB) tn = TB;
                         for (int tt = 0; tt < tn; tt++) {
                             const float *ksrc;
-                            if (m->kv8) {
-                                kv8_dequant_noscale(Kl8 + (kbase + t0 + tt)*kvd, kq + (size_t)tt*kvd, kvd);
+                            if (m->kv8 || m->kv_tq) {
+                                q36_kv_dequant_noscale(Kl8 + (kbase + t0 + tt)*rb, kq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
                                 ksrc = kq + (size_t)tt*kvd;
                             } else ksrc = Kl_f + (kbase + t0 + tt)*kvd;
                             for (int g = 0; g < q_per_kv; g++) {
@@ -3397,14 +3419,14 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                                     int lim = (pos_base + s0 + l) - (t0 + tt) + 1;
                                     sc[((size_t)l*q_per_kv + g)*TB + tt] = lim > 0
                                         ? dot_f32_lanes(query + ((int64_t)(s0+l)*H + hh)*hd, ksrc, kvd)
-                                          * (m->kv8 ? Ksc[kbase + t0 + tt] * scale : scale)
+                                          * ((m->kv8 || m->kv_tq) ? Ksc[kbase + t0 + tt] * scale : scale)
                                         : -1e30f;
                                 }
                             }
                         }
-                        if (m->kv8)
+                        if (m->kv8 || m->kv_tq)
                             for (int tt = 0; tt < tn; tt++)
-                                kv8_dequant_noscale(Vl8 + (kbase + t0 + tt)*kvd, vq + (size_t)tt*kvd, kvd);
+                                q36_kv_dequant_noscale(Vl8 + (kbase + t0 + tt)*rb, vq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
                         for (int l = 0; l < rows; l++) {
                             int pos = pos_base + s0 + l;
                             int t_last = t0 + tn - 1; if (t_last > pos) t_last = pos;
@@ -3422,9 +3444,9 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                                 }
                                 for (int t = t0; t <= t_last; t++) {
                                     float p = expf(sc[(size_t)li*TB + (t - t0)] - m2);
-                                    if (m->kv8) p *= Vsc[kbase + t];
+                                    if (m->kv8 || m->kv_tq) p *= Vsc[kbase + t];
                                     lvs[li] += p;
-                                    const float *vr = m->kv8 ? vq + (size_t)(t - t0)*kvd
+                                    const float *vr = (m->kv8 || m->kv_tq) ? vq + (size_t)(t - t0)*kvd
                                                              : Vl_f + (kbase + t)*kvd;
                                     for (int d = 0; d < kvd; d++) ax[d] += p * vr[d];
                                 }
@@ -3454,11 +3476,15 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
             tid = omp_get_thread_num();
 #endif
             float *sc = m->attn_sc + (int64_t)tid * m->kv_cap;
-            float *kq = m->kv8 ? m->kv8_stage + (int64_t)tid * (2 * KV8_TILE_ROWS * kvd) : NULL;
-            if (m->kv8) {
+            float *kq = (m->kv8 || m->kv_tq) ? m->kv8_stage + (int64_t)tid * (2 * KV8_TILE_ROWS * kvd) : NULL;
+            if (m->kv8 || m->kv_tq) {
                 /* tile-staged: dequant KV8_TILE_ROWS K-rows at a time into per-thread
                  * staging (branch-free decode), then the same vectorized dot per row.
-                 * Staging holds K then V halves: 2 * TILE_ROWS * kvd floats. */
+                 * Staging holds K then V halves: 2 * TILE_ROWS * kvd floats.
+                 * KV_TQ: the row stride is the packed kvq_row_b bytes and decode
+                 * yields the unit direction; the radius rides Kscale/Vscale
+                 * exactly like the KV8 per-row scale. */
+                const int rb = m->kv_tq ? m->kvq_row_b : kvd;
                 const uint8_t *K8 = (const uint8_t*)Kl;
                 const uint8_t *V8 = (const uint8_t*)Vl;
                 const float *Ksc = mr ? mr[s].seq->Kscale[layer] : m->Kscale[layer];
@@ -3467,8 +3493,8 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                 for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
                     int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
                     for (int t = 0; t < tn; t++)
-                        kv8_dequant_noscale(K8 + (base + t0 + t)*kvd,
-                                            kq + (int64_t)t*kvd, kvd);
+                        q36_kv_dequant_noscale(K8 + (base + t0 + t)*rb,
+                                               kq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
                     for (int t = 0; t < tn; t++) {
                         float acc = dot_f32_lanes(qv, kq + (int64_t)t*kvd, kvd);
                         sc[t0 + t] = acc * (Ksc[base + t0 + t] * scale);
@@ -3483,16 +3509,17 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
             softmax_row(sc, qpos+1);
             float *cx = ctx + ((int64_t)s*H + hh)*hd;
             for (int dd = 0; dd < kvd; dd++) cx[dd] = 0;
-            if (m->kv8) {
+            if (m->kv8 || m->kv_tq) {
                 const uint8_t *V8 = (const uint8_t*)Vl;
                 const float *Vsc = mr ? mr[s].seq->Vscale[layer] : m->Vscale[layer];
                 float *vq = kq + (int64_t)KV8_TILE_ROWS*kvd;   /* V half of staging */
+                const int rb = m->kv_tq ? m->kvq_row_b : kvd;
                 int64_t base = (int64_t)kvh*m->max_t;
                 for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
                     int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
                     for (int t = 0; t < tn; t++)
-                        kv8_dequant_noscale(V8 + (base + t0 + t)*kvd,
-                                            vq + (int64_t)t*kvd, kvd);
+                        q36_kv_dequant_noscale(V8 + (base + t0 + t)*rb,
+                                               vq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
                     for (int t = 0; t < tn; t++) {
                         float a = sc[t0 + t] * Vsc[base + t0 + t];
                         const float *vrow = vq + (int64_t)t*kvd;
@@ -5065,13 +5092,19 @@ static int q36_seq_alloc(Model *m, Q36Seq *q) {
     Cfg *c = &m->c; memset(q, 0, sizeof *q);
     int n = c->n_layers;
     q->K = calloc((size_t)n, sizeof(float *)); q->V = calloc((size_t)n, sizeof(float *));
-    if (m->kv8) { q->Kscale = calloc((size_t)n, sizeof(float *)); q->Vscale = calloc((size_t)n, sizeof(float *)); }
+    if (m->kv8 || m->kv_tq) { q->Kscale = calloc((size_t)n, sizeof(float *)); q->Vscale = calloc((size_t)n, sizeof(float *)); }
     q->DN_rec = calloc((size_t)n, sizeof(float *)); q->DN_conv = calloc((size_t)n, sizeof(float *));
-    int ok = q->K && q->V && (!m->kv8 || (q->Kscale && q->Vscale)) && q->DN_rec && q->DN_conv && kv_prefix_alloc(&q->kvp, m->kv_cap);
+    int ok = q->K && q->V && (!(m->kv8 || m->kv_tq) || (q->Kscale && q->Vscale)) && q->DN_rec && q->DN_conv && kv_prefix_alloc(&q->kvp, m->kv_cap);
     for (int i = 0; ok && i < n; i++) {
         if (c->is_attn[i]) {
             size_t kv = (size_t)c->kv_heads * m->kv_cap * c->k_head_dim;
-            if (m->kv8) {
+            if (m->kv_tq) {
+                size_t kvb = (size_t)c->kv_heads * m->kv_cap * (size_t)m->kvq_row_b;
+                q->K[i] = malloc(kvb); q->V[i] = malloc(kvb);   /* packed B/row, codec-dependent */
+                q->Kscale[i] = malloc((size_t)c->kv_heads * m->kv_cap * sizeof(float));
+                q->Vscale[i] = malloc((size_t)c->kv_heads * m->kv_cap * sizeof(float));
+                ok = q->K[i] && q->V[i] && q->Kscale[i] && q->Vscale[i];
+            } else if (m->kv8) {
                 q->K[i] = malloc(kv); q->V[i] = malloc(kv);   /* 1 B/element, fp8 */
                 q->Kscale[i] = malloc((size_t)c->kv_heads * m->kv_cap * sizeof(float));
                 q->Vscale[i] = malloc((size_t)c->kv_heads * m->kv_cap * sizeof(float));
@@ -5397,11 +5430,26 @@ static void ensure_kv(Model *m){
     if (keep > old_stride) keep = old_stride;
     if (keep > m->max_t)   keep = m->max_t;
     m->K = calloc((size_t)c->n_layers, sizeof(float*)); m->V = calloc((size_t)c->n_layers, sizeof(float*));
-    if (m->kv8) { m->Kscale = calloc((size_t)c->n_layers, sizeof(float*)); m->Vscale = calloc((size_t)c->n_layers, sizeof(float*)); }
+    if (m->kv8 || m->kv_tq) { m->Kscale = calloc((size_t)c->n_layers, sizeof(float*)); m->Vscale = calloc((size_t)c->n_layers, sizeof(float*)); }
     for (int i = 0; i < c->n_layers; i++){
         if (c->is_attn[i]){
             int64_t kvd = c->k_head_dim;
-            if (m->kv8) {
+            if (m->kv_tq) {
+                int64_t rb = m->kvq_row_b;   /* packed-row stride (bytes) */
+                m->K[i] = falloc((int64_t)c->kv_heads * m->max_t * rb);
+                m->V[i] = falloc((int64_t)c->kv_heads * m->max_t * rb);
+                m->Kscale[i] = falloc((int64_t)c->kv_heads * m->max_t);
+                m->Vscale[i] = falloc((int64_t)c->kv_heads * m->max_t);
+                if (keep > 0 && oldK && oldK[i] && oldV[i] && oldKscale && oldKscale[i])
+                    for (int h = 0; h < c->kv_heads; h++){
+                        memcpy((uint8_t*)m->K[i] + (int64_t)h*m->max_t*rb,
+                               (uint8_t*)oldK[i] + (int64_t)h*old_stride*rb, (size_t)keep*rb);
+                        memcpy((uint8_t*)m->V[i] + (int64_t)h*m->max_t*rb,
+                               (uint8_t*)oldV[i] + (int64_t)h*old_stride*rb, (size_t)keep*rb);
+                        memcpy(m->Kscale[i] + (int64_t)h*m->max_t, oldKscale[i] + (int64_t)h*old_stride, (size_t)keep*sizeof(float));
+                        memcpy(m->Vscale[i] + (int64_t)h*m->max_t, oldVscale[i] + (int64_t)h*old_stride, (size_t)keep*sizeof(float));
+                    }
+            } else if (m->kv8) {
                 /* fp8: 1 byte/element + one f32 scale per row (kv_heads*max_t rows) */
                 m->K[i] = falloc((int64_t)c->kv_heads * m->max_t * kvd);
                 m->V[i] = falloc((int64_t)c->kv_heads * m->max_t * kvd);
@@ -5428,7 +5476,7 @@ static void ensure_kv(Model *m){
                                oldV[i] + (int64_t)h*old_stride*kvd, (size_t)keep*kvd*sizeof(float));
                     }
             }
-        } else { m->K[i] = NULL; m->V[i] = NULL; if (m->kv8){ m->Kscale[i]=NULL; m->Vscale[i]=NULL; } }
+        } else { m->K[i] = NULL; m->V[i] = NULL; if (m->kv8 || m->kv_tq){ m->Kscale[i]=NULL; m->Vscale[i]=NULL; } }
     }
     if (oldK){
         for (int i = 0; i < c->n_layers; i++){ if (oldK[i]) free(oldK[i]); if (oldV[i]) free(oldV[i]); }
@@ -5450,7 +5498,7 @@ static void ensure_kv(Model *m){
 #endif
     m->attn_sc = falloc((int64_t)m->attn_sc_thr * m->max_t);
     free(m->kv8_stage);
-    m->kv8_stage = m->kv8 ? falloc((int64_t)m->attn_sc_thr * 2 * KV8_TILE_ROWS * c->k_head_dim) : NULL;
+    m->kv8_stage = (m->kv8 || m->kv_tq) ? falloc((int64_t)m->attn_sc_thr * 2 * KV8_TILE_ROWS * c->k_head_dim) : NULL;
     m->kv_cap = m->max_t;
     /* The record describes those same positions, so it survives with them. If
      * its own allocation fails, reuse simply stops: this is an optimisation and
@@ -7057,8 +7105,26 @@ int main(int argc, char **argv) {
     static Model m;
     model_init(&m, snap, cap, bits);
     m.kv8 = getenv("KV8") && atoi(getenv("KV8")) == 1;   /* after model_init: it memsets the struct */
+    if (getenv("KV_TQ")) {
+        int tq_b = atoi(getenv("KV_TQ"));
+        if (tq_b >= 2 && tq_b <= 8) {
+            m.kv_tq = 1; m.tq_bits = tq_b;
+            m.kv8 = 0;   /* mutually exclusive with KV8; KV_TQ wins */
+            m.tq_codec = getenv("KV_TQ_CODEC") ? atoi(getenv("KV_TQ_CODEC")) : 1;   /* 1 = rotated int4 (default, cheap decode), 0 = PolarQuant (RAM-extreme) */
+            if (m.tq_codec != 0 && m.tq_codec != 1) m.tq_codec = 1;
+            if (m.c.k_head_dim < 2 || m.c.k_head_dim > 2048 || (m.c.k_head_dim & (m.c.k_head_dim - 1))
+                || m.c.k_head_dim != m.c.v_head_dim) {
+                fprintf(stderr, "[qwen36] KV_TQ: k_head_dim %d (v %d) unsupported — need equal power of two <= 2048; refusing\n",
+                        m.c.k_head_dim, m.c.v_head_dim);
+                exit(1);
+            }
+            m.kvq_row_b = coli_kvq_row_bytes(m.c.k_head_dim, m.tq_bits, m.tq_codec);
+            fprintf(stderr, "[qwen36] KV_TQ=%d codec=%d (%s): KV rows packed %d B + f32 radius/row (vs fp8 %d B, f32 %d B) (lossy, opt-in)\n",
+                    m.tq_bits, m.tq_codec, m.tq_codec ? "rot-int4" : "PolarQuant",
+                    m.kvq_row_b, m.c.k_head_dim, m.c.k_head_dim * 4);
+        } else fprintf(stderr, "[qwen36] KV_TQ=%d ignored (supported: 2..8)\n", tq_b);
+    }
     if (m.kv8) coli_fp8_lut_init();
-    if (m.kv8) fprintf(stderr, "[qwen36] KV8=1: KV rows stored fp8-e4m3 + per-row f32 scale (lossy, opt-in)\n");
     if (m.kv8) fprintf(stderr, "[qwen36] KV8=1: KV rows stored fp8-e4m3 + per-row f32 scale (lossy, opt-in)\n");
     if (g_tok_exact) q36_clef_load(&m, snap);
     g_expert_gs = m.c.expert_gs;
