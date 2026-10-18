@@ -5,7 +5,7 @@ checkout of **colibri** (https://github.com/JustVugg/colibri) at commit `bf24429
 Apache-2.0. It is provided for reproducibility of the measurements in `docs/`; upstream
 owns the original engine. Backups: `qwen36.c.orig` (stock == bf24429 `c/qwen36.c`,
 md5-verified), `.premap` (pre-TRUNK_MAP), `.prehot` (pre-hot-neuron), `.pretq`
-(pre-KV_TQ), `.presm` (pre-FAST_SOFTMAX), `.premtp` (pre-MTP-part-1), `.predraft` (pre-MTP-part-2), `.preoracle` (pre-MTP-oracle) allow stepwise diffs.
+(pre-KV_TQ), `.presm` (pre-FAST_SOFTMAX), `.premtp` (pre-MTP-part-1), `.predraft` (pre-MTP-part-2), `.preoracle` (pre-MTP-oracle), `.premoe` (pre-MTP-MoE-head) allow stepwise diffs.
 
 `kv_fp8.h` is vendored **byte-identical** from colibri `bf24429` (`c/kv_fp8.h`,
 Apache-2.0, (c) its authors) so the parity gates (`kv8_parity.c`, `kv8_fused.h`)

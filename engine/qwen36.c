@@ -2237,7 +2237,11 @@ typedef struct Q36MTPHead {
     int64_t n_fc, n_qw, n_kw, n_vw, n_ow, n_gw, n_uw, n_dw;
     int kv_len;                 /* standing + provisional head rows */
     float *hk, *hv, *yring;     /* own KV [KVH][max_t][HD] + head hidden per row */
-    float *cap; int cap_pos[8]; /* captured model hidden, ring of 8 positions */
+    float *cap; int cap_pos[8];
+    int E, I, SI, GS;            /* MoE head: experts, inter, shared inter, group size */
+    float *rw;                   /* router [E,H] f32 resident */
+    float **eg, **eu, **ed;      /* per-expert unpacked f32 (gate/up [I,H], down [H,I]) */
+    float *sg, *su, *sd, *shg;   /* shared expert + its scalar gate */
 } MTPHead;
 
 static float *mtp_f32(shards *S, const char *name, int64_t *numel) {
@@ -2288,8 +2292,63 @@ static void q36_mtp_attach(Model *m) {
             h->uw = mtp_f32(&m->S, "mtp.layers.0.mlp.up_proj.weight",   &h->n_uw);
             h->dw = mtp_f32(&m->S, "mtp.layers.0.mlp.down_proj.weight", &h->n_dw);
             h->I = (int)(h->n_uw / h->H);
+        } else if (st_find(&m->S, "mtp.layers.0.mlp.gate.weight")) {
+            h->dense = 0;
+            h->E = m->c.n_experts; h->I = m->c.inter; h->SI = m->c.shared_inter;
+            h->GS = m->c.expert_gs > 0 ? m->c.expert_gs : 64;
+            if (h->E <= 0 || h->I <= 0 || h->E > 1024) {
+                fprintf(stderr, "[qwen36 MTP] head expert config E=%d I=%d out of range — refusing\n", h->E, h->I);
+                exit(1);
+            }
+            h->rw = mtp_f32(&m->S, "mtp.layers.0.mlp.gate.weight", NULL);
+            h->eg = calloc((size_t)h->E, sizeof(float *));
+            h->eu = calloc((size_t)h->E, sizeof(float *));
+            h->ed = calloc((size_t)h->E, sizeof(float *));
+            if (!h->eg || !h->eu || !h->ed) { fprintf(stderr, "[qwen36 MTP] OOM experts\n"); exit(1); }
+            for (int e = 0; e < h->E; e++) {
+                char qn[256], sn[256];
+                snprintf(qn, sizeof qn, "mtp.layers.0.mlp.experts.%d.merged_weight", e);
+                snprintf(sn, sizeof sn, "mtp.layers.0.mlp.experts.%d.qs", e);
+                int64_t gu = (int64_t)h->I * H, du = (int64_t)H * h->I;
+                /* merged layout: [gate IxH | up IxH | down HxI], each int4-gs packed;
+                 * unpack the three parts with their own row/col geometry */
+                st_tensor *tq = st_find(&m->S, qn), *ts = st_find(&m->S, sn);
+                if (!tq || !ts) { fprintf(stderr, "[qwen36 MTP] missing %s\n", qn); exit(1); }
+                int64_t nel = 2 * gu + du;
+                uint8_t *pq = malloc((size_t)(nel / 2));
+                int64_t nsc = 2 * (gu / h->GS) + (du / h->GS);
+                float *qs = malloc((size_t)nsc * sizeof(float));
+                if (!pq || !qs) { fprintf(stderr, "[qwen36 MTP] OOM %s\n", qn); exit(1); }
+                st_read_raw(&m->S, qn, pq, 1);
+                if (st_read_f32(&m->S, sn, qs, 0) != nsc) { fprintf(stderr, "[qwen36 MTP] bad scales %s\n", sn); exit(1); }
+                const int64_t parts[3][2] = { { h->I, H }, { h->I, H }, { H, h->I } };
+                int64_t qoff = 0, soff = 0;
+                float **dst[3] = { &h->eg[e], &h->eu[e], &h->ed[e] };
+                for (int pi = 0; pi < 3; pi++) {
+                    int O = (int)parts[pi][0], In = (int)parts[pi][1];
+                    int ng = In / h->GS;
+                    float *w = falloc((int64_t)O * In);
+                    for (int64_t i = 0; i < (int64_t)O * In; i++) {
+                        int b = pq[qoff / 2 + i / 2];
+                        int nib = (i & 1) ? (b >> 4) & 0xF : b & 0xF;
+                        int qv = nib > 7 ? nib - 16 : nib;
+                        int64_t o = i / In;
+                        w[i] = (float)qv * qs[soff + o * ng + (i - o * In) / h->GS];
+                    }
+                    *dst[pi] = w;
+                    qoff += (int64_t)O * In;
+                    soff += (int64_t)O * ng;
+                }
+                free(pq); free(qs);
+            }
+            if (h->SI > 0) {
+                h->sg  = mtp_f32(&m->S, "mtp.layers.0.mlp.shared_expert.gate_proj.weight", NULL);
+                h->su  = mtp_f32(&m->S, "mtp.layers.0.mlp.shared_expert.up_proj.weight", NULL);
+                h->sd  = mtp_f32(&m->S, "mtp.layers.0.mlp.shared_expert.down_proj.weight", NULL);
+                h->shg = mtp_f32(&m->S, "mtp.layers.0.mlp.shared_expert_gate.weight", NULL);
+            }
         } else {
-            fprintf(stderr, "[qwen36 MTP] MoE head in container; part 1 loads dense heads only (part 2 adds experts) — refusing\n");
+            fprintf(stderr, "[qwen36 MTP] neither dense (mlp.) nor MoE (mlp.gate) head tensors found — refusing\n");
             exit(1);
         }
     }
@@ -2312,6 +2371,9 @@ static void q36_mtp_free(Model *m) {
     free(h->qw); free(h->kw); free(h->vw); free(h->ow);
     free(h->gw); free(h->uw); free(h->dw);
     free(h->hk); free(h->hv); free(h->yring); free(h->cap);
+    if (h->eg) for (int e = 0; e < h->E; e++) { free(h->eg[e]); free(h->eu[e]); free(h->ed[e]); }
+    free(h->eg); free(h->eu); free(h->ed);
+    free(h->rw); free(h->sg); free(h->su); free(h->sd); free(h->shg);
     free(h); m->mtp = NULL;
 }
 
@@ -5816,6 +5878,120 @@ static void q36_mtp_settle(Model *m, int ahead_pos, int keep) {
  * rows, y out (also parked in the y-ring for deeper drafts). Mirrors the
  * model's S=1 attention dialect: qk-norm, rope_head_partial, GQA, softmax_row,
  * attn_out *= sigmoid(gate), then o_proj. */
+/* int4-gs packed (nibble lo|hi, per-group scale) -> resident f32 rows */
+static float *mtp_unpack_i4_gs(shards *S, const char *qn, const char *sn, int O, int In, int gs) {
+    st_tensor *tq = st_find(S, qn), *ts = st_find(S, sn);
+    if (!tq || !ts) { fprintf(stderr, "[qwen36 MTP] missing %s/%s\n", qn, sn); exit(1); }
+    int64_t nel = (int64_t)O * In;
+    uint8_t *pq = malloc((size_t)(nel / 2));
+    float *qs = malloc((size_t)(nel / gs) * sizeof(float));
+    if (!pq || !qs) { fprintf(stderr, "[qwen36 MTP] OOM unpack %s\n", qn); exit(1); }
+    st_read_raw(S, qn, pq, 1);
+    if (st_read_f32(S, sn, qs, 0) != nel / gs) { fprintf(stderr, "[qwen36 MTP] bad scale numel %s\n", sn); exit(1); }
+    float *w = falloc(nel);
+    int ng = In / gs;
+    for (int64_t i = 0; i < nel; i++) {
+        int b = pq[i / 2];
+        int nib = (i & 1) ? (b >> 4) & 0xF : b & 0xF;
+        int qv = nib > 7 ? nib - 16 : nib;
+        int64_t o = i / In;
+        w[i] = (float)qv * qs[o * ng + (i - o * In) / gs];
+    }
+    free(pq); free(qs);
+    return w;
+}
+
+/* head MLP: dense (mlp. prefix) or MoE (router -> group-limited top-k ->
+ * renormalised expert mix + optional sigmoid-gated shared expert), mirroring
+ * moe_ex's routing dialect on the container's own config. */
+static void q36_mtp_mlp(Model *m, const float *x, float *y) {
+    MTPHead *h = m->mtp; Cfg *c = &m->c; int H = c->hidden;
+    memset(y, 0, (size_t)H * sizeof(float));
+    if (h->dense) {
+        int I = h->I;
+        float *g = falloc(I), *u = falloc(I), *t = falloc(I);
+        mtp_gemv(g, x, h->gw, H, I);
+        mtp_gemv(u, x, h->uw, H, I);
+        for (int i = 0; i < I; i++) t[i] = (g[i] / (1.0f + expf(-g[i]))) * u[i];
+        mtp_gemv(y, t, h->dw, I, H);
+        free(g); free(u); free(t);
+        return;
+    }
+    int E = h->E, I = h->I, K = c->topk;
+    float *lg = falloc(E);
+    mtp_gemv(lg, x, h->rw, H, E);
+    softmax_row(lg, E);
+    int idx[64]; float wv[64];
+    if (K > 64) K = 64;
+    if (c->n_group > 0) {                     /* group-limited top-k, as moe_ex */
+        int G = c->n_group, ES = E / G;
+        float gsc[64];
+        if (G > 64) { fprintf(stderr, "[qwen36 MTP] n_group > 64 unsupported\n"); exit(1); }
+        for (int g = 0; g < G; g++) {
+            float b1 = -1, b2 = -1;
+            for (int e = 0; e < ES; e++) {
+                float v = lg[g * ES + e];
+                if (v > b1) { b2 = b1; b1 = v; } else if (v > b2) b2 = v;
+            }
+            gsc[g] = b1 + (b2 > 0 ? b2 : 0);
+        }
+        uint8_t gkeep[64] = {0};
+        for (int kk = 0; kk < c->topk_group; kk++) {
+            int bg = -1; float bv = -1;
+            for (int g = 0; g < G; g++) if (!gkeep[g] && gsc[g] > bv) { bv = gsc[g]; bg = g; }
+            if (bg < 0) break;
+            gkeep[bg] = 1;
+        }
+        int n = 0;
+        for (int kk = 0; kk < K; kk++) {
+            int be = -1; float bv = -1;
+            for (int g = 0; g < G; g++) if (gkeep[g])
+                for (int e = 0; e < ES; e++) {
+                    int cand = g * ES + e, taken = 0;
+                    for (int j = 0; j < n; j++) if (idx[j] == cand) taken = 1;
+                    if (!taken && lg[cand] > bv) { bv = lg[cand]; be = cand; }
+                }
+            if (be < 0) break;
+            idx[n++] = be;
+        }
+        K = n;
+    } else {
+        for (int kk = 0; kk < K; kk++) {
+            int be = -1; float bv = -1;
+            for (int e = 0; e < E; e++) {
+                int taken = 0;
+                for (int j = 0; j < kk; j++) if (idx[j] == e) taken = 1;
+                if (!taken && lg[e] > bv) { bv = lg[e]; be = e; }
+            }
+            if (be < 0) break;
+            idx[kk] = be; wv[kk] = bv;
+        }
+    }
+    float wsum = 0;
+    for (int kk = 0; kk < K; kk++) wsum += lg[idx[kk]];
+    float *t = falloc(I), *gg = falloc(I), *uu = falloc(I), *tmp = falloc(H);
+    for (int kk = 0; kk < K; kk++) {
+        int e = idx[kk];
+        float w = wsum > 0 ? lg[idx[kk]] / wsum : 0;
+        mtp_gemv(gg, x, h->eg[e], H, I);
+        mtp_gemv(uu, x, h->eu[e], H, I);
+        for (int i = 0; i < I; i++) t[i] = (gg[i] / (1.0f + expf(-gg[i]))) * uu[i];
+        mtp_gemv(tmp, t, h->ed[e], I, H);
+        for (int d = 0; d < H; d++) y[d] += w * tmp[d];
+    }
+    if (h->SI) {
+        float sgt = 0;
+        for (int d = 0; d < H; d++) sgt += x[d] * h->shg[d];
+        sgt = 1.0f / (1.0f + expf(-sgt));
+        mtp_gemv(gg, x, h->sg, H, h->SI);
+        mtp_gemv(uu, x, h->su, H, h->SI);
+        for (int i = 0; i < h->SI; i++) t[i] = (gg[i] / (1.0f + expf(-gg[i]))) * uu[i];
+        mtp_gemv(tmp, t, h->sd, h->SI, H);
+        for (int d = 0; d < H; d++) y[d] += sgt * tmp[d];
+    }
+    free(lg); free(t); free(gg); free(uu); free(tmp);
+}
+
 static void q36_mtp_row(Model *m, const float *x, int pos, float *y) {
     MTPHead *h = m->mtp; Cfg *c = &m->c;
     int H = c->hidden, QH = c->q_heads, KVH = c->kv_heads, HD = c->head_dim;
@@ -5859,6 +6035,13 @@ static void q36_mtp_row(Model *m, const float *x, int pos, float *y) {
         free(sc);
     }
     mtp_gemv(y, ctx, h->ow, QH * HD, H);
+    {   /* post-attention norm + MLP: the head layer is attn THEN mlp (contract) */
+        float *pn = falloc(H), *my = falloc(H);
+        rmsnorm_row(pn, y, h->n_post, H, c->eps);
+        q36_mtp_mlp(m, pn, my);
+        memcpy(y, my, (size_t)H * sizeof(float));
+        free(pn); free(my);
+    }
     memcpy(h->yring + (int64_t)pos * H, y, (size_t)H * sizeof(float));
     if (pos + 1 > h->kv_len) h->kv_len = pos + 1;
     free(q); free(k); free(vv); free(ctx);

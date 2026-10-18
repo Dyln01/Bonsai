@@ -138,3 +138,32 @@ jobs:
             echo "force=$F: id sequence == stock (verify+rollback exact under rejection)"
             grep "\[qwen36 MTP\] run:" /tmp/force_$F.err
           done
+
+      - name: MoE head gates (coder30 synth, 128 experts, group-limited top-k)
+        run: |
+          set -e
+          python3 scripts/gen_coder30_synth.py
+          python3 scripts/gen_mtp_head_synth.py "$HOME/synth_models/synth_coder30"
+          SNAP="$HOME/synth_models/synth_coder30" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          DUMP=/tmp/l_moestock.bin DUMP_IDS=/tmp/ids_moe.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/moe_stock.err
+          SNAP="$HOME/synth_models/synth_coder30" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          Q36_MTP=1 COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP_IDS=/tmp/ids_moe_mtp.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/moe_mtp.err || { tail -20 /tmp/moe_mtp.err; exit 1; }
+          grep -q "dense=0" /tmp/moe_mtp.err || { tail -20 /tmp/moe_mtp.err; exit 1; }
+          cmp /tmp/ids_moe.txt /tmp/ids_moe_mtp.txt
+          echo "MoE head loaded; drafting-on sequence == stock"
+          python3 - <<'PY'
+          import json
+          ids = [int(l) for l in open("/tmp/ids_moe.txt")]
+          json.dump({"prompt_ids": ids[:-8], "full_ids": ids}, open("/tmp/ref_moe.json", "w"))
+          PY
+          SNAP="$HOME/synth_models/synth_coder30" TRUNK_MAP=1 Q36_MAXT=512 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          Q36_MTP=1 Q36_MTP_FORCE=accept COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP_IDS=/tmp/ids_moe_f.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_moe.json > /dev/null 2> /tmp/moe_f.err
+          grep -q "acceptance 100.0%" /tmp/moe_f.err || { grep "\[qwen36 MTP\]" /tmp/moe_f.err; exit 1; }
+          cmp /tmp/ids_moe.txt /tmp/ids_moe_f.txt
+          echo "MoE forced-accept: sequence == stock, acceptance 100%"

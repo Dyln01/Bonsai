@@ -8,13 +8,13 @@
     "matches": "engine/qwen36.c.orig"
   },
   "engine_files": {
-    "NOTICE.md": "11c3baf15ae00af2043004c17cc7bcf3",
+    "NOTICE.md": "529c38b4892b853a8dcc8fefb0eee4d9",
     "kv8_fused.h": "6494bd828002c876c01e0645023c82ff",
     "kv8_parity.c": "3bff73e2fae403fb6d1d3dd52f8612fd",
     "kv_fp8.h": "a92762dab601fb885221dd499db21445",
     "kv_tq.h": "6a476ecd475326942ceb345829792196",
     "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-    "qwen36.c": "fe026e28cd6ed27a333afa572272370c",
+    "qwen36.c": "0139e6f3ca095dd0365d891a66269ad7",
     "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
     "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
     "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
@@ -23,7 +23,8 @@
     "softmaxbench_q36.c": "0af58663539dfbe8a53dbf3e4a9f6da8",
     "qwen36.c.premtp": "3131a067ebc71127b044a83d0b9fe26e",
     "qwen36.c.predraft": "6a1ab33a2ad22e72f222d8d5f4d9afde",
-    "qwen36.c.preoracle": "cc9177d1560567fadf6eefa56fa78900"
+    "qwen36.c.preoracle": "cc9177d1560567fadf6eefa56fa78900",
+    "qwen36.c.premoe": "fe026e28cd6ed27a333afa572272370c"
   },
   "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
   "reproducible_segments": [
@@ -86,8 +87,16 @@
       "scripts": [
         "patch_mtp_oracle.py"
       ],
-      "to": "qwen36.c",
+      "to": "qwen36.c.premoe",
       "added": "Phase 2b part 3a"
+    },
+    {
+      "from": "qwen36.c.premoe",
+      "scripts": [
+        "patch_mtp_moe.py"
+      ],
+      "to": "qwen36.c",
+      "added": "Phase 2b part 3b"
     }
   ],
   "drift_audit": {
