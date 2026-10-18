@@ -57,10 +57,23 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Documented nuance: final logits may differ from a plain step when the last pick is
       answered from a verify batch row (pre-existing S>1 fp-order behavior, shared with
       accepted lookup drafts) — hence sequence identity, not logit bits, is the invariant.
-- [ ] **Phase 2b-3b — MoE head + draft-cost battery.** Resident int4 experts in the head
-      (bypass the LRU store), MoE-container CI gate, then the measured battery on real
-      hardware (per-draft cost `d`, verify T(n), tokens/forward under forced acceptance)
-      -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
+- [x] **Phase 2b-3b — MoE head + head-MLP fidelity fix (2026-10-19, `test`).**
+      `patch_mtp_moe.py`: router softmax -> group-limited top-k (mirrors `moe_ex`) ->
+      renormalised mix of unpacked-int4-gs64 experts + optional sigmoid-gated shared
+      expert; ALSO fixes a part-2 fidelity gap found in review: the head row ended at
+      o_proj — the post-attention norm + MLP stage now runs per contract (dense and MoE).
+      CI: small MoE synth (`SYNTH_*` geometry overrides on gen_coder30_synth.py, 8L x 32E,
+      same code paths) — head loads dense=0, drafting-on sequence == stock, forced-accept
+      sequence == stock at 100% acceptance. NOT covered in CI: shared-expert head path
+      (SI>0; no synthetic MoE container carries shared experts yet) and resident-int4
+      experts (3b unpacks to f32 at attach — fine for synth heads, too heavy for real
+      35B-class heads on 8 GB).
+- [ ] **Phase 2b-4 — draft-cost battery on real hardware + report.** Per-draft cost `d`
+      (the gate's input), verify T(n) by row count, tokens/forward under forced acceptance,
+      on the mini-PC; -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
+- [ ] **Phase 2b-5 — resident-int4 head experts (dequant-on-read) + SI>0 CI container.**
+      The 8 GB envelope demands it before any real-weights MTP run; add a shared-expert
+      synthetic MoE so the SI>0 head path gets a gate.
 - [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
       KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
       decay. Design-contract doc first (house practice), then implementation, then rerun the
