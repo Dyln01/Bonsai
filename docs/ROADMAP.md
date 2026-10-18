@@ -48,9 +48,18 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       rollback = kv_len trim; `[qwen36 MTP] run:` report line. CI gate 3: greedy stdout
       byte-identical to stock for `Q36_MTP_DRAFTS` 0..3 with `COLI_LOOKUP=0 COLI_SPEC_GATE=0`
       (random-weight head => every verify rejects => rollback exercised every verify).
-- [ ] **Phase 2b-3 — MoE head + oracle gates + battery.** Resident int4 experts in the head
-      (bypass the LRU store), `Q36_MTP_FORCE=accept|mixed|cycle|rowN` oracle wired to a
-      ref.json-driven CI gate (forced-accept byte-exact), draft-cost battery on real hardware
+- [x] **Phase 2b-3a — force-oracle gates (2026-10-19, `test`).** `patch_mtp_oracle.py`:
+      `Q36_MTP_FORCE=accept|mixed|cycle|rowN` drives the MTP proposal slot from ref.json's
+      oracle ids; `DUMP_IDS` bootstraps ref.json in CI. Gates green: forced-accept ⇒
+      acceptance 100.0% (7/7) AND the id sequence equals stock (the design's "reproduces
+      the oracle text exactly" — the correctness proof of verify + head-row rollback);
+      mixed/cycle ⇒ 60%/45.5% acceptance with the sequence STILL exact under rejections.
+      Documented nuance: final logits may differ from a plain step when the last pick is
+      answered from a verify batch row (pre-existing S>1 fp-order behavior, shared with
+      accepted lookup drafts) — hence sequence identity, not logit bits, is the invariant.
+- [ ] **Phase 2b-3b — MoE head + draft-cost battery.** Resident int4 experts in the head
+      (bypass the LRU store), MoE-container CI gate, then the measured battery on real
+      hardware (per-draft cost `d`, verify T(n), tokens/forward under forced acceptance)
       -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
 - [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
       KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
