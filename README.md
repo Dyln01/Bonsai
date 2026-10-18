@@ -59,9 +59,10 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
 8. **q36-minipc launcher** — one command composing the right profile per model class
    (auto-detects dense vs MoE): `serve|chat|bench|seed|calibrate|sort|doctor`.
 
-In flight: **MTP self-speculative head** (Qwen3.6 `mtp.*` contract pinned, synthetic head
-generator + stock-safety regression done; engine integration open) — `docs/MTP_DESIGN_QWEN36.md`,
-phase board in `docs/ROADMAP.md`.
+Landed on `test` (CI-gated, pending merge + real-hardware battery): **MTP self-speculative
+head** — loader, dense+MoE drafting/verify on the existing spec machinery, force-oracle
+proofs (forced-accept reproduces the oracle sequence exactly; rejections stay exact),
+resident int4 experts — `docs/MTP_DESIGN_QWEN36.md`, phase board in `docs/ROADMAP.md`.
 
 ## Quick start (assumes a colibri engine checkout + converted container)
 

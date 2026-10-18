@@ -71,9 +71,12 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 - [ ] **Phase 2b-4 — draft-cost battery on real hardware + report.** Per-draft cost `d`
       (the gate's input), verify T(n) by row count, tokens/forward under forced acceptance,
       on the mini-PC; -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
-- [ ] **Phase 2b-5 — resident-int4 head experts (dequant-on-read) + SI>0 CI container.**
-      The 8 GB envelope demands it before any real-weights MTP run; add a shared-expert
-      synthetic MoE so the SI>0 head path gets a gate.
+- [x] **Phase 2b-5 — resident-int4 head experts + SI>0 gate (2026-10-19, `test`).**
+      `patch_mtp_i4.py`: merged int4-gs packed bytes + scales stay resident as stored
+      (dequant-on-read `mtp_gemv_i4gs`, OpenMP-safe, deterministic) — attach RAM no longer
+      scales with experts x f32, so real 35B-class heads fit the 8 GB envelope; dead
+      expansion helper dropped. `gen_coder30_synth.py` gains `SYNTH_SI` shared experts;
+      CI gate: SI>0 MoE head loads (dense=0) and drafting-on sequence == stock.
 - [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
       KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
       decay. Design-contract doc first (house practice), then implementation, then rerun the
