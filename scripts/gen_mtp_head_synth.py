@@ -58,6 +58,10 @@ def main():
         sys.exit("container already carries an MTP head (meta.mtp=1); refusing")
 
     H = meta["hidden"]; QH = meta["q_heads"]; KVH = meta["kv_heads"]; HD = meta["head_dim"]
+    # q/k/v/o SHAPES follow the container's own meta, not naive head_dim: gated
+    # containers carry q_head_dim = 2*head_dim (query ++ gate) and the loader
+    # reads q_proj as [q_heads*q_head_dim, hidden], o_proj as [hidden, o_in].
+    QHD = meta.get("q_head_dim", HD); KHD = meta.get("k_head_dim", HD); OIN = meta.get("o_in", QH * HD)
     E = meta.get("num_experts", 0); I = meta.get("moe_inter", 0); SI = meta.get("shared_inter", 0)
     GS = meta.get("expert_gs", 64)
     qk_norm = bool(meta.get("has_qk_norm", False))
@@ -98,13 +102,13 @@ def main():
     p = "mtp.layers.0."
     t[p + "input_layernorm.weight"] = (norm1(H), "F16")
     t[p + "post_attention_layernorm.weight"] = (norm1(H), "F16")
-    t[p + "self_attn.q_proj.weight"] = (f16(QH * HD, H), "F16")
-    t[p + "self_attn.k_proj.weight"] = (f16(KVH * HD, H), "F16")
-    t[p + "self_attn.v_proj.weight"] = (f16(KVH * HD, H), "F16")
-    t[p + "self_attn.o_proj.weight"] = (f16(H, QH * HD), "F16")
+    t[p + "self_attn.q_proj.weight"] = (f16(QH * QHD, H), "F16")
+    t[p + "self_attn.k_proj.weight"] = (f16(KVH * KHD, H), "F16")
+    t[p + "self_attn.v_proj.weight"] = (f16(KVH * KHD, H), "F16")
+    t[p + "self_attn.o_proj.weight"] = (f16(H, OIN), "F16")
     if qk_norm:
         t[p + "self_attn.q_norm.weight"] = (norm1(HD), "F16")
-        t[p + "self_attn.k_norm.weight"] = (norm1(HD), "F16")
+        t[p + "self_attn.k_norm.weight"] = (norm1(KHD), "F16")
 
     if E:      # MoE container: router + fused experts (+ shared expert if any)
         t[p + "mlp.gate.weight"] = (f16(E, H), "F16")
