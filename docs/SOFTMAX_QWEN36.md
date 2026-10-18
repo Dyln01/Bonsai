@@ -102,7 +102,7 @@ swallows the mean delta, so the report leads with the phase metric.
 
 - **Lossy-by-rounding**: a 2.5e-7 exp perturbation can flip a near-tie greedy
   token — the same class as the Vulkan-tier rounding note in
-  `docs/speculative.md`. That is why it is opt-in, default off; the default
+  `docs/speculative.md` (in the engine checkout). That is why it is opt-in, default off; the default
   path is stock-verbatim.
 - **No silu claim**: the MLP gate's `expf` was measured too (pristine-input
   arm): **0.96×** — no win, so the MLP path stays stock. The microbench

@@ -1,6 +1,14 @@
 # colibri RAM & Throughput Optimization Research
 ### Deep-dive with a synthetic testing harness — no real model weights used
 
+> **Errata (2026-10-19):** this report predates the Bonsai rebrand and the repo
+> re-layout. Path map: `~/colibri-research/synthgen/make_synthetic_model.py` and
+> `harness/*` → generators now live in `scripts/` (`gen_*.py|sh`,
+> `run_workloads.py`, `make_tokenizer.py`); `harness/results_*.json` →
+> `results/` (see `results/README.md`); `~/synth_models/` stays a local dir.
+> `harness/iothrottle.c` was never committed — tracked as ROADMAP item E2.
+> Numbers below are unaffected (they cite the JSONs, which moved with them).
+
 **Date:** 2026-10-11 · **Engine audited/built:** JustVugg/colibri @ `bf24429` (v2.0.0, 2026-10-06), built from source in WSL2 Ubuntu (gcc 15.2, OpenMP), 700 KB binary
 **Host:** AMD Ryzen 7 7735HS (8C/16T), 16 GB RAM, ext4 on Kingston SNV3S1000G NVMe (WSL2)
 **Hard constraint honored:** no real checkpoints were downloaded. All experiments run against synthetic containers produced by a generator that emits colibri-native int4-gs128 safetensors with a Monte-Carlo-calibrated Zipf router. Every number below is either (a) measured on this harness, or (b) explicitly labeled extrapolation with its assumptions.

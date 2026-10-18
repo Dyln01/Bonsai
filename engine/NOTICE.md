@@ -3,8 +3,19 @@
 The `engine/` directory snapshots the modified `qwen36.c` (+ KV8 support files) from a
 checkout of **colibri** (https://github.com/JustVugg/colibri) at commit `bf24429`,
 Apache-2.0. It is provided for reproducibility of the measurements in `docs/`; upstream
-owns the original engine. Backups: `qwen36.c.orig` (stock), `.premap` (pre-TRUNK_MAP),
-`.prehot` (pre-hot-neuron) allow stepwise diffs.
+owns the original engine. Backups: `qwen36.c.orig` (stock == bf24429 `c/qwen36.c`,
+md5-verified), `.premap` (pre-TRUNK_MAP), `.prehot` (pre-hot-neuron), `.pretq`
+(pre-KV_TQ), `.presm` (pre-FAST_SOFTMAX) allow stepwise diffs.
+
+`kv_fp8.h` is vendored **byte-identical** from colibri `bf24429` (`c/kv_fp8.h`,
+Apache-2.0, (c) its authors) so the parity gates (`kv8_parity.c`, `kv8_fused.h`)
+compile from this repo alone; CI does not need a colibri checkout for them.
+
+Provenance is pinned in `tools/patch_manifest.json` and checked by
+`tools/verify_engine.sh` (md5s + replay of the reproducible patch segments).
+Two segments (orig→premap, prehot→pretq) do not currently replay with the
+committed patchers — drift audit tracked in `docs/ROADMAP.md` item E1; until it
+closes, the snapshots + manifest are the source of truth.
 
 ## No-models notice
 

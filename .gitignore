@@ -6,3 +6,10 @@ qwen36
 __pycache__/
 *.pyc
 .DS_Store
+
+# Model artifacts — NEVER commit weights (Phase 5 rule; containers stay local)
+*.safetensors
+*.gguf
+*.bin
+*.vhdx
+tokenizer.json

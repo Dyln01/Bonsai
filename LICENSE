@@ -1,6 +1,6 @@
 # Apache License, Version 2.0
 
-Copyright 2026 qwen36-minipc contributors
+Copyright 2026 Bonsai contributors (formerly qwen36-minipc)
 
 Engine-derived code (engine/qwen36.c and its backups, kv8_fused.h, kv8_parity.c, and the
 tools/patch_*.py scripts that reproduce engine edits) is a modification of the colibri

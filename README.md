@@ -49,8 +49,19 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
    read path (parity-gated incl. radius/linearity): −19% total RSS vs f32 at 8k, −23 MB vs
    KV8; tier ladder ends at 40 B/row @ head_dim 128. RAM lever, decode-price labeled in
    `docs/KVTQ_QWEN36.md`.
-6. **q36-minipc launcher** — one command composing the right profile per model class
+6. **KV-prefix reuse** — serve-mux transcript reuse across agent turns: 93% of a repeated
+   prompt served from standing KV (10-12x faster turns 2+), one slot per conversation
+   (`Q36_SLOTS`); agent contract + measured rules in `docs/PREFIX_REUSE_QWEN36.md`.
+7. **Q36_FAST_SOFTMAX** — AVX2 fast exponential in the attention softmax: 9.5-11.5x the
+   kernel, −6.5% attention ms/token at 16k ctx, TTFT-neutral and *more accurate than stock*
+   (f32 accumulator drift); opt-in, two negative results documented alongside
+   (`docs/SOFTMAX_QWEN36.md`).
+8. **q36-minipc launcher** — one command composing the right profile per model class
    (auto-detects dense vs MoE): `serve|chat|bench|seed|calibrate|sort|doctor`.
+
+In flight: **MTP self-speculative head** (Qwen3.6 `mtp.*` contract pinned, synthetic head
+generator + stock-safety regression done; engine integration open) — `docs/MTP_DESIGN_QWEN36.md`,
+phase board in `docs/ROADMAP.md`.
 
 ## Quick start (assumes a colibri engine checkout + converted container)
 
@@ -89,8 +100,11 @@ results/  measured JSON from every battery
 
 The modified engine lives in a colibri checkout (Apache-2.0): clone
 `github.com/JustVugg/colibri`, copy `engine/qwen36.c`, `engine/kv8_fused.h`,
-`engine/kv8_parity.c` over `c/`, `make -C c qwen36`. Patch scripts in `tools/` reproduce
-every engine edit from `qwen36.c.orig` (stock @ bf24429) if you prefer applying stepwise.
+`engine/kv8_parity.c` over `c/`, `make -C c qwen36`. The `engine/` snapshots are the
+source of truth (md5-pinned in `tools/patch_manifest.json`, checked by
+`tools/verify_engine.sh`); the patch scripts in `tools/` reproduce the verified
+segments of the stack stepwise (premap→prehot→…→final) — two early segments are
+under regeneration audit, see `docs/ROADMAP.md` item E1.
 **No real model weights are in this repo or were used in testing** — all benchmarks use
 synthetic same-geometry containers (see `scripts/gen_*`).
 
@@ -99,6 +113,6 @@ synthetic same-geometry containers (see `scripts/gen_*`).
 Research code. All numbers are real engine runs on synthetic containers; 27B-scale rows are
 projections from measured student ratios (labeled in the reports). Quality claims for frac<1.0
 are by construction (sorting is relabeling) + literature; real-checkpoint perplexity
-validation is the remaining step.
+validation is the remaining step (Phase 5, gated on sign-off — `docs/ROADMAP.md`).
 
 Apache-2.0 (engine-derived portions inherit colibri's license).

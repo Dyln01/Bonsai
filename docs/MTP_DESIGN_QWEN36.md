@@ -59,7 +59,7 @@ d2  = argmax( lm_head( rmsnorm(head_layer(x'), mtp.norm) ) )   # etc.
 - Attention: full attention with the model's RoPE (partial factor 0.25,
   theta 1e7; `mtp.rope_theta` may override — q38 precedent).
 
-## q36 implementation plan (mirrors Q38_MTP; docs/speculative.md is the guide)
+## q36 implementation plan (mirrors Q38_MTP; `docs/speculative.md` in the engine checkout is the guide)
 
 1. **Container**: converter stops skipping `mtp.*` — writes the head as
    **layer `n_layers`** in the per-layer shard series (its names map 1:1),
@@ -151,10 +151,11 @@ multiplier is worth more than every remaining RAM optimization combined.
 
 ## References
 
-- in-tree: `docs/speculative.md` (the wiring guide), `spec_draft.h`
+- in-tree **in the colibri/qwen38 engine checkout (not in this repo)**:
+  `docs/speculative.md` (the wiring guide), `spec_draft.h`
   (engine-agnostic gate + `SPEC_SRC_MTP`), `qwen38_core.h` (`q38_mtp_attach`
-  and the head's stream handling), `qwen36.c` L5514+ (`Q36Spec`, the state
-  machine being extended).
+  and the head's stream handling); in this repo: `engine/qwen36.c` L5514+ (`Q36Spec`, the
+  state machine being extended).
 - external (code, no weights): `ROCm/ATOM` `docs/model_support_guide.md`
   (head design description), `quivent/qwen-mtp-tensors` (GGUF tensor map for
   the dense 27B head), vLLM `Qwen3_5MultiTokenPredictor` (step indexing
