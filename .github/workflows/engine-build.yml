@@ -41,7 +41,7 @@ jobs:
           printf 'The quick brown fox jumps over the lazy dog. ' > /tmp/p.txt
           for i in 1 2 3; do printf 'Counting numbers matter: %d. ' $i >> /tmp/p.txt; done
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
-          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP=/tmp/l_stock.bin \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP=/tmp/l_stock.bin DUMP_IDS=/tmp/ids.txt \
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run1.out 2> /tmp/run1.err
           rc=$?
           echo "rc=$rc"
@@ -104,3 +104,40 @@ jobs:
           grep -q "\[qwen36 MTP\] run:" /tmp/mtp_d2.err
           grep -q "verifies" /tmp/mtp_d2.err
           tail -3 /tmp/mtp_d2.err
+
+      - name: MTP gate 4 — forced-accept oracle (ref.json bootstrapped from the stock run)
+        run: |
+          set -e
+          python3 - <<'PY'
+          import json
+          ids = [int(l) for l in open("/tmp/ids.txt")]
+          assert len(ids) > 12
+          json.dump({"prompt_ids": ids[:-12], "full_ids": ids}, open("/tmp/ref.json", "w"))
+          print("ref.json: prompt", len(ids) - 12, "full", len(ids))
+          PY
+          SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          Q36_MTP=1 Q36_MTP_FORCE=accept COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP=/tmp/l_force_a.bin \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref.json > /dev/null 2> /tmp/force_a.err
+          grep -q "\[qwen36 MTP\] run:" /tmp/force_a.err || { tail -20 /tmp/force_a.err; exit 1; }
+          grep -q "acceptance 100.0%" /tmp/force_a.err || { grep "\[qwen36 MTP\]" /tmp/force_a.err; exit 1; }
+          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
+          b=$(sha256sum /tmp/l_force_a.bin | cut -d' ' -f1)
+          echo "stock=$a forced-accept=$b"
+          [ "$a" = "$b" ]
+          grep "\[qwen36 MTP\]" /tmp/force_a.err
+
+      - name: MTP gate 5 — forced mixed/cycle (rejections + partial accepts, logits still exact)
+        run: |
+          set -e
+          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
+          for F in mixed cycle; do
+            SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 \
+            COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+            Q36_MTP=1 Q36_MTP_FORCE=$F COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP=/tmp/l_force_$F.bin \
+            timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref.json > /dev/null 2> /tmp/force_$F.err
+            b=$(sha256sum /tmp/l_force_$F.bin | cut -d' ' -f1)
+            echo "force=$F stock=$a run=$b"
+            [ "$a" = "$b" ]
+            grep "\[qwen36 MTP\] run:" /tmp/force_$F.err
+          done

@@ -5931,6 +5931,8 @@ static void q36_spec_begin(Model *m, Q36Spec *sp, const int *prompt, int np) {
         fprintf(stderr, "COLI_LOOKUP_DRAFTS must be an integer in 1..%d\n", Q36_SPEC_SNAPS); exit(1);
     }
     sp->force = q36_spec_force_mode(getenv("COLI_LOOKUP_FORCE"), &sp->force_row);
+    if (!sp->force && g_q36_mtp_force[0] && m->mtp && m->mtp->loaded)
+        sp->force = q36_spec_force_mode(g_q36_mtp_force, &sp->force_row);   /* Q36_MTP_FORCE */
     e = getenv("COLI_SPEC_GATE");
     spec_gate_init(&sp->gate, e && *e == '0');
     if (sp->lookup && (qt_ready() || g_cache_route || qq_active() || m->dn_dev)) {
@@ -5990,6 +5992,7 @@ static void q36_spec_rollback(Model *m, int len, int keep) {
 static void q36_spec_settle(Model *m, Q36Spec *sp, int keep, int rejected) {
     if (keep < sp->ahead_n) q36_spec_rollback(m, sp->ahead_pos + keep, keep);
     q36_mtp_settle(m, sp->ahead_pos, keep);
+    if (sp->cur_src == SPEC_SRC_MTP) sp->m_accepted += (uint64_t)(keep > 0 ? keep - 1 : 0);
     spec_gate_result(&sp->gate, sp->cur_src, keep - 1 + (rejected ? 1 : 0), keep - 1);
     free(sp->ahead_logit); sp->ahead_logit = NULL; sp->ahead_n = sp->ahead_i = 0;
 }
@@ -6029,7 +6032,6 @@ static float *q36_spec_step(Model *m, Q36Spec *sp, int tok, int pos, int more) {
             float *logit = falloc(V);
             memcpy(logit, sp->ahead_logit + (int64_t)(i - 1) * V, (size_t)V * sizeof(float));
             sp->accepted++;
-            if (sp->cur_src == SPEC_SRC_MTP) sp->m_accepted++;
             if (++sp->ahead_i == sp->ahead_n) q36_spec_settle(m, sp, sp->ahead_n, 0);
             return logit;
         }
@@ -6157,6 +6159,11 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
           if (tm_on()) g_tm_step += tm_now()-_s0; }
     }
     q36_spec_end(m, sp);
+    { const char *ip = getenv("DUMP_IDS");
+      if (ip && *ip) { FILE *f = fopen(ip, "w");
+        if (f) { for (int i = 0; i < len; i++) fprintf(f, "%d\n", out[i]);
+                 fclose(f); fprintf(stderr, "[dump] wrote %d ids -> %s\n", len, ip); }
+        else fprintf(stderr, "[dump] cannot open %s\n", ip); } }
 }
 
 static int tf_nll(Model *m, const int *full, int nfull, int np, double *nll_out) {
