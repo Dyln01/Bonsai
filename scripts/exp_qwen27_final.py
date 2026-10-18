@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """exp_qwen27_final.py — the full low-RAM/high-speed battery for qwen36.
 
@@ -11,6 +12,7 @@ decoder closed the 1.7x gap, and quantify the combined RAM/Speed point that
 a "worse hardware" deployment would run.
 """
 import subprocess, os, re, json
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 E = os.path.expanduser("~/colibri/c/qwen36")
 RE_RSS = re.compile(r"Maximum resident set size \(kbytes\): (\d+)")
@@ -23,7 +25,7 @@ def run(env_extra, prompt_file):
         if k.startswith(("SNAP", "KVSAVE", "COLI_USAGE", "USAGE_SAVE", "Q36_MAXT",
                          "NGEN", "COLI_TEMP", "KV8", "COLI_DENSE_BITS", "COLI_DENSE_INT4")):
             del e[k]
-    e.update({"SNAP": "/home/dylan/synth_models/synth_qwen27", "KVSAVE": "0",
+    e.update({"SNAP": f"{_Q36_HOME}/synth_models/synth_qwen27", "KVSAVE": "0",
              "COLI_USAGE": "/tmp/none", "USAGE_SAVE": "0", "Q36_MAXT": "8192",
              "NGEN": "48", "COLI_TEMP": "0"})
     e.update(env_extra)
@@ -39,7 +41,7 @@ def run(env_extra, prompt_file):
             "rc": p.returncode}
 
 def main():
-    pf = "/home/dylan/prompt_8k.txt"
+    pf = f"{_Q36_HOME}/prompt_8k.txt"
     if not os.path.exists(pf):
         open(pf, "w").write("alpha beta gamma delta epsilon zeta eta theta iota kappa " * 280)
     arms = {

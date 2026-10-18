@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """exp_kv_serve.py — KV-cache RAM at long context, via SERVE mode.
 
@@ -13,6 +14,7 @@ Also measures SERVE decode tok/s with KV8/KV_TQ vs f32 (the CPU attention
 path dequantizes per tile — the throughput cost of KV quantization).
 """
 import json, os, re, subprocess, sys, time
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 ENGINE = os.path.expanduser("~/colibri/c/colibri")
 RE_RSS = re.compile(r"Maximum resident set size \(kbytes\): (\d+)")
@@ -42,7 +44,7 @@ def serve_run(model, ctx, env_extra, turns=2, ngen=48, prompt="hello world, tell
 
 
 def main():
-    model = "/home/dylan/synth_models/synth_std"
+    model = f"{_Q36_HOME}/synth_models/synth_std"
     out = {}
     print("== KV RAM at CTX=131072 via SERVE mode (KV pool pre-allocated) ==")
     for label, kv in [("f32", {}), ("kv8", {"KV8": "1"}), ("kvtq4", {"KV_TQ": "4"})]:

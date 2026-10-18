@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Apply part 2 of the qwen36 KV8 patch (idempotent-ish, all assertions local)."""
+import os
+import sys
 import re
 
-P = "/home/dylan/colibri/c/qwen36.c"
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P).read()
 changed = []
 

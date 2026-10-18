@@ -1,0 +1,30 @@
+name: gates
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: parity gates (hermetic — kv_fp8.h vendored in engine/)
+        run: |
+          set -e
+          gcc -O2 -Iengine -o /tmp/kv8p engine/kv8_parity.c -lm && /tmp/kv8p
+          gcc -O2 -Iengine -o /tmp/tqp engine/kv_tq_parity_q36.c -lm && /tmp/tqp
+          gcc -O2 -mavx2 -mfma -Iengine -o /tmp/smb engine/softmaxbench_q36.c -lm && /tmp/smb
+
+      - name: engine snapshot verifier
+        run: bash tools/verify_engine.sh
+
+      - name: results JSON parse
+        run: |
+          for f in results/*.json; do python3 -m json.tool "$f" > /dev/null || exit 1; done
+          echo "results/*.json all parse"
+
+      - name: python syntax (tools + scripts)
+        run: python3 -m py_compile tools/*.py scripts/*.py

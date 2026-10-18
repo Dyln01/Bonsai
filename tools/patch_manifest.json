@@ -1,0 +1,71 @@
+{
+  "comment": "Engine snapshot manifest. Source of truth for engine/ provenance; checked by tools/verify_engine.sh and CI. Regenerate only with a commit that explains why.",
+  "stock": {
+    "repo": "https://github.com/JustVugg/colibri",
+    "commit": "bf24429",
+    "path": "c/qwen36.c",
+    "md5": "fb4b73ed5e1644da7e644e046d19c114",
+    "matches": "engine/qwen36.c.orig"
+  },
+  "engine_files": {
+    "NOTICE.md": "428b0cb37afa0540ab0fbc35e6f14815",
+    "kv8_fused.h": "6494bd828002c876c01e0645023c82ff",
+    "kv8_parity.c": "3bff73e2fae403fb6d1d3dd52f8612fd",
+    "kv_fp8.h": "a92762dab601fb885221dd499db21445",
+    "kv_tq.h": "6a476ecd475326942ceb345829792196",
+    "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
+    "qwen36.c": "3131a067ebc71127b044a83d0b9fe26e",
+    "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
+    "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
+    "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
+    "qwen36.c.presm": "9dc3a0fc0611f2c0a2f21971e47f2b17",
+    "qwen36.c.pretq": "1b9bee718dcfb7ff3944fb2cecf3b7c2",
+    "softmaxbench_q36.c": "0af58663539dfbe8a53dbf3e4a9f6da8"
+  },
+  "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
+  "reproducible_segments": [
+    {
+      "from": "qwen36.c.premap",
+      "scripts": [
+        "patch_trunkmap.py",
+        "patch_trunkmap_v2.py"
+      ],
+      "to": "qwen36.c.prehot"
+    },
+    {
+      "from": "qwen36.c.pretq",
+      "scripts": [
+        "patch_kvtq.py"
+      ],
+      "to": "qwen36.c.presm"
+    },
+    {
+      "from": "qwen36.c.presm",
+      "scripts": [
+        "patch_softmax.py"
+      ],
+      "to": "qwen36.c"
+    }
+  ],
+  "open_drift_audit": [
+    {
+      "segment": "qwen36.c.orig -> qwen36.c.premap",
+      "expected": [
+        "patch_qwen_kv8_p2.py (KV8 part 1 missing)",
+        "patch_flash_qwen36.py (flash v1; the committed patcher is now v2)"
+      ],
+      "status": "NOT reproducible with committed tools; KV8 part-1 patcher was never committed and the flash patcher has been updated to v2 since the premap snapshot. Tracked in docs/ROADMAP.md (engineering item E1)."
+    },
+    {
+      "segment": "qwen36.c.prehot -> qwen36.c.pretq",
+      "expected": [
+        "patch_hotneuron.py",
+        "patch_hotcal_v4.py",
+        "patch_griffin.py",
+        "patch_mapfast.py",
+        "patch_pagebatch.py"
+      ],
+      "status": "NOT reproducible in any order with committed tools (patchers drifted after the pretq snapshot). Tracked in docs/ROADMAP.md (engineering item E1)."
+    }
+  ]
+}

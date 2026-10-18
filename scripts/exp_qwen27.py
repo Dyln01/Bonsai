@@ -10,9 +10,10 @@ measures what the KV actually costs in RSS and decode speed at long ctx, which
 quantifies the opportunity for porting the GLM engine's KV quantization here.
 """
 import os, re, subprocess, time
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 ENGINE = os.path.expanduser("~/colibri/c/qwen36")
-MODEL = "/home/dylan/synth_models/synth_qwen27"
+MODEL = f"{_Q36_HOME}/synth_models/synth_qwen27"
 RE_RSS = re.compile(r"Maximum resident set size \(kbytes\): (\d+)")
 RE_TOKS = re.compile(r"\[TOKENS\] (\d+) generated:(.*)$", re.M)
 RE_GEN = re.compile(r"gen: (\d+) tokens in ([\d.]+)s \| ([\d.]+) tok/s", re.M)
@@ -26,7 +27,7 @@ def run(ctx, ngen=64, kv_bytes_note=""):
               "COLI_USAGE": "/tmp/none", "USAGE_SAVE": "0", "COLI_TEMP": "0",
               "TOKENS": "1"})
     # qwen36 reads its prompt from a FILE (argv[3], non-.json = raw text)
-    pt = "/home/dylan/prompt_test.txt"
+    pt = f"{_Q36_HOME}/prompt_test.txt"
     open(pt, "w").write("the quick brown fox jumps over the lazy dog and runs far away "
                         "while the sun sets slowly over the mountains and rivers of the valley below")
     cmd = ["/usr/bin/time", "-v", ENGINE, "32", "8", pt]

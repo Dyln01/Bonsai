@@ -6,9 +6,10 @@ where lazy calloc pages cost ~0 RSS). Compare peak RSS f32 vs KV8 and the
 per-token decode speed after the long prefill. Also records prefill time.
 """
 import os, re, subprocess, sys, time
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 ENGINE = os.path.expanduser("~/colibri/c/qwen36")
-MODEL = "/home/dylan/synth_models/synth_qwen27"
+MODEL = f"{_Q36_HOME}/synth_models/synth_qwen27"
 RE_RSS = re.compile(r"Maximum resident set size \(kbytes\): (\d+)")
 RE_SPEED = re.compile(r"Speed: ([\d.]+) tok/s \(([\d.]+)s for (\d+) tokens\)")
 RE_TTFT = re.compile(r"TTFT: ([\d.]+) s")
@@ -37,7 +38,7 @@ def run(kv8, prompt_file, ngen=48):
             "ttft_s": float(tt.group(1)) if tt else None}
 
 def main():
-    pf = "/home/dylan/prompt_long.txt"
+    pf = f"{_Q36_HOME}/prompt_long.txt"
     if not os.path.exists(pf):
         open(pf, "w").write("alpha beta gamma delta epsilon zeta eta theta iota kappa " * 1200)
     results = {}

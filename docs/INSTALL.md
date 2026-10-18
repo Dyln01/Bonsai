@@ -63,6 +63,7 @@ git clone https://github.com/Dyln01/Bonsai bonsai
 ```bash
 cp ~/bonsai/engine/qwen36.c        ~/colibri/c/
 cp ~/bonsai/engine/kv8_fused.h     ~/colibri/c/
+cp ~/bonsai/engine/kv_fp8.h        ~/colibri/c/   # vendored byte-identical from colibri bf24429
 cp ~/bonsai/engine/kv8_parity.c     ~/colibri/c/
 cp ~/bonsai/engine/kv_tq.h         ~/colibri/c/
 cp ~/bonsai/engine/kv_tq_parity_q36.c ~/colibri/c/
@@ -80,12 +81,15 @@ few minutes — `qwen36.c` is a large single translation unit.
 ### 2.5 Verify the install (parity gates — do this once)
 
 The KV codecs carry their own test programs; both must pass before you trust
-any run:
+any run (they also compile from the Bonsai tree alone, since `engine/kv_fp8.h`
+is vendored: swap the `-I` path to `~/bonsai/engine`):
 
 ```bash
 gcc -O2 -I"$HOME/colibri/c" -o /tmp/kvtq "$HOME/colibri/c/kv_tq_parity_q36.c" -lm && /tmp/kvtq
 gcc -O2 -I"$HOME/colibri/c" -o /tmp/kv8p  "$HOME/colibri/c/kv8_parity.c"        -lm && /tmp/kv8p
 ```
+
+Snapshot-chain check (no compiler needed): `bash ~/bonsai/tools/verify_engine.sh`.
 
 Expected last lines:
 

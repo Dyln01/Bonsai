@@ -2,7 +2,9 @@
 # Generate a Qwen3.8-27B-shaped SYNTHETIC dense model for the qwen36 engine
 # (scaled-down hidden dim so it fits; same architecture: Gated DeltaNet, no MoE).
 set -e
-cd ~/colibri-research/synthgen
+SYNTHGEN="${Q36_SYNTHGEN:-$HOME/colibri-research/synthgen}"
+cd "$SYNTHGEN"
+[ -f make_synthetic_model.py ] || { echo "missing $SYNTHGEN/make_synthetic_model.py (set Q36_SYNTHGEN; see ROADMAP E2)"; exit 1; }
 
 # qwen36 dense: num_experts=0, MLP -> shared expert, GQA attention.
 # Real 27B: hidden 5120, 64 layers (16 attn + 48 delta), MLP 17408, kv_heads 8, head_dim 128.
@@ -15,7 +17,7 @@ from make_synthetic_model import save_safetensors, quant_int4_grouped, quant_int
 import numpy as np
 
 rng = np.random.default_rng(7)
-OUT = "/home/dylan/synth_models/synth_qwen27"
+OUT = os.environ.get("Q36_HOME", "/home/dylan") + "/synth_models/synth_qwen27"
 os.makedirs(OUT, exist_ok=True)
 H, L, KVH, HD, MLP, V = 1024, 24, 4, 64, 2048, 4096
 QH = 8
@@ -73,6 +75,6 @@ save_safetensors(f"{OUT}/model-00000.safetensors", t)
 mb = sum(a.nbytes for a,_ in t.values())/1e6
 print(f"wrote {OUT}: {mb:.1f} MB, {L} layers, hidden {H}")
 PYEOF
-python3 /home/dylan/colibri-research/harness/make_tokenizer.py /home/dylan/synth_models/synth_qwen27/tokenizer.json 4095
-du -sh /home/dylan/synth_models/synth_qwen27
+python3 "$(dirname "$0")/make_tokenizer.py" "${Q36_HOME:-/home/dylan}/synth_models/synth_qwen27/tokenizer.json" 4095
+du -sh "${Q36_HOME:-/home/dylan}/synth_models/synth_qwen27"
 echo QWEN_SYNTH_DONE

@@ -120,10 +120,15 @@ PYEOF
     ;;
   doctor)
     echo "== engine =="; ls -la "$ENGINE" | awk '{print $5, $9}'
-    echo "== knobs present in binary =="; for k in TRUNK_MAP GRIFFIN HOT_FRAC TRUNK_WARM HOT_PROFILE HOT_LAYERS KV8 KV_TQ KV_TQ_CODEC Q36_FLASH; do
+    echo "== knobs present in binary =="; for k in TRUNK_MAP GRIFFIN HOT_FRAC TRUNK_WARM HOT_PROFILE HOT_LAYERS KV8 KV_TQ KV_TQ_CODEC Q36_FLASH Q36_FAST_SOFTMAX; do
       c=$(grep -c "$k" "$HOME/colibri/c/qwen36.c"); echo "  $k: $c refs"
     done
     echo "== model: $MODEL ($CLASS, num_experts=$NEXP)"
+    if [ -f "$MODEL/qwen36_meta.json" ]; then
+      grep -q '"mtp"' "$MODEL/qwen36_meta.json" && echo "== mtp head: container carries meta.mtp (Phase 2b will use it)" || echo "== mtp head: none in container meta"
+    else
+      echo "== mtp head: no qwen36_meta.json found"
+    fi
     echo "== level: $LEVEL (cap=$CAP threads=$THREADS ctx=$CTX kv8=$KV8V frac=$FRAC)"
     echo "== ram: $(free -h | awk '/Mem:/ {print $2}')"
     ;;

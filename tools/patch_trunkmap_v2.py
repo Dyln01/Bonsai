@@ -13,9 +13,10 @@ v2 adds the byte-cut that makes streaming usable:
 
 All opt-in under the same TRUNK_MAP=1; TRUNK_MAP=0 restores stock everywhere.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "matmul_map_i4" in src:
     print("v2 already applied"); sys.exit(0)

@@ -7,9 +7,10 @@ the full path. Fix: narrow gate/up ONCE and call the batched matmul over all S
 rows (chunks of B, mirroring qwen_shared_batch_rows), and a batched
 q36_down_prefix. Identical math; Ik*I staging done once per row chunk.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "PAGEBATCH" in src:
     print("already patched"); sys.exit(0)

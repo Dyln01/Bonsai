@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """exp_kv_and_trunk.py — focused experiments for research areas #1 (KV RAM)
 and #2 (dense-trunk offload), on the synthetic harness.
@@ -19,6 +20,7 @@ Experiment C — determinism gates (verify_structural.py inline): greedy token
   stream hash x2 fresh processes must match.
 """
 import hashlib, json, os, re, subprocess, sys, time
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 ENGINE = os.path.expanduser("~/colibri/c/colibri")
 RE_RSS = re.compile(r"Maximum resident set size \(kbytes\): (\d+)")
@@ -42,7 +44,7 @@ def main():
     out = {}
     print("== A: KV RAM at CTX=131072 (synth_std, PROMPT mode) ==")
     for label, kv in [("f32", {}), ("kv8", {"KV8": "1"}), ("kvtq4", {"KV_TQ": "4"})]:
-        env = {"SNAP": "/home/dylan/synth_models/synth_std", "CTX": "131072",
+        env = {"SNAP": f"{_Q36_HOME}/synth_models/synth_std", "CTX": "131072",
                "NGEN": "8", "KVSAVE": "0", "COLI_USAGE": "", "USAGE_SAVE": "0",
                "COLI_TEMP": "0", "CHAT_TEMPLATE": "0", "CAP_RAISE": "0",
                "PROMPT": "the quick brown fox jumps over the lazy dog repeatedly"}
@@ -58,7 +60,7 @@ def main():
     for label, tr in [("resident_default", {}),
                       ("trunk_mmap0", {"TRUNK_RESIDENT_LAYERS": "0", "COLI_MMAP": "1"}),
                       ("trunk_mmap0_pilot", {"TRUNK_RESIDENT_LAYERS": "0", "COLI_MMAP": "1", "PIPE": "1"})]:
-        env = {"SNAP": "/home/dylan/synth_models/synth_huge_trunk", "CTX": "2048",
+        env = {"SNAP": f"{_Q36_HOME}/synth_models/synth_huge_trunk", "CTX": "2048",
                "NGEN": "16", "KVSAVE": "0", "COLI_USAGE": "", "USAGE_SAVE": "0",
                "COLI_TEMP": "0", "CHAT_TEMPLATE": "0", "RAM_GB": "2",
                "CAP_RAISE": "0", "DIRECT": "1",
@@ -74,7 +76,7 @@ def main():
     print("== C: greedy determinism (2 fresh processes, synth_std) ==")
     hashes = []
     for i in range(2):
-        env = {"SNAP": "/home/dylan/synth_models/synth_std", "CTX": "1024",
+        env = {"SNAP": f"{_Q36_HOME}/synth_models/synth_std", "CTX": "1024",
                "NGEN": "64", "KVSAVE": "0", "COLI_USAGE": "", "USAGE_SAVE": "0",
                "COLI_TEMP": "0", "CHAT_TEMPLATE": "0", "TOKENS": "1",
                "PROMPT": "the quick brown fox jumps over the lazy dog repeatedly and considers the nature of testing synthetic models"}

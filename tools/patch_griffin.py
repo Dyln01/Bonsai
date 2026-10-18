@@ -18,9 +18,10 @@ Two selection modes (GRIFFIN_MODE env):
 Quality contract: K = HOT_FRAC * I per layer (same dial). The set differs from the
 corpus prefix: it adapts per sequence. Decode computes exactly K neurons/layer.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "GRIFFIN" in src:
     print("already patched"); sys.exit(0)

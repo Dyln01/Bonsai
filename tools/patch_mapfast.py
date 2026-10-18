@@ -7,9 +7,10 @@ Fix, same tile-staging trick as the KV8 patch: dequantize each output row ONCE
 into per-thread f32 staging, then run the engine's own vectorized fixed-lane dot
 over the S input rows. Compute drops from S*O*I dequants to O*I + S*O*I FMAs.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "MAPFAST" in src:
     print("already patched"); sys.exit(0)

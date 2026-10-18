@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """patch_hotneuron.py — HOT-NEURON PAGING for dense models (TRUNK_MAP v3). CLEAN."""
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "HOT_FRAC" in src:
     print("already patched"); sys.exit(0)

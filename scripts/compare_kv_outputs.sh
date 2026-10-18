@@ -3,7 +3,7 @@
 cd ~/colibri/c
 run_one() {
   local kv="$1"
-  SNAP=/home/dylan/synth_models/synth_std CTX=2048 KVSAVE=0 USAGE_SAVE=0 CHAT_TEMPLATE=0 \
+  SNAP=${Q36_HOME:-/home/dylan}/synth_models/synth_std CTX=2048 KVSAVE=0 USAGE_SAVE=0 CHAT_TEMPLATE=0 \
   NGEN=48 COLI_TEMP=0 SERVE=1 CAP=8 CAP_RAISE=0 DIRECT=1 PIPE=1 $kv \
   ./colibri 8 16 16 2>/dev/null | tr "\n" " " | md5sum | cut -d" " -f1
 }

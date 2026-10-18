@@ -19,9 +19,10 @@ Patch points (all verified unique in the bf24429+flash+KV8 tree):
   3. matmul_d: w->map branch -> matmul_map_f16 (AVX2-friendly dequant dot).
   4. layers_forward_range: MADV_WILLNEED on layer i+1's resident-mapped QWs.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 if "TRUNK_MAP" in src:
     print("already patched"); sys.exit(0)

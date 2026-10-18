@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """Fix the F32 norm tensors in synth_qwen27: the generator's save_safetensors
 wrote interleaved dicts where later .qs entries shifted offsets — the norm
@@ -6,8 +7,9 @@ generator-side bug: `data_offsets` must be contiguous and match numel*esz
 exactly (st.h enforces it for float dtypes). Rebuild the file with correct
 offsets from the raw blobs."""
 import json, struct, collections
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
-P = "/home/dylan/synth_models/synth_qwen27/model-00000.safetensors"
+P = f"{_Q36_HOME}/synth_models/synth_qwen27/model-00000.safetensors"
 f = open(P, "rb")
 n = struct.unpack("<Q", f.read(8))[0]
 hdr_raw = json.loads(f.read(n), object_pairs_hook=collections.OrderedDict)

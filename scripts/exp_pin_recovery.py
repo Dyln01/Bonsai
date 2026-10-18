@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """exp_pin_recovery.py v2 — learned hot-store (pin) benefit, with a REAL history.
 
@@ -9,9 +10,10 @@ SERVE-mode turns (each turn appends), then measures:
 The engine's [PIN] lines and hit-rate/tok-s from REPLAY decode are the readout.
 """
 import json, os, re, subprocess, time
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 ENGINE = os.path.expanduser("~/colibri/c/colibri")
-MODEL = "/home/dylan/synth_models/synth_std"
+MODEL = f"{_Q36_HOME}/synth_models/synth_std"
 RE_REPLAY = re.compile(r"REPLAY decode: (\d+) tokens in ([\d.]+)s \| ([\d.]+) tok/s \| expert hit ([\d.]+)%")
 RE_RES = re.compile(r"resident experts: (\d+) pinned \(([\d.]+) GB\) \+ (\d+) in LRU \(([\d.]+) GB")
 RE_PIN = re.compile(r"\[PIN\].*")

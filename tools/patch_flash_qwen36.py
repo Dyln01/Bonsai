@@ -3,9 +3,10 @@
 Applied to a clean bf24429+KV8 tree (qwen36.c.preflash restored).
 Every anchor is asserted unique before use; the script is idempotent-safe by checking markers.
 """
-import os, sys
+import os
+import sys
 
-P = os.path.expanduser("~/colibri/c/qwen36.c")
+P = os.path.expanduser(sys.argv[1] if len(sys.argv) > 1 else "~/colibri/c/qwen36.c")
 src = open(P, "rb").read().decode()
 assert "Q36_FLASH" not in src, "tree not clean"
 assert "g_q36_ref_mode" not in src, "tree not clean (ref mode)"

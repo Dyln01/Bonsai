@@ -294,22 +294,39 @@ then `cp engine/*.c engine/*.h c/`, `make -C c qwen36` — full detail in
 | `hotcal_pipeline.py`, `seed_zipf_usage.py` | calibration + Zipf usage prior |
 
 Order: kv8 → flash → trunkmap → hotneuron → griffin → mapfast/pagebatch →
-kvtq (each script refuses to run twice; backups `.orig/.premap/.prehot/.pretq`
-are left beside the source).
+kvtq → softmax (each script refuses to run twice; backups `.orig/.premap/.prehot/.pretq/.presm`
+are left beside the source). **Reproducibility caveat (2026-10-19):** the committed
+patchers replay the segments premap→prehot (`patch_trunkmap.py` + `patch_trunkmap_v2.py`),
+pretq→presm (`patch_kvtq.py`) and presm→final (`patch_softmax.py`) byte-exactly; the
+orig→premap and prehot→pretq segments are under regeneration audit (ROADMAP E1) —
+the `engine/` snapshots + `tools/patch_manifest.json` are the source of truth until it
+closes. Check everything with:
+
+```bash
+bash tools/verify_engine.sh
+```
 
 ---
 
 ## 9. Verify an install (parity gates)
 
-Run both; they are pure C99, no model needed:
+They are pure C99, no model needed. Since `engine/kv_fp8.h` is vendored
+(byte-identical from colibri `bf24429`), they compile from the Bonsai tree alone:
 
 ```bash
-gcc -O2 -I"$HOME/colibri/c" -o /tmp/kvtq "$HOME/colibri/c/kv_tq_parity_q36.c" -lm && /tmp/kvtq
+gcc -O2 -I"$HOME/bonsai/engine" -o /tmp/kvtq "$HOME/bonsai/engine/kv_tq_parity_q36.c" -lm && /tmp/kvtq
 # PARITY OK: FWHT, radius, direction, linearity, inert, accounting — all gates passed
 
-gcc -O2 -I"$HOME/colibri/c" -o /tmp/kv8p "$HOME/colibri/c/kv8_parity.c" -lm && /tmp/kv8p
+gcc -O2 -I"$HOME/bonsai/engine" -o /tmp/kv8p  "$HOME/bonsai/engine/kv8_parity.c"        -lm && /tmp/kv8p
 # all 256 codes identical … PASS
+
+gcc -O2 -mavx2 -mfma -I"$HOME/bonsai/engine" -o /tmp/smb "$HOME/bonsai/engine/softmaxbench_q36.c" -lm && /tmp/smb
+# fast-exp gates: rel err 2.46e-07, underflow zone safe, more accurate than stock
 ```
+
+(From a colibri checkout the same commands work with `-I"$HOME/colibri/c"` on the
+copies in `c/`.) Snapshot-chain check, no compiler needed: `bash tools/verify_engine.sh`.
+
 
 Then a 5-minute smoke test end-to-end:
 

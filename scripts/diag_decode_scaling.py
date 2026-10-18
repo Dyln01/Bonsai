@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """diag_decode_scaling.py — find where decode time actually goes.
 
@@ -9,6 +10,7 @@ and prints tok/s per arm. The prompt file format: one token id per... the
 engine reads raw text; distinct words = distinct byte-level tokens.
 """
 import subprocess, os, re, random
+_Q36_HOME = os.environ.get("Q36_HOME", "/home/dylan")  # portability: override per host
 
 E = os.path.expanduser("~/colibri/c/qwen36")
 RE_SPEED = re.compile(r"Speed: ([\d.]+) tok/s \(([\d.]+)s for (\d+) tokens\)")
@@ -30,7 +32,7 @@ def run(ctx, lookup, threads, prompt_file, ngen=64):
                          "NGEN", "COLI_TEMP", "KV8", "COLI_DENSE_BITS", "COLI_LOOKUP",
                          "OMP_NUM_THREADS", "COLI_NO_OMP_TUNE")):
             del e[k]
-    e.update({"SNAP": "/home/dylan/synth_models/synth_qwen27", "KVSAVE": "0",
+    e.update({"SNAP": f"{_Q36_HOME}/synth_models/synth_qwen27", "KVSAVE": "0",
               "COLI_USAGE": "/tmp/none", "USAGE_SAVE": "0", "Q36_MAXT": "16384",
               "NGEN": str(ngen), "COLI_TEMP": "0", "OMP_NUM_THREADS": str(threads),
               "COLI_NO_OMP_TUNE": "1"})
@@ -52,7 +54,7 @@ def run(ctx, lookup, threads, prompt_file, ngen=64):
 def main():
     # distinct-token prompts at several lengths
     for n in [512, 2048, 8192]:
-        pf = f"/home/dylan/prompt_distinct_{n}.txt"
+        pf = f"{_Q36_HOME}/prompt_distinct_{n}.txt"
         mkprompt(n, pf)
         for lookup in [False, True]:
             for th in [8]:
@@ -61,7 +63,7 @@ def main():
                       f"decode={toks} tok/s | ttft={ttft}s | rc={rc}")
                 if spec: print(f"    {spec}")
     print("\n-- 16 threads at 8k, lookup off --")
-    pf = "/home/dylan/prompt_distinct_8192.txt"
+    pf = f"{_Q36_HOME}/prompt_distinct_8192.txt"
     toks, ttft, spec, rc = run(8192 + 128, False, 16, pf)
     print(f"threads=16: decode={toks} tok/s ttft={ttft}s rc={rc}")
 
