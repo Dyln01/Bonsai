@@ -73,10 +73,15 @@ jobs:
         run: |
           set -e
           python3 scripts/gen_mtp_head_synth.py "$HOME/synth_models/student_1b_i4"
+          rc=0
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
           COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 Q36_MTP=1 \
-          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run_mtp.out 2> /tmp/run_mtp.err
-          grep -q "\[qwen36 MTP\] head loaded" /tmp/run_mtp.err && echo "head-loaded line OK"
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run_mtp.out 2> /tmp/run_mtp.err || rc=$?
+          echo "engine rc=$rc"
+          if ! grep -q "\[qwen36 MTP\] head loaded" /tmp/run_mtp.err; then
+            echo "--- engine stderr (tail):"; tail -25 /tmp/run_mtp.err; exit 1
+          fi
+          echo "head-loaded line OK"
           a=$(sha256sum /tmp/run1.out | cut -d' ' -f1)
           b=$(sha256sum /tmp/run_mtp.out | cut -d' ' -f1)
           echo "stock=$a mtp-loaded=$b"
