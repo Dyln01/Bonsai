@@ -41,7 +41,7 @@ jobs:
           printf 'The quick brown fox jumps over the lazy dog. ' > /tmp/p.txt
           for i in 1 2 3; do printf 'Counting numbers matter: %d. ' $i >> /tmp/p.txt; done
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
-          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP=/tmp/l_stock.bin \
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run1.out 2> /tmp/run1.err
           rc=$?
           echo "rc=$rc"
@@ -53,11 +53,11 @@ jobs:
         run: |
           set -e
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
-          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP=/tmp/l_run2.bin \
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run2.out 2> /dev/null
-          a=$(sha256sum /tmp/run1.out | cut -d' ' -f1)
-          b=$(sha256sum /tmp/run2.out | cut -d' ' -f1)
-          echo "run1=$a run2=$b"
+          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
+          b=$(sha256sum /tmp/l_run2.bin | cut -d' ' -f1)
+          echo "logits run1=$a run2=$b"
           [ "$a" = "$b" ]
 
       - name: MTP gate 1 — knob on, headless container must refuse
@@ -75,17 +75,17 @@ jobs:
           python3 scripts/gen_mtp_head_synth.py "$HOME/synth_models/student_1b_i4"
           rc=0
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
-          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 Q36_MTP=1 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 Q36_MTP=1 DUMP=/tmp/l_mtp.bin \
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run_mtp.out 2> /tmp/run_mtp.err || rc=$?
           echo "engine rc=$rc"
           if ! grep -q "\[qwen36 MTP\] head loaded" /tmp/run_mtp.err; then
             echo "--- engine stderr (tail):"; tail -25 /tmp/run_mtp.err; exit 1
           fi
           echo "head-loaded line OK"
-          a=$(sha256sum /tmp/run1.out | cut -d' ' -f1)
-          b=$(sha256sum /tmp/run_mtp.out | cut -d' ' -f1)
+          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
+          b=$(sha256sum /tmp/l_mtp.bin | cut -d' ' -f1)
           echo "stock=$a mtp-loaded=$b"
-          [ "$a" = "$b" ]   # part 1: head loads and stays inert
+          [ "$a" = "$b" ]   # part 1: head loads and stays inert (last-logit identity)
 
       - name: MTP gate 3 — drafting on (drafts 0..3), greedy output still stock-identical
         run: |
@@ -93,10 +93,12 @@ jobs:
           for D in 0 1 2 3; do
             SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
             COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
-            Q36_MTP=1 Q36_MTP_DRAFTS=$D COLI_LOOKUP=0 COLI_SPEC_GATE=0 \
+            Q36_MTP=1 Q36_MTP_DRAFTS=$D COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP=/tmp/l_d$D.bin \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/mtp_d$D.out 2> /tmp/mtp_d$D.err
-            cmp /tmp/run1.out /tmp/mtp_d$D.out
-            echo "drafts=$D output identical to stock"
+            a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
+            b=$(sha256sum /tmp/l_d$D.bin | cut -d' ' -f1)
+            echo "drafts=$D logits stock=$a run=$b"
+            [ "$a" = "$b" ]
           done
           # random-weight head: ~0 acceptance, so verifies must have run and rolled back
           grep -q "\[qwen36 MTP\] run:" /tmp/mtp_d2.err

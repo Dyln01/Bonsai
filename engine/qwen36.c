@@ -5888,8 +5888,7 @@ static int q36_mtp_propose(Model *m, Q36Spec *sp, int tok, int pos, int room, in
     const float *hid = q36_mtp_hidden_at(m, pos - 1);
     if (!hid) return 0;
     float *e = falloc(H), *cat = falloc(2 * (int64_t)H), *xx = falloc(H);
-    float a[1024], b[1024];
-    if (H > 1024) { fprintf(stderr, "[qwen36 MTP] hidden > 1024 unsupported in part 2\n"); exit(1); }
+    float *a = falloc(H), *b = falloc(H);
     q36_embed_row(m, tok, pos, e);
     rmsnorm_row(a, e, h->n_emb, H, c->eps);
     rmsnorm_row(b, hid, h->n_hid, H, c->eps);
@@ -5916,7 +5915,7 @@ static int q36_mtp_propose(Model *m, Q36Spec *sp, int tok, int pos, int room, in
         free(e2); free(yy);
         rowpos++;
     }
-    free(e); free(cat); free(xx);
+    free(e); free(cat); free(xx); free(a); free(b);
     return n;
 }
 
