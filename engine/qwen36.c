@@ -958,6 +958,7 @@ typedef struct {
      * per expert, [gate int4 packed | up int4 packed | down int8], 2*inter*hidden
      * bytes -- told apart from int4 (1.5x) and int8 (3x) by size, like today. */
     int expert_down_bits, expert_down_gs;
+    int mtp, mtp_layers;      /* Phase 2b: qwen36_meta.json "mtp"/"mtp_layers" */
     /* Vision (#1757). The tower is the same in Qwen3.5, 3.6 and 3.8 -- only its
      * output width follows the text model -- so the qwen38 one is reused. 0 depth
      * = text only (a container converted without it, or a text-only checkpoint). */
@@ -1063,6 +1064,7 @@ typedef struct {
     float *embed, *final_norm;
     uint16_t *embed_h;      /* COLI_DENSE_BITS=16: the table in f16, embed is NULL */
     QW lm_head;
+    struct Q36MTPHead *mtp;   /* Phase 2b: MTP draft head (NULL until attach) */
     Layer *L;
     LCache *cache;          /* [n_layers] */
     int *active_of;         /* [n_layers] original->active idx (Phase 2: identity for all layers) */
@@ -2218,6 +2220,95 @@ static void validate_cfg(const Cfg *c, int n_layers_from_config) {
     }
 }
 
+/* ================= Phase 2b: MTP head (part 1: loader + knobs) =========
+ * The head's tensors ride in m->S already: st_scan_dir takes every
+ * *.safetensors in the container, so model-mtp.safetensors needs no second
+ * shards instance — and an MTP-unaware engine never requests mtp.* names,
+ * which is exactly the stock-safety property measured in Phase 2a. */
+static int  g_q36_mtp_on = 0;
+static int  g_q36_mtp_drafts = 2;
+static char g_q36_mtp_force[32] = {0};
+
+typedef struct Q36MTPHead {
+    int loaded, dense;
+    int H, I;
+    float *fc, *n_emb, *n_hid, *n_in, *n_post, *n_q, *n_k, *n_fin;
+    float *qw, *kw, *vw, *ow, *gw, *uw, *dw;
+    int64_t n_fc, n_qw, n_kw, n_vw, n_ow, n_gw, n_uw, n_dw;
+} MTPHead;
+
+static float *mtp_f32(shards *S, const char *name, int64_t *numel) {
+    st_tensor *t = st_find(S, name);
+    if (!t) { fprintf(stderr, "[qwen36 MTP] missing tensor %s\n", name); exit(1); }
+    float *p = malloc((size_t)t->numel * sizeof(float));
+    if (!p) { fprintf(stderr, "[qwen36 MTP] OOM on %s\n", name); exit(1); }
+    int64_t n = st_read_f32(S, name, p, 0);
+    if (n != t->numel) { fprintf(stderr, "[qwen36 MTP] short read %s\n", name); exit(1); }
+    if (numel) *numel = n;
+    return p;
+}
+
+static void q36_mtp_attach(Model *m) {
+    if (!g_q36_mtp_on) return;                    /* knob off: fully inert */
+    if (!m->c.mtp) {
+        fprintf(stderr, "[qwen36 MTP] Q36_MTP=1 but qwen36_meta.json has no \"mtp\" key — refusing\n");
+        exit(1);
+    }
+    if (!st_find(&m->S, "mtp.fc.weight")) {
+        fprintf(stderr, "[qwen36 MTP] meta.mtp set but no mtp.* tensors in the container — refusing\n");
+        exit(1);
+    }
+    MTPHead *h = calloc(1, sizeof *h);
+    if (!h) { fprintf(stderr, "[qwen36 MTP] OOM\n"); exit(1); }
+    h->H = m->c.hidden;
+    h->fc    = mtp_f32(&m->S, "mtp.fc.weight", &h->n_fc);
+    h->n_emb = mtp_f32(&m->S, "mtp.pre_fc_norm_embedding.weight", NULL);
+    h->n_hid = mtp_f32(&m->S, "mtp.pre_fc_norm_hidden.weight", NULL);
+    h->n_fin = mtp_f32(&m->S, "mtp.norm.weight", NULL);
+    h->n_in  = mtp_f32(&m->S, "mtp.layers.0.input_layernorm.weight", NULL);
+    h->n_post= mtp_f32(&m->S, "mtp.layers.0.post_attention_layernorm.weight", NULL);
+    {
+        char nm[256]; const char *p0 = "mtp.layers.0.self_attn.";
+        snprintf(nm, sizeof nm, "%sq_proj.weight", p0); h->qw = mtp_f32(&m->S, nm, &h->n_qw);
+        snprintf(nm, sizeof nm, "%sk_proj.weight", p0); h->kw = mtp_f32(&m->S, nm, &h->n_kw);
+        snprintf(nm, sizeof nm, "%sv_proj.weight", p0); h->vw = mtp_f32(&m->S, nm, &h->n_vw);
+        snprintf(nm, sizeof nm, "%so_proj.weight", p0); h->ow = mtp_f32(&m->S, nm, &h->n_ow);
+        if (m->c.has_qk_norm) {
+            snprintf(nm, sizeof nm, "%sq_norm.weight", p0); h->n_q = mtp_f32(&m->S, nm, NULL);
+            snprintf(nm, sizeof nm, "%sk_norm.weight", p0); h->n_k = mtp_f32(&m->S, nm, NULL);
+        }
+        /* part 1 loads the DENSE head (mlp. prefix); the MoE head (router +
+         * fused experts, resident int4) lands with drafting in part 2 */
+        if (st_find(&m->S, "mtp.layers.0.mlp.gate_proj.weight")) {
+            h->dense = 1;
+            h->gw = mtp_f32(&m->S, "mtp.layers.0.mlp.gate_proj.weight", &h->n_gw);
+            h->uw = mtp_f32(&m->S, "mtp.layers.0.mlp.up_proj.weight",   &h->n_uw);
+            h->dw = mtp_f32(&m->S, "mtp.layers.0.mlp.down_proj.weight", &h->n_dw);
+            h->I = (int)(h->n_uw / h->H);
+        } else {
+            fprintf(stderr, "[qwen36 MTP] MoE head in container; part 1 loads dense heads only (part 2 adds experts) — refusing\n");
+            exit(1);
+        }
+    }
+    h->loaded = 1;
+    m->mtp = h;
+    fprintf(stderr, "[qwen36 MTP] head loaded: %d layer(s), dense=%d, hidden=%d, ~%ld MB resident (drafts=%d force=%s)\n",
+            m->c.mtp_layers > 0 ? m->c.mtp_layers : 1, h->dense, h->H,
+            (long)((h->n_fc + h->n_qw + h->n_kw + h->n_vw + h->n_ow +
+                    h->n_gw + h->n_uw + h->n_dw) * 4 / (1024 * 1024)),
+            g_q36_mtp_drafts, g_q36_mtp_force[0] ? g_q36_mtp_force : "-");
+}
+
+static void q36_mtp_free(Model *m) {
+    MTPHead *h = m->mtp;
+    if (!h) return;
+    free(h->fc); free(h->n_emb); free(h->n_hid); free(h->n_in); free(h->n_post);
+    free(h->n_q); free(h->n_k); free(h->n_fin);
+    free(h->qw); free(h->kw); free(h->vw); free(h->ow);
+    free(h->gw); free(h->uw); free(h->dw);
+    free(h); m->mtp = NULL;
+}
+
 static void load_meta(Cfg *c, const char *snap) {
     /* is_attn was sized by load_cfg from config.json and is NOT resized here, so
      * every write below is bounded by this count, not by whatever the meta says. */
@@ -2236,6 +2327,7 @@ static void load_meta(Cfg *c, const char *snap) {
         G("q_head_dim", q_head_dim); G("k_head_dim", k_head_dim); G("v_head_dim", v_head_dim);
         G("o_in", o_in); G("rope_dim", rope_dim); G("qk_rope_head_dim", rope_dim);
         G("expert_gs", expert_gs);
+        G("mtp", mtp); G("mtp_layers", mtp_layers);
         G("expert_down_bits", expert_down_bits); G("expert_down_gs", expert_down_gs);
         G("num_experts", n_experts); G("topk", topk);
         G("moe_inter", inter); G("shared_inter", shared_inter);
@@ -2717,6 +2809,7 @@ static void model_init_range(Model *m, const char *snap, int cap, int bits,
         fprintf(stderr, "rotary_dim %d invalid for head_dim %d\n", m->c.rotary_dim, m->c.head_dim); exit(1);
     }
     st_init(&m->S, snap);
+    q36_mtp_attach(m);
     Cfg *c = &m->c;
     if (layer_end == 0) layer_end = c->n_layers;
     if (layer_begin < 0 || layer_end > c->n_layers ||
@@ -7150,6 +7243,13 @@ int main(int argc, char **argv) {
     if (rplen>=5 && strcmp(refpath+rplen-5, ".json")==0) is_ref = 1;
     g_q36_ref_mode = is_ref;
     { const char *hp = getenv("HOT_PROFILE"); if (hp && *hp) snprintf(g_hot_profile_path, sizeof g_hot_profile_path, "%s", hp); }
+    { const char *mv = getenv("Q36_MTP"); if (mv && mv[0] == '1') g_q36_mtp_on = 1;
+      const char *md = getenv("Q36_MTP_DRAFTS");
+      if (md && *md) { g_q36_mtp_drafts = atoi(md);
+                       if (g_q36_mtp_drafts < 0 || g_q36_mtp_drafts > 3) {
+                           fprintf(stderr, "Q36_MTP_DRAFTS must be 0..3\n"); exit(1); } }
+      const char *mf = getenv("Q36_MTP_FORCE");
+      if (mf && *mf) snprintf(g_q36_mtp_force, sizeof g_q36_mtp_force, "%s", mf); }
 
     int *prompt=NULL, *full=NULL, *out=NULL;
     int np=0, nfull=0, n_new=0;
@@ -7689,6 +7789,7 @@ static void qwen36_segment_layer_free(Layer *layer) {
 static void qwen36_segment_model_destroy(Qwen36SegmentEngine *engine) {
     if (!engine) return;
     Model *model = &engine->model;
+    q36_mtp_free(model);
     for (uint32_t layer = engine->layer_begin; layer < engine->layer_end;
          layer++) {
         qwen36_segment_layer_free(&model->L[layer]);

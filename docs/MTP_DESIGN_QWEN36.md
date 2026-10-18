@@ -111,7 +111,17 @@ self-speculation (no separate draft model to download) reports up to 2.3×.
 On the mini-PC target (RAM-bound, 3.4–12 tok/s decode), a 2× decode
 multiplier is worth more than every remaining RAM optimization combined.
 
-## Implementation status (2026-10-16, end of session 2)
+## Implementation status (2026-10-19, part 1 landed on `test`)
+
+- **DONE — part 1 loader + knobs** (`tools/patch_mtp.py`, 7 anchored edits,
+  backup `qwen36.c.premtp`): meta keys, `Q36_MTP=1`/`Q36_MTP_DRAFTS=0..3`/
+  `Q36_MTP_FORCE` parse, dense-head f32 loader through `st_find(&m->S, …)`
+  (no second shards instance needed: `st_scan_dir` indexes every
+  `*.safetensors`, which is also why MTP-unaware engines stay stock-safe),
+  refuse-gates, `[qwen36 MTP] head loaded` report line, `q36_mtp_free`.
+  CI (`engine-build.yml`): refusal on headless containers; knob-on token
+  stream byte-identical to stock (part 1 head is inert).
+- **NEXT — part 2 drafting + verify**, exactly as pinned below.
 
 - **DONE — synthetic head generator** (`scripts/gen_mtp_head_synth.py`): adds
   `model-mtp.safetensors` + `meta.mtp=1` to any qwen36 container. Ran on
@@ -134,7 +144,9 @@ multiplier is worth more than every remaining RAM optimization combined.
   each verify); the post-prompt window is initially short and the gate's
   acceptance EMA judges whether drafting pays — real-context quality is a
   Phase 5 question, mechanics are exact.
-- **NEXT (the engine patcher, `tools/patch_mtp.py`)**: meta keys `mtp`/
+- **NEXT — part 2** (drafting/verify; the part-1 loader has landed): the engine
+  integration below — head forward, hidden capture, `SPEC_SRC_MTP` proposal,
+  force-oracle gates, draft-cost battery. The pinned part-2 plan (session 2):
   `mtp_layers` in the Cfg G()-parse (L2123 group); `MTPHead` struct (a Layer
   + `QW fc` + three norms + own f32 K/V pool + resident int4 experts — the
   head's experts bypass the LRU store, ~340 MB resident on the 30B synth);

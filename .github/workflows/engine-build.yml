@@ -59,3 +59,25 @@ jobs:
           b=$(sha256sum /tmp/run2.out | cut -d' ' -f1)
           echo "run1=$a run2=$b"
           [ "$a" = "$b" ]
+
+      - name: MTP gate 1 — knob on, headless container must refuse
+        run: |
+          set -e
+          if SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=4 \
+             COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 Q36_MTP=1 \
+             timeout 300 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/mtp_refuse.err
+          then echo "expected refusal, got rc=0"; exit 1; fi
+          grep -q "refusing" /tmp/mtp_refuse.err && echo "refusal message OK"
+
+      - name: MTP gate 2 — synthetic head loads, knob-off bytes unchanged
+        run: |
+          set -e
+          python3 scripts/gen_mtp_head_synth.py "$HOME/synth_models/student_1b_i4"
+          SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 Q36_MTP=1 \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run_mtp.out 2> /tmp/run_mtp.err
+          grep -q "\[qwen36 MTP\] head loaded" /tmp/run_mtp.err && echo "head-loaded line OK"
+          a=$(sha256sum /tmp/run1.out | cut -d' ' -f1)
+          b=$(sha256sum /tmp/run_mtp.out | cut -d' ' -f1)
+          echo "stock=$a mtp-loaded=$b"
+          [ "$a" = "$b" ]   # part 1: head loads and stays inert

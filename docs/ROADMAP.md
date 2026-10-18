@@ -29,11 +29,23 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 
 ## Open — phases
 
-- [ ] **Phase 2b:** MTP head engine integration — `tools/patch_mtp.py` per the pinned plan in
-      `docs/MTP_DESIGN_QWEN36.md` §"NEXT": meta keys, `MTPHead` struct, loader, head forward,
-      hidden capture at the `step_ex` seam; knobs `Q36_MTP=1`, `Q36_MTP_DRAFTS=1|2|3|0`,
-      `Q36_MTP_FORCE=accept|mixed|cycle|rowN`; gates: forced-accept oracle byte-exact,
-      knob-unset stock byte-identity, draft-cost battery; then COMMANDS §10 + README update.
+- [x] **Phase 2b-1 — MTP head loader + knobs (2026-10-19, `test` branch).**
+      `tools/patch_mtp.py` (7 anchored edits, backup `.premtp`): meta keys
+      `mtp`/`mtp_layers`, knobs `Q36_MTP=1` / `Q36_MTP_DRAFTS=0..3` /
+      `Q36_MTP_FORCE`, dense-head f32 loader via `st_find` on `m->S`
+      (model-mtp.safetensors is already indexed — `st_scan_dir` takes every
+      `*.safetensors`), refuse-gates (headless, meta-without-tensors, MoE head),
+      report line `[qwen36 MTP] head loaded`, `q36_mtp_free` in the destroy path.
+      CI gates: refusal rc!=0 with message; knob-on loads + token stream
+      byte-identical to stock (head inert in part 1).
+- [ ] **Phase 2b-2 — MTP drafting + verify.** MoE head (resident int4 experts),
+      head forward on the S=1 path (matmul_d, rmsnorm_row, rope partial, qk-norm,
+      own KV rows), hidden capture at the `step_ex` lm_head seam, `SPEC_SRC_MTP`
+      proposal beside lookup via `spec_gate_pick`, `Q36_MTP_FORCE=accept|mixed|cycle|rowN`
+      oracle (forced-accept reproduces `g_q36_oracle` byte-exactly; mixed/cycle
+      exercise head-row rollback), knob-unset stock byte-identity, draft-cost
+      battery → `results/results_mtp_q36.json` + report doc. Plan:
+      `docs/MTP_DESIGN_QWEN36.md` §"NEXT".
 - [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
       KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
       decay. Design-contract doc first (house practice), then implementation, then rerun the

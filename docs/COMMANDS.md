@@ -337,12 +337,20 @@ q36-minipc bench   ~/synth_models/student_1b_i4
 
 ---
 
-## 10. Phase 2 note (MTP head — in development)
+## 10. Phase 2 note (MTP head)
 
-The `Q36_MTP*` knobs do not exist yet in the engine. The head contract, the
-measured wiring seams and the `gen_mtp_head_synth.py` generator are done —
-see `docs/MTP_DESIGN_QWEN36.md` for status; the knobs will land as
-`Q36_MTP=1`, `Q36_MTP_DRAFTS=1|2|3|0`, `Q36_MTP_FORCE=accept|mixed|cycle|rowN`.
+**Part 1 LANDED (2026-10-19, `test` branch):** `tools/patch_mtp.py` wires the
+loader + knobs — `Q36_MTP=1` (refuses headless containers and MoE heads),
+`Q36_MTP_DRAFTS=0..3` (default 2, parsed + range-checked), `Q36_MTP_FORCE=<str>`
+(parsed; the oracle comes with part 2). The dense head (norms, qk-normed full
+attention, `mlp.{gate,up,down}`) loads f32-resident from
+`model-mtp.safetensors`; report line `[qwen36 MTP] head loaded: …`. Part 1 is
+inert by construction: knob-off runs are byte-identical, knob-on runs differ
+only by the report line — both enforced in CI (`engine-build.yml`).
+**Part 2 (open):** MoE head (resident int4 experts), head forward on the S=1
+path, hidden capture at the `step_ex` seam, `SPEC_SRC_MTP` proposal beside
+lookup, forced-accept oracle gate, draft-cost battery — plan in
+`docs/MTP_DESIGN_QWEN36.md` §"NEXT".
 
 ---
 
