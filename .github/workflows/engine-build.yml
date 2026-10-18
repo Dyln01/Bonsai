@@ -144,6 +144,7 @@ jobs:
           set -e
           export SYNTH_OUT="$HOME/synth_models/synth_moe_ci" SYNTH_H=512 SYNTH_L=8 SYNTH_E=32 SYNTH_K=4 SYNTH_MLP=256
           python3 scripts/gen_coder30_synth.py
+          python3 scripts/make_tokenizer.py "$SYNTH_OUT/tokenizer.json" 4095
           python3 scripts/gen_mtp_head_synth.py "$SYNTH_OUT"
           SNAP="$SYNTH_OUT" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
           COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
