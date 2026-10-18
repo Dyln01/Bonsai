@@ -1958,7 +1958,118 @@ static void rmsnorm_row(float *out, const float *x, const float *w, int D, float
     for (int i = 0; i < D; i++) out[i] = x[i] * r * (1.0f + w[i]);
 }
 
+/* ---- Q36_FAST_SOFTMAX=1: AVX2 fast exponential (opt-in, lossy-by-rounding) ----
+ *
+ * 2^x = 2^n * poly(f) with n = round(x*log2e), f in [-0.5,0.5]: the integer
+ * part goes straight into the exponent field, the fraction through a
+ * degree-5 minimax polynomial (Chebyshev-node fit on [-0.5,0.5]; the
+ * coefficients are measured, not copied from memory). The argument is
+ * reduced with two FMAs (L_HI + L_LO split of log2e) so the fraction never
+ * inherits the |x*log2e| rounding error that would otherwise grow linearly
+ * with |x|. x < -87 flushes to 0: below that the exponent field would wrap
+ * (n+127 < 1) and the bit trick produces garbage — softmaxbench_q36.c gates
+ * that zone explicitly, because its first version shipped exactly that bug.
+ *
+ * softmaxbench_q36.c (engine/) gates the whole thing:
+ *   max rel err vs expf over [-104,0]: 2.46e-07
+ *   softmax vs an f64 reference: MORE accurate than the stock 3-pass
+ *   (stock's plain f32 accumulator drifts ~1.3e-5 on the 16k row sum)
+ * Measured: 9.5x-11.5x per row (1024..32768) on x86-64-v3. The win is the
+ * vectorization: scalar fast exp is only 1.07x over glibc expf.
+ *
+ * Lossy-by-rounding: a 2.5e-7 exp perturbation can flip a near-tie greedy
+ * token (the Vulkan-tier note in docs/speculative.md describes the same
+ * class). Opt-in for that reason; the default path is stock verbatim. */
+static int g_q36_fast_sm = -1;   /* -1 unparsed, 0 off, 1 on */
+static int q36_fast_sm_on(void) {
+    if (g_q36_fast_sm < 0) {
+        const char *e = getenv("Q36_FAST_SOFTMAX");
+        g_q36_fast_sm = (e && *e == '1') ? 1 : 0;
+#if !(defined(__AVX2__) && defined(__FMA__))
+        if (g_q36_fast_sm) {
+            fprintf(stderr, "[qwen36] Q36_FAST_SOFTMAX=1 ignored: this build has no AVX2+FMA\n");
+            g_q36_fast_sm = 0;
+        }
+#endif
+    }
+    return g_q36_fast_sm;
+}
+
+static inline float q36_fexp(float x) {
+    if (x < -87.0f) return 0.f;                 /* exponent field must never wrap */
+    const float L_HI = 1.4426950216293335f;      /* f32-nearest log2(e) */
+    const float L_LO = 1.925963e-8f;            /* log2(e) - L_HI */
+    float t = x * L_HI;                          /* coarse: only to pick n */
+    float n = (float)(int)(t + (t < 0.f ? -0.5f : 0.5f));
+    float f = fmaf(x, L_LO, fmaf(x, L_HI, -n));  /* exact fraction: 2 FMAs */
+    float p = 1.0000001f + f * (0.6931472f + f * (0.24022107f +
+              f * (0.05550327f + f * (0.009676037f + f * 0.0013400433f))));
+    union { uint32_t i; float f; } u;
+    u.i = (uint32_t)((int)n + 127) << 23;
+    return p * u.f;
+}
+
+/* exp that follows the knob: used by the flash prefill's online softmax. */
+static inline float q36_exp(float x) { return q36_fast_sm_on() ? q36_fexp(x) : expf(x); }
+
+#if defined(__AVX2__) && defined(__FMA__)
+static inline __m256 q36_fexp8(__m256 x) {
+    const __m256 FLOOR = _mm256_set1_ps(-87.0f);
+    const __m256 L_HI = _mm256_set1_ps(1.4426950216293335f), L_LO = _mm256_set1_ps(1.925963e-8f);
+    const __m256 C0 = _mm256_set1_ps(1.0000001f), C1 = _mm256_set1_ps(0.6931472f);
+    const __m256 C2 = _mm256_set1_ps(0.24022107f), C3 = _mm256_set1_ps(0.05550327f);
+    const __m256 C4 = _mm256_set1_ps(0.009676037f), C5 = _mm256_set1_ps(0.0013400433f);
+    const __m256i BIAS = _mm256_set1_epi32(127);
+    __m256 mask = _mm256_cmp_ps(x, FLOOR, _CMP_LT_OQ);
+    x = _mm256_max_ps(x, FLOOR);
+    __m256 t = _mm256_mul_ps(x, L_HI);
+    __m256 rnd = _mm256_round_ps(t, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+    __m256 f = _mm256_fmadd_ps(x, L_LO, _mm256_fmsub_ps(x, L_HI, rnd));
+    __m256 p = C5;
+    p = _mm256_fmadd_ps(f, p, C4);
+    p = _mm256_fmadd_ps(f, p, C3);
+    p = _mm256_fmadd_ps(f, p, C2);
+    p = _mm256_fmadd_ps(f, p, C1);
+    p = _mm256_fmadd_ps(f, p, C0);
+    __m256i e = _mm256_add_epi32(_mm256_cvtps_epi32(rnd), BIAS);
+    __m256 two_n = _mm256_castsi256_ps(_mm256_slli_epi32(e, 23));
+    return _mm256_andnot_ps(mask, _mm256_mul_ps(p, two_n));
+}
+
+static void softmax_row_fast(float *x, int n) {
+    __m256 vm = _mm256_set1_ps(-1e30f);
+    int i = 0;
+    for (; i + 8 <= n; i += 8) vm = _mm256_max_ps(vm, _mm256_loadu_ps(x + i));
+    __m128 lo = _mm256_castps256_ps128(vm), hi = _mm256_extractf128_ps(vm, 1);
+    lo = _mm_max_ps(lo, hi);
+    lo = _mm_max_ps(lo, _mm_movehl_ps(lo, lo));
+    lo = _mm_max_ps(lo, _mm_shuffle_ps(lo, lo, 1));
+    float m = _mm_cvtss_f32(lo);
+    for (; i < n; i++) if (x[i] > m) m = x[i];
+    __m256 vs = _mm256_setzero_ps();
+    i = 0;
+    for (; i + 8 <= n; i += 8) {
+        __m256 e = q36_fexp8(_mm256_sub_ps(_mm256_loadu_ps(x + i), _mm256_set1_ps(m)));
+        _mm256_storeu_ps(x + i, e);
+        vs = _mm256_add_ps(vs, e);
+    }
+    __m128 slo = _mm256_castps256_ps128(vs), shi = _mm256_extractf128_ps(vs, 1);
+    __m128 sd = _mm_add_ps(slo, shi);
+    sd = _mm_add_ps(sd, _mm_movehl_ps(sd, sd));
+    sd = _mm_add_ss(sd, _mm_shuffle_ps(sd, sd, 1));
+    float s = _mm_cvtss_f32(sd);
+    for (; i < n; i++) { float e = q36_fexp(x[i]-m); x[i] = e; s += e; }
+    float inv = 1.f / s;
+    for (i = 0; i + 8 <= n; i += 8)
+        _mm256_storeu_ps(x + i, _mm256_mul_ps(_mm256_loadu_ps(x + i), _mm256_set1_ps(inv)));
+    for (; i < n; i++) x[i] *= inv;
+}
+#endif
+
 static void softmax_row(float *x, int n) {
+#if defined(__AVX2__) && defined(__FMA__)
+    if (q36_fast_sm_on()) { softmax_row_fast(x, n); return; }
+#endif
     float m = -1e30f; for (int i = 0; i < n; i++) if (x[i] > m) m = x[i];
     float s = 0; for (int i = 0; i < n; i++) { x[i] = expf(x[i]-m); s += x[i]; }
     for (int i = 0; i < n; i++) x[i] /= s;
@@ -7126,6 +7237,10 @@ int main(int argc, char **argv) {
     }
     if (m.kv8) coli_fp8_lut_init();
     if (m.kv8) fprintf(stderr, "[qwen36] KV8=1: KV rows stored fp8-e4m3 + per-row f32 scale (lossy, opt-in)\n");
+    q36_fast_sm_on();   /* Q36_FAST_SOFTMAX: parse once, warn once */
+    if (g_q36_fast_sm == 1)
+        fprintf(stderr, "[qwen36] Q36_FAST_SOFTMAX=1: AVX2 fast exp in the attention softmax "
+                "(max rel err 2.5e-7 vs expf; lossy-by-rounding, opt-in)\n");
     if (g_tok_exact) q36_clef_load(&m, snap);
     g_expert_gs = m.c.expert_gs;
     if (g_expert_gs) fprintf(stderr, "[qwen36] group-scaled experts: gs=%d\n", g_expert_gs);

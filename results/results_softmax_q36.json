@@ -1,0 +1,142 @@
+{
+  "operating_point": "synth_qwen27, 15960-token prompt (~/prompt_8k.txt), 48 new tokens, f32 KV, flash on (engine default), argv 32 8, Q36_MAXT=8192, 4-core WSL2 Ryzen 7 7735HS",
+  "note": "9 measured runs total: 3 paired runs (off-then-on, with-flash build), 1 order-swapped control (on-first, with-flash build), 1 isolation run (SHIPPED shape: softmax_row fast path only, flash exp sites reverted), plus the control's two arms. All rc=0.",
+  "runs": [
+    {
+      "run": 1,
+      "arm": "SM_off",
+      "ttft_s": 156.07,
+      "attn_ms_per_tok": 16.45,
+      "decode_tok_s": 45.475,
+      "rc": 0
+    },
+    {
+      "run": 1,
+      "arm": "SM_on_withflash",
+      "ttft_s": 169.82,
+      "attn_ms_per_tok": 15.03,
+      "decode_tok_s": 48.972,
+      "rc": 0
+    },
+    {
+      "run": 2,
+      "arm": "SM_off",
+      "ttft_s": 148.6,
+      "attn_ms_per_tok": 16.42,
+      "decode_tok_s": 45.496,
+      "rc": 0
+    },
+    {
+      "run": 2,
+      "arm": "SM_on_withflash",
+      "ttft_s": 172.33,
+      "attn_ms_per_tok": 15.97,
+      "decode_tok_s": 45.496,
+      "rc": 0
+    },
+    {
+      "run": 3,
+      "arm": "SM_off",
+      "ttft_s": 153.5,
+      "attn_ms_per_tok": 19.82,
+      "decode_tok_s": 36.955,
+      "rc": 0,
+      "note": "noisy run; box identical-config noise band +/-7-9%"
+    },
+    {
+      "run": 3,
+      "arm": "SM_on_withflash",
+      "ttft_s": 173.93,
+      "attn_ms_per_tok": 15.58,
+      "decode_tok_s": 46.86,
+      "rc": 0
+    },
+    {
+      "run": "control",
+      "arm": "SM_on_withflash",
+      "order": "ran FIRST",
+      "ttft_s": 174.78,
+      "attn_ms_per_tok": 16.1,
+      "decode_tok_s": 45.62,
+      "rc": 0
+    },
+    {
+      "run": "control",
+      "arm": "SM_off",
+      "order": "ran SECOND",
+      "ttft_s": 149.44,
+      "attn_ms_per_tok": 16.63,
+      "decode_tok_s": 44.267,
+      "rc": 0
+    },
+    {
+      "run": "isolation",
+      "arm": "SM_on_softmaxonly_SHIPPED",
+      "ttft_s": 143.44,
+      "attn_ms_per_tok": 15.42,
+      "decode_tok_s": 47.326,
+      "rc": 0
+    }
+  ],
+  "conclusions": {
+    "ttft_regression_with_flash_sites": {
+      "effect": "+13% TTFT in 4/4 runs (169.8-174.8 vs 148.6-156.1 stock)",
+      "order_control": "gap follows the knob, not the arm order (on-first 174.8 vs off-second 149.4)",
+      "arithmetic": "the flash loop performs ~2.1M exps (~10 ms) per prefill - the cost is a codegen perturbation of the surrounding V-accumulate loop, ~2000x the exp work itself",
+      "resolution": "flash exp sites reverted to expf; the SHIPPED knob covers softmax_row only"
+    },
+    "shipped_shape_SM_on_softmaxonly": {
+      "ttft_s": 143.44,
+      "vs_stock_range": "148.6-156.1 -> NEUTRAL",
+      "attn_ms_per_tok": 15.42,
+      "vs_stock_clean_mean": "45.08 -> +5.0% (inside the +/-7-9% noise band; the attention-phase metric carries the claim)",
+      "decode_tok_s": 47.326
+    }
+  },
+  "microbench_softmaxbench_q36": {
+    "exp_rel_err_vs_expf": {
+      "max": 2.464e-07,
+      "at": -11.411
+    },
+    "underflow_zone": "[-104,-87): all outputs in [0, 1.6e-38]",
+    "softmax_vs_f64_ref": {
+      "stock_worst": [
+        1.303e-06,
+        2.978e-07
+      ],
+      "fast_worst": [
+        9.593e-08,
+        5.981e-08
+      ],
+      "note": "fast is MORE accurate than stock at both spreads; stock's plain f32 row-sum drifts ~1.3e-5 at 16k"
+    },
+    "ns_per_row": {
+      "T1024": {
+        "stock": 3381,
+        "vfast": 345
+      },
+      "T4096": {
+        "stock": 13401,
+        "vfast": 1222
+      },
+      "T8192": {
+        "stock": 26918,
+        "vfast": 2477
+      },
+      "T16384": {
+        "stock": 54277,
+        "vfast": 5321
+      },
+      "T32768": {
+        "stock": 116122,
+        "vfast": 9977
+      }
+    },
+    "scalar_fast_exp": "1.07x - the win is the vectorization",
+    "silu_shaped_followup": {
+      "ratio": 0.96,
+      "verdict": "no win, MLP path stays stock"
+    }
+  },
+  "patcher_provenance": "tools/patch_softmax.py applied to engine/qwen36.c.presm reproduces the shipped engine byte-identically (md5 3131a067ebc71127b044a83d0b9fe26e, verified 2026-10-17)"
+}

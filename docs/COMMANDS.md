@@ -166,6 +166,7 @@ SNAP=~/synth_models/synth_qwen27 Q36_MAXT=2048 N_NEW=24 COLI_TEMP=0 \
 | `COLI_LOOKUP_DRAFTS=<1..5>` | max drafts per verify |
 | `COLI_SPEC_GATE=0` | draft every proposal in full (tests) |
 | `COLI_LOOKUP_FORCE=accept\|mixed\|cycle\|rowN` | oracle-driven drafting for tests |
+| `Q36_FAST_SOFTMAX=1` | AVX2 fast exponential in the attention softmax (−6.5% attention ms/token at 16k ctx, TTFT-neutral; lossy-by-rounding ~2.5e-7, opt-in; needs an AVX2+FMA build) |
 
 **Measurement**
 
@@ -288,6 +289,7 @@ then `cp engine/*.c engine/*.h c/`, `make -C c qwen36` — full detail in
 | `patch_griffin.py` | per-prompt neuron selection |
 | `patch_mapfast.py`, `patch_pagebatch.py` | map-path speedups |
 | `patch_kvtq.py` | KV_TQ tier (PolarQuant / rot-int4) |
+| `patch_softmax.py` | Q36_FAST_SOFTMAX (AVX2 fast exp in softmax + flash) |
 | `hot_sort.py <model> [profile]` | hotness-sorted container copy |
 | `hotcal_pipeline.py`, `seed_zipf_usage.py` | calibration + Zipf usage prior |
 
