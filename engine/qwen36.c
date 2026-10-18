@@ -2235,6 +2235,9 @@ typedef struct Q36MTPHead {
     float *fc, *n_emb, *n_hid, *n_in, *n_post, *n_q, *n_k, *n_fin;
     float *qw, *kw, *vw, *ow, *gw, *uw, *dw;
     int64_t n_fc, n_qw, n_kw, n_vw, n_ow, n_gw, n_uw, n_dw;
+    int kv_len;                 /* standing + provisional head rows */
+    float *hk, *hv, *yring;     /* own KV [KVH][max_t][HD] + head hidden per row */
+    float *cap; int cap_pos[8]; /* captured model hidden, ring of 8 positions */
 } MTPHead;
 
 static float *mtp_f32(shards *S, const char *name, int64_t *numel) {
@@ -2290,6 +2293,8 @@ static void q36_mtp_attach(Model *m) {
             exit(1);
         }
     }
+    h->cap = falloc(8 * (int64_t)m->c.hidden);
+    for (int i = 0; i < 8; i++) h->cap_pos[i] = 0;
     h->loaded = 1;
     m->mtp = h;
     fprintf(stderr, "[qwen36 MTP] head loaded: %d layer(s), dense=%d, hidden=%d, ~%ld MB resident (drafts=%d force=%s)\n",
@@ -2306,6 +2311,7 @@ static void q36_mtp_free(Model *m) {
     free(h->n_q); free(h->n_k); free(h->n_fin);
     free(h->qw); free(h->kw); free(h->vw); free(h->ow);
     free(h->gw); free(h->uw); free(h->dw);
+    free(h->hk); free(h->hv); free(h->yring); free(h->cap);
     free(h); m->mtp = NULL;
 }
 
@@ -5239,6 +5245,7 @@ static float *step_ex(Model *m, const int *ids, int S, int pos_base, int nlogits
 #ifdef COLI_VULKAN
     if (!chain_logit)
 #endif
+    q36_mtp_capture(m, x, S, pos_base, nlogits);
     for (int r = 0; r < nlogits; r++) {
         float *lr = logit + (int64_t)r * c->vocab;
         rmsnorm_row(last, x + (int64_t)(S - nlogits + r)*D, m->final_norm, D, c->eps);
@@ -5750,6 +5757,8 @@ typedef struct {
     int ids[Q36_SPEC_ROWS];
     float *ahead_logit;
     uint64_t drafts, accepted, verifies, forwards, tokens;
+    int cur_src;                 /* source of the pending verify's drafts (SPEC_SRC_*) */
+    uint64_t m_drafts, m_accepted, m_verifies;   /* MTP-source counters for the report */
     int ended_ahead;             /* the generation ended with a verify's rows unconsumed (undone) */
 } Q36Spec;
 static const int *g_q36_oracle; static int g_q36_oracle_n;   /* ref.json's full ids (COLI_LOOKUP_FORCE) */
@@ -5763,6 +5772,151 @@ static int q36_spec_force_mode(const char *v, int *row) {
     if (!strncmp(v, "row", 3) && v[3] >= '1' && v[3] <= '0' + Q36_SPEC_SNAPS && !v[4]) { *row = v[3] - '0'; return 'w'; }
     fprintf(stderr, "COLI_LOOKUP_FORCE must be accept, mixed, cycle or row1..row%d\n", Q36_SPEC_SNAPS);
     exit(1);
+}
+
+/* ---- Phase 2b part 2: MTP head forward + drafting (dense head) ---- */
+static int q36_spec_forced(const Q36Spec *sp, int k, int j, int pos, int V);
+
+static void mtp_gemv(float *y, const float *x, const float *W, int I, int O) {
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int o = 0; o < O; o++) {
+        const float *w = W + (int64_t)o * I;
+        float s = 0;
+        for (int i = 0; i < I; i++) s += x[i] * w[i];
+        y[o] = s;
+    }
+}
+
+static const float *q36_mtp_hidden_at(Model *m, int p) {
+    if (p < 0 || !m->mtp) return NULL;
+    MTPHead *h = m->mtp; int slot = p & 7;
+    return h->cap_pos[slot] == p + 1 ? h->cap + (int64_t)slot * m->c.hidden : NULL;
+}
+
+static void q36_mtp_capture(Model *m, const float *x, int S, int pos_base, int nlogits) {
+    if (!g_q36_mtp_on || !m->mtp || !m->mtp->loaded) return;
+    MTPHead *h = m->mtp; int H = m->c.hidden;
+    for (int r = 0; r < nlogits; r++) {
+        int p = pos_base + S - nlogits + r, slot = p & 7;
+        memcpy(h->cap + (int64_t)slot * H, x + (int64_t)(S - nlogits + r) * H, (size_t)H * sizeof(float));
+        h->cap_pos[slot] = p + 1;
+    }
+}
+
+static void q36_mtp_settle(Model *m, int ahead_pos, int keep) {
+    if (!m->mtp || !m->mtp->loaded) return;
+    int want = ahead_pos + keep;
+    if (m->mtp->kv_len > want) m->mtp->kv_len = want;   /* stale tail, like the model's */
+}
+
+/* One head row at `pos`: own K/V row in, attention over the head's standing
+ * rows, y out (also parked in the y-ring for deeper drafts). Mirrors the
+ * model's S=1 attention dialect: qk-norm, rope_head_partial, GQA, softmax_row,
+ * attn_out *= sigmoid(gate), then o_proj. */
+static void q36_mtp_row(Model *m, const float *x, int pos, float *y) {
+    MTPHead *h = m->mtp; Cfg *c = &m->c;
+    int H = c->hidden, QH = c->q_heads, KVH = c->kv_heads, HD = c->head_dim;
+    int QO = QH * c->q_head_dim;                    /* query + gate halves */
+    float *q = falloc(QO), *k = falloc((int64_t)KVH * HD), *vv = falloc((int64_t)KVH * HD);
+    mtp_gemv(q, x, h->qw, H, QO);
+    mtp_gemv(k, x, h->kw, H, KVH * HD);
+    mtp_gemv(vv, x, h->vw, H, KVH * HD);
+    for (int kvh = 0; kvh < KVH; kvh++) {
+        float *kr = k + (int64_t)kvh * HD, *vr = vv + (int64_t)kvh * HD;
+        if (h->n_k) rmsnorm_row(kr, kr, h->n_k, HD, c->eps);
+        rope_head_partial(kr, pos, c->rotary_dim, HD, c->theta);
+        memcpy(h->hk + ((int64_t)kvh * m->max_t + pos) * HD, kr, (size_t)HD * sizeof(float));
+        memcpy(h->hv + ((int64_t)kvh * m->max_t + pos) * HD, vr, (size_t)HD * sizeof(float));
+    }
+    float *ctx = falloc((int64_t)QH * HD);
+    for (int qh = 0; qh < QH; qh++) {
+        float *qr = q + (int64_t)qh * HD;
+        float *gt = q + (int64_t)(QH * HD + qh) * HD;
+        if (h->n_q) rmsnorm_row(qr, qr, h->n_q, HD, c->eps);
+        rope_head_partial(qr, pos, c->rotary_dim, HD, c->theta);
+        int kvh = qh / (QH / KVH);
+        const float *Kl = h->hk + (int64_t)kvh * m->max_t * HD;
+        const float *Vl = h->hv + (int64_t)kvh * m->max_t * HD;
+        float *sc = falloc(pos + 1);
+        for (int t = 0; t <= pos; t++) {
+            const float *kr = Kl + (int64_t)t * HD;
+            float s = 0;
+            for (int dd = 0; dd < HD; dd++) s += qr[dd] * kr[dd];
+            sc[t] = s / sqrtf((float)HD);
+        }
+        softmax_row(sc, pos + 1);
+        float *cx = ctx + (int64_t)qh * HD;
+        for (int dd = 0; dd < HD; dd++) {
+            float a = 0;
+            for (int t = 0; t <= pos; t++) a += sc[t] * Vl[(int64_t)t * HD + dd];
+            cx[dd] = a;
+        }
+        if (c->attn_output_gate)
+            for (int dd = 0; dd < HD; dd++) cx[dd] *= 1.0f / (1.0f + expf(-gt[dd]));
+        free(sc);
+    }
+    mtp_gemv(y, ctx, h->ow, QH * HD, H);
+    memcpy(h->yring + (int64_t)pos * H, y, (size_t)H * sizeof(float));
+    if (pos + 1 > h->kv_len) h->kv_len = pos + 1;
+    free(q); free(k); free(vv); free(ctx);
+}
+
+/* Drafts for positions pos+1..: d1 from (embed(tok), model hidden at pos-1),
+ * deeper drafts from the head's own previous hidden (qwen38 stream semantics).
+ * Q36_MTP_FORCE reroutes to the lookup oracle (verify/rollback test path). */
+static int q36_mtp_propose(Model *m, Q36Spec *sp, int tok, int pos, int room, int *d) {
+    MTPHead *h = m->mtp; Cfg *c = &m->c; int H = c->hidden, V = c->vocab;
+    if (!h->hk) {
+        if (m->max_t <= 0) return 0;
+        int KVH = c->kv_heads, HD = c->head_dim;
+        h->hk = falloc((int64_t)KVH * m->max_t * HD);
+        h->hv = falloc((int64_t)KVH * m->max_t * HD);
+        h->yring = falloc((int64_t)m->max_t * H);
+    }
+    if (g_q36_mtp_drafts > 0 && room < g_q36_mtp_drafts) room = room;
+    if (g_q36_mtp_drafts > 0 && room > g_q36_mtp_drafts) room = g_q36_mtp_drafts;
+    if (room > Q36_SPEC_ROWS - 1) room = Q36_SPEC_ROWS - 1;
+    if (room <= 0) return 0;
+    if (g_q36_mtp_force[0] && sp) {
+        int n = 0;
+        while (n < room) { int t = q36_spec_forced(sp, room, n + 1, pos, V); if (t < 0) break; d[n++] = t; }
+        return n;
+    }
+    const float *hid = q36_mtp_hidden_at(m, pos - 1);
+    if (!hid) return 0;
+    float *e = falloc(H), *cat = falloc(2 * (int64_t)H), *xx = falloc(H);
+    float a[1024], b[1024];
+    if (H > 1024) { fprintf(stderr, "[qwen36 MTP] hidden > 1024 unsupported in part 2\n"); exit(1); }
+    q36_embed_row(m, tok, pos, e);
+    rmsnorm_row(a, e, h->n_emb, H, c->eps);
+    rmsnorm_row(b, hid, h->n_hid, H, c->eps);
+    memcpy(cat, a, (size_t)H * sizeof(float)); memcpy(cat + H, b, (size_t)H * sizeof(float));
+    mtp_gemv(xx, cat, h->fc, 2 * H, H);
+    int n = 0, rowpos = pos;
+    while (n < room) {
+        float *yy = falloc(H);
+        q36_mtp_row(m, xx, rowpos, yy);
+        float *nr = falloc(H), *lg = falloc(V);
+        rmsnorm_row(nr, yy, h->n_fin, H, c->eps);
+        matmul_d(lg, nr, &m->lm_head, 1, H, V);
+        int best = 0;
+        for (int i = 1; i < V; i++) if (lg[i] > lg[best]) best = i;
+        d[n++] = best;
+        free(nr); free(lg);
+        if (n >= room) { free(yy); break; }
+        float *e2 = falloc(H);
+        q36_embed_row(m, best, rowpos + 1, e2);
+        rmsnorm_row(a, e2, h->n_emb, H, c->eps);
+        rmsnorm_row(b, yy, h->n_hid, H, c->eps);
+        memcpy(cat, a, (size_t)H * sizeof(float)); memcpy(cat + H, b, (size_t)H * sizeof(float));
+        mtp_gemv(xx, cat, h->fc, 2 * H, H);
+        free(e2); free(yy);
+        rowpos++;
+    }
+    free(e); free(cat); free(xx);
+    return n;
 }
 
 static void q36_spec_begin(Model *m, Q36Spec *sp, const int *prompt, int np) {
@@ -5835,7 +5989,8 @@ static void q36_spec_rollback(Model *m, int len, int keep) {
 
 static void q36_spec_settle(Model *m, Q36Spec *sp, int keep, int rejected) {
     if (keep < sp->ahead_n) q36_spec_rollback(m, sp->ahead_pos + keep, keep);
-    spec_gate_result(&sp->gate, SPEC_SRC_LOOKUP, keep - 1 + (rejected ? 1 : 0), keep - 1);
+    q36_mtp_settle(m, sp->ahead_pos, keep);
+    spec_gate_result(&sp->gate, sp->cur_src, keep - 1 + (rejected ? 1 : 0), keep - 1);
     free(sp->ahead_logit); sp->ahead_logit = NULL; sp->ahead_n = sp->ahead_i = 0;
 }
 
@@ -5874,6 +6029,7 @@ static float *q36_spec_step(Model *m, Q36Spec *sp, int tok, int pos, int more) {
             float *logit = falloc(V);
             memcpy(logit, sp->ahead_logit + (int64_t)(i - 1) * V, (size_t)V * sizeof(float));
             sp->accepted++;
+            if (sp->cur_src == SPEC_SRC_MTP) sp->m_accepted++;
             if (++sp->ahead_i == sp->ahead_n) q36_spec_settle(m, sp, sp->ahead_n, 0);
             return logit;
         }
@@ -5883,7 +6039,23 @@ static float *q36_spec_step(Model *m, Q36Spec *sp, int tok, int pos, int more) {
     if (room > sp->lookup_max) room = sp->lookup_max;
     if (pos + room >= m->kv_cap) room = m->kv_cap - 1 - pos;
     int d[Q36_SPEC_ROWS], k = 0;
-    if (sp->lookup && room > 0) {
+    int src = SPEC_SRC_LOOKUP;
+    if (m->mtp && m->mtp->loaded && room > 0) {
+        int dm[Q36_SPEC_ROWS], dl[Q36_SPEC_ROWS], nm = 0, nl = 0;
+        nm = q36_mtp_propose(m, sp, tok, pos, room, dm);
+        if (sp->lookup) {
+            if (sp->force)
+                while (nl < room) { int t = q36_spec_forced(sp, room, nl + 1, pos, V); if (t < 0) break; dl[nl++] = t; }
+            else nl = spec_lookup(sp->hist, sp->hist_n, 2, 4, room, dl);
+        }
+        double vm = 0, vl = 0;
+        int km = nm > 0 ? spec_gate_pick(&sp->gate, SPEC_SRC_MTP, nm, &vm) : 0;
+        int kl = nl > 0 ? spec_gate_pick(&sp->gate, SPEC_SRC_LOOKUP, nl, &vl) : 0;
+        if (km > 0 && vm >= vl)      { memcpy(d, dm, (size_t)km * sizeof(int)); k = km; src = SPEC_SRC_MTP; }
+        else if (kl > 0)             { memcpy(d, dl, (size_t)kl * sizeof(int)); k = kl; src = SPEC_SRC_LOOKUP; }
+        else if (km > 0)             { memcpy(d, dm, (size_t)km * sizeof(int)); k = km; src = SPEC_SRC_MTP; }
+        if (k > 0 && !q36_spec_alloc(m, k)) k = 0;
+    } else if (sp->lookup && room > 0) {
         int n = 0;
         if (sp->force)
             while (n < room) { int t = q36_spec_forced(sp, room, n + 1, pos, V); if (t < 0) break; d[n++] = t; }
@@ -5891,6 +6063,7 @@ static float *q36_spec_step(Model *m, Q36Spec *sp, int tok, int pos, int more) {
         if (n > 0) k = spec_gate_pick(&sp->gate, SPEC_SRC_LOOKUP, n, NULL);
         if (k > 0 && !q36_spec_alloc(m, k)) k = 0;
     }
+    sp->cur_src = src;
     if (!k) {
         sp->forwards++;
         double t0 = now_s();
@@ -5906,6 +6079,7 @@ static float *q36_spec_step(Model *m, Q36Spec *sp, int tok, int pos, int more) {
     spec_gate_forward(&sp->gate, S, now_s() - t0);
     m->snap_rows = 0; g_q36_rowwise = 0;
     sp->forwards++; sp->drafts += (uint64_t)k; sp->verifies++;
+    if (src == SPEC_SRC_MTP) { sp->m_drafts += (uint64_t)k; sp->m_verifies++; }
     sp->ahead_n = S; sp->ahead_i = 1; sp->ahead_pos = pos;
     sp->ahead_logit = falloc((int64_t)k * V);
     memcpy(sp->ahead_logit, logit + V, (size_t)k * V * sizeof(float));
@@ -5933,6 +6107,14 @@ static void q36_spec_report(const Q36Spec *sp, const char *scope) {
             (unsigned long long)sp->accepted, (unsigned long long)sp->drafts, (unsigned long long)sp->verifies,
             sp->gate.off ? "off" : "on", (unsigned long long)sp->gate.declined[SPEC_SRC_LOOKUP],
             (unsigned long long)sp->gate.probes[SPEC_SRC_LOOKUP], sp->ended_ahead ? " | ended mid-verify" : "");
+    if (sp->m_verifies || sp->m_drafts) {
+        char g[384];
+        spec_gate_describe(&sp->gate, SPEC_SRC_MTP, g, sizeof g);
+        fprintf(stderr, "[qwen36 MTP] %s: acceptance %.1f%% (%llu/%llu drafts in %llu verifies) | gate %s%s\n",
+                scope, sp->m_drafts ? 100.0 * sp->m_accepted / sp->m_drafts : 0.0,
+                (unsigned long long)sp->m_accepted, (unsigned long long)sp->m_drafts,
+                (unsigned long long)sp->m_verifies, g, sp->ended_ahead ? " | ended mid-verify" : "");
+    }
 }
 
 static Q36Spec g_q36_run_spec;   /* generate()'s, reported by main() */
