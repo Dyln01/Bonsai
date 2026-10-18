@@ -81,13 +81,20 @@ if __name__ == "__main__":  # tiny self-check (CI runs this)
     rng = np.random.default_rng(0)
     w = (rng.standard_normal((64, 256)) * 0.05).astype(np.float32)
     q4, s4 = quant_int4_grouped(w, gs=128)
-    assert q4.shape == (64, 128) and s4.shape == (64, 2)
-    # dequant error sane
-    unpacked = np.stack([(q4 & 0xF).astype(np.int8), ((q4 >> 4) & 0xF).astype(np.int8)], 1)
-    up = np.where(unpacked > 7, unpacked - 16, unpacked).reshape(64, 256)
+    assert q4.shape == (64 * 256 // 2,) and s4.shape == (64, 2)  # flat packed = engine convention
+    # dequant: byte i carries elements 2i (low nibble) and 2i+1 (high nibble)
+    lo = (q4 & 0xF).astype(np.int8)
+    hi = ((q4 >> 4) & 0xF).astype(np.int8)
+    lo = np.where(lo > 7, lo - 16, lo)
+    hi = np.where(hi > 7, hi - 16, hi)
+    up = np.empty((64, 256), np.int8)
+    up.reshape(-1)[0::2] = lo
+    up.reshape(-1)[1::2] = hi
     deq = up.astype(np.float32) * np.repeat(s4, 128, axis=1)
     rel = np.linalg.norm(deq - w) / np.linalg.norm(w)
-    assert rel < 0.05, rel
+    # plain int4-gs128 on Gaussian weights runs ~0.10-0.12 rel L2 (cf. rotated-int4
+    # 0.096 in docs/KVTQ_QWEN36.md); a wrong nibble/scale layout lands near 1.0+
+    assert rel < 0.15, rel
     q8, s8 = quant_int8_row(w)
     assert q8.shape == w.shape and s8.shape == (64,)
     import tempfile, os
