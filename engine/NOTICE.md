@@ -12,10 +12,11 @@ Apache-2.0, (c) its authors) so the parity gates (`kv8_parity.c`, `kv8_fused.h`)
 compile from this repo alone; CI does not need a colibri checkout for them.
 
 Provenance is pinned in `tools/patch_manifest.json` and checked by
-`tools/verify_engine.sh` (md5s + replay of the reproducible patch segments).
-Two segments (orig→premap, prehot→pretq) do not currently replay with the
-committed patchers — drift audit tracked in `docs/ROADMAP.md` item E1; until it
-closes, the snapshots + manifest are the source of truth.
+`tools/verify_engine.sh`: md5s of every snapshot plus a byte-exact replay of
+the FULL patch chain (orig → premap → prehot → pretq → presm → qwen36.c),
+also run in CI on every push. The E1 drift audit closed 2026-10-19 via two
+regenerated patchers (`patch_kv8_flash_v1.py`, `patch_hotstack_v1.py`);
+superseded historical per-feature scripts live in `tools/attic/`.
 
 ## No-models notice
 

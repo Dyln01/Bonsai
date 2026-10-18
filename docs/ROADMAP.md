@@ -49,15 +49,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 
 ## Open — engineering / hygiene
 
-- [ ] **E1 — patch-script regeneration audit.** `tools/verify_engine.sh` replays the segments
-      that reproduce (premap→prehot, pretq→presm, presm→final) and md5-pins everything else.
-      Two segments do NOT replay with committed patchers: orig→premap (the KV8 **part-1**
-      patcher was never committed and `patch_flash_qwen36.py` is now v2 while `premap`
-      carries flash v1) and prehot→pretq (hotneuron/griffin/mapfast/pagebatch/hotcal
-      patchers drifted after the pretq snapshot). Close by re-deriving each patcher's
-      anchors against the committed snapshot chain so orig→final replays end-to-end;
-      until then the engine/ snapshots + `tools/patch_manifest.json` are the source of
-      truth. (Found 2026-10-19; README reproducibility claim corrected in the same commit.)
+- [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
+      part-1 patcher was never committed, the flash patcher had drifted to v2 while the
+      engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no
+      longer replayed in any order (feature edits interleaved inside single diff hunks).
+      Resolution: two byte-faithful regenerated patchers (`patch_kv8_flash_v1.py`,
+      `patch_hotstack_v1.py`) derived from the committed snapshots; the FULL chain
+      orig→premap→prehot→pretq→presm→final now replays byte-exact under
+      `tools/verify_engine.sh` and in CI. Superseded per-feature scripts kept in
+      `tools/attic/` with `ATTIC.md`. The README reproducibility claim is true again.
 - [x] **E2 — harness files vendored/reconstructed (2026-10-19).** `scripts/make_synthetic_model.py`
       reconstructed from its contract of use in `gen_qwen27_synth.sh` (with the legacy
       `data_offsets` bug — see `fix_qwen27_container.py` — fixed; CI self-check).

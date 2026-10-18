@@ -9,10 +9,11 @@
 #   3. if a colibri checkout exists (COLIBI_DIR or ~/colibri):
 #        qwen36.c.orig == bf24429 c/qwen36.c (stock)
 #
-# Segments orig->premap and prehot->pretq are NOT replayable with the committed
-# patchers (drift audit: tools/patch_manifest.json, docs/ROADMAP.md item E1);
-# until that audit closes, the engine/ snapshots + this manifest are the
-# source of truth, and this script fails loudly if any of them moves.
+# Segments replay the FULL chain since the E1 audit closed (2026-10-19):
+#   orig -kv8_flash_v1-> premap -trunkmap-> -trunkmap_v2-> prehot
+#        -hotstack_v1-> pretq -kvtq-> presm -softmax-> qwen36.c
+# The historical per-feature patchers for the two regenerated windows live in
+# tools/attic/ (see tools/attic/ATTIC.md).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
@@ -44,9 +45,11 @@ step() { # step <from> <to|FINAL> <patch.py...>
   if cmp -s "$T/qwen36.c" "$want"; then echo "PASS  $from -> $(basename "$want") [$*]"
   else echo "FAIL  $from -> $(basename "$want") [$*]"; fail=1; fi
 }
-step qwen36.c.premap qwen36.c.prehot patch_trunkmap.py patch_trunkmap_v2.py
-step qwen36.c.pretq  qwen36.c.presm  patch_kvtq.py
-step qwen36.c.presm  FINAL           patch_softmax.py
+step qwen36.c.orig     qwen36.c.premap  patch_kv8_flash_v1.py
+step qwen36.c.premap   qwen36.c.prehot  patch_trunkmap.py patch_trunkmap_v2.py
+step qwen36.c.prehot   qwen36.c.pretq   patch_hotstack_v1.py
+step qwen36.c.pretq    qwen36.c.presm   patch_kvtq.py
+step qwen36.c.presm    FINAL            patch_softmax.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then

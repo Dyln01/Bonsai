@@ -279,36 +279,31 @@ python3 scripts/exp_kvtq_q36.py A_f32 E_tq4_c1      # two arms, appends to the r
 
 ## 8. Rebuilding the engine from stock (patch scripts)
 
-`engine/` is a snapshot; the patch scripts in `tools/` reproduce every engine
-edit from the stock colibri `qwen36.c` (clone github.com/JustVugg/colibri,
+`engine/` is a snapshot; the patch chain below reproduces it **byte-exactly**
+from stock colibri `qwen36.c` (clone github.com/JustVugg/colibri @ `bf24429`,
 then `cp engine/*.c engine/*.h c/`, `make -C c qwen36` — full detail in
-[INSTALL.md](INSTALL.md)). To apply stepwise from stock instead:
+[INSTALL.md](INSTALL.md)). Verified end-to-end by `tools/verify_engine.sh`
+and CI on every push:
 
-| Script | Applies |
-|---|---|
-| `patch_qwen_kv8_p2.py` | KV8 tier (fp8 rows + scales) |
-| `patch_flash_qwen36.py` | flash-tile prefill |
-| `patch_trunkmap.py` / `patch_trunkmap_v2.py` | mmap dense trunk (f16 → int4) |
-| `patch_hotneuron.py` / `patch_hotcal_v4.py` | hot-neuron paging + self-calibration |
-| `patch_griffin.py` | per-prompt neuron selection |
-| `patch_mapfast.py`, `patch_pagebatch.py` | map-path speedups |
-| `patch_kvtq.py` | KV_TQ tier (PolarQuant / rot-int4) |
-| `patch_softmax.py` | Q36_FAST_SOFTMAX (AVX2 fast exp in softmax + flash) |
-| `hot_sort.py <model> [profile]` | hotness-sorted container copy |
-| `hotcal_pipeline.py`, `seed_zipf_usage.py` | calibration + Zipf usage prior |
+| Order | Script | Applies |
+|---|---|---|
+| 1 | `patch_kv8_flash_v1.py` | KV8 tier (both parts) + flash-tile prefill v1 — regenerated (E1) |
+| 2 | `patch_trunkmap.py` | mmap dense trunk (f16 stage) |
+| 3 | `patch_trunkmap_v2.py` | trunk int4 mapping |
+| 4 | `patch_hotstack_v1.py` | hot-neuron paging + self-calibration + GRIFFIN + mapfast/pagebatch — regenerated (E1) |
+| 5 | `patch_kvtq.py` | KV_TQ tier (PolarQuant / rot-int4) |
+| 6 | `patch_softmax.py` | Q36_FAST_SOFTMAX (AVX2 fast exp in softmax) |
 
-Order: kv8 → flash → trunkmap → hotneuron → griffin → mapfast/pagebatch →
-kvtq → softmax (each script refuses to run twice; backups `.orig/.premap/.prehot/.pretq/.presm`
-are left beside the source). **Reproducibility caveat (2026-10-19):** the committed
-patchers replay the segments premap→prehot (`patch_trunkmap.py` + `patch_trunkmap_v2.py`),
-pretq→presm (`patch_kvtq.py`) and presm→final (`patch_softmax.py`) byte-exactly; the
-orig→premap and prehot→pretq segments are under regeneration audit (ROADMAP E1) —
-the `engine/` snapshots + `tools/patch_manifest.json` are the source of truth until it
-closes. Check everything with:
+Each script refuses to run twice and takes an optional path argument
+(default `~/colibri/c/qwen36.c`); backups `.orig/.premap/.prehot/.pretq/.presm`
+beside the source are the checkpoint md5s in `tools/patch_manifest.json`.
+The two regenerated patchers replace historical per-feature scripts that had
+drifted (KV8 part-1 never committed; flash v2 vs shipped v1; interleaved
+hot/griffin/mapfast/pagebatch hunks) — superseded files and the full story in
+`tools/attic/ATTIC.md`; audit record in `docs/ROADMAP.md` E1 (CLOSED).
 
-```bash
-bash tools/verify_engine.sh
-```
+Other tools: `hot_sort.py <model> [profile]` (hotness-sorted container copy),
+`hotcal_pipeline.py`, `seed_zipf_usage.py` (calibration + Zipf usage prior).
 
 ---
 

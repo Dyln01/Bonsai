@@ -101,10 +101,11 @@ results/  measured JSON from every battery
 The modified engine lives in a colibri checkout (Apache-2.0): clone
 `github.com/JustVugg/colibri`, copy `engine/qwen36.c`, `engine/kv8_fused.h`,
 `engine/kv8_parity.c` over `c/`, `make -C c qwen36`. The `engine/` snapshots are the
-source of truth (md5-pinned in `tools/patch_manifest.json`, checked by
-`tools/verify_engine.sh`); the patch scripts in `tools/` reproduce the verified
-segments of the stack stepwise (premap→prehot→…→final) — two early segments are
-under regeneration audit, see `docs/ROADMAP.md` item E1.
+source of truth (md5-pinned in `tools/patch_manifest.json`), and the patch
+scripts in `tools/` reproduce them **byte-exactly from stock** — the full chain
+orig→premap→prehot→pretq→presm→final replays under `tools/verify_engine.sh`
+and in CI on every push (E1 drift audit closed 2026-10-19; superseded
+historical patchers in `tools/attic/`).
 **No real model weights are in this repo or were used in testing** — all benchmarks use
 synthetic same-geometry containers (see `scripts/gen_*`).
 
