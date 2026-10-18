@@ -28,3 +28,20 @@ jobs:
 
       - name: python syntax (tools + scripts)
         run: python3 -m py_compile tools/*.py scripts/*.py
+
+      - name: make_synthetic_model self-check
+        run: python3 scripts/make_synthetic_model.py
+
+      - name: iothrottle shim build + bandwidth smoke
+        run: |
+          set -e
+          gcc -O2 -shared -fPIC scripts/iothrottle.c -o /tmp/iothrottle.so -ldl -lpthread
+          mkdir -p /tmp/ioth_dir
+          head -c 48m /dev/zero > /tmp/ioth_dir/data.bin
+          t0=$(date +%s%N)
+          IOTH_DIR=/tmp/ioth_dir IOTH_BW_MBPS=150 LD_PRELOAD=/tmp/iothrottle.so \
+            cat /tmp/ioth_dir/data.bin > /dev/null
+          ms=$(( ($(date +%s%N) - t0) / 1000000 ))
+          echo "throttled read took ${ms}ms (expect >= ~320ms at 48MB / 150MB/s)"
+          [ "$ms" -ge 250 ]
+

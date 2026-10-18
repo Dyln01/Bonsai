@@ -278,6 +278,9 @@ Bonsai path is mmap + neuron paging:
 
 ```bash
 q36-minipc calibrate ~/Models/qwen27_i4   # once: Q36_CORPUS=<your_text.txt>
+#   FULL-COMPUTE pass: ETA banner printed, corpus capped at Q36_CAL_TOKENS
+#   (default 1024 ≈ 20-35 min on a dense 27B; 0 = whole file), stderr streams live,
+#   profile lands ONLY at clean exit (killing it mid-pass writes nothing)
 q36-minipc sort      ~/Models/qwen27_i4   # once: hotness-sorted copy
 q36-minipc serve     ~/Models/qwen27_i4-sorted
 # or skip both: GRIFFIN adapts per-prompt on the UNMODIFIED container

@@ -102,10 +102,44 @@ PYEOF
     OUT="${ARG3:-$MODEL/hot_profile.json}"
     CORPUS="${Q36_CORPUS:-$MODEL/calib_prompt.txt}"
     [ -f "$CORPUS" ] || die "set Q36_CORPUS=<text file> for calibration"
+    # Bound the run by default: full-compute prefill is ~1-2 s/token on dense 27B
+    # at mini-PC core counts. Q36_CAL_TOKENS=0 restores the whole corpus.
+    CALTOK="${Q36_CAL_TOKENS:-1024}"
+    PROMPT="$CORPUS"
+    if [ "$CALTOK" != "0" ]; then
+      PROMPT="$(mktemp /tmp/q36cal.XXXXXX)"
+      head -c $((CALTOK * 4)) "$CORPUS" > "$PROMPT"
+      echo "[minipc] calibrate: corpus capped at ~$CALTOK tokens (Q36_CAL_TOKENS=0 for the full file)"
+    fi
+    # ETA banner from the container geometry (2 flops/param/token at HOT_FRAC=1.0,
+    # conservative ~6 GFLOP/s per core for int4-GEMV AVX2)
+    python3 - "$MODEL" "$THREADS" "$PROMPT" <<'PY'
+import json, os, sys
+model, threads, prompt = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    cfg = json.load(open(os.path.join(model, "config.json")))
+    H, L = cfg.get("hidden_size", 0), cfg.get("num_hidden_layers", 0)
+    I = cfg.get("intermediate_size", 0)
+    P = L * (4 * H * H + 3 * H * I)
+    toks = max(1, os.path.getsize(prompt) // 4)
+    spt = 2 * P / (threads * 6e9)
+    print("[minipc] ETA: ~%d calib tokens x ~%.1f s/token (full compute, %d threads) => >= ~%.0f min"
+          % (toks, spt, threads, toks * spt / 60))
+    print("[minipc] too long? Q36_CAL_TOKENS=<n> caps it (the energy ranking converges early); 0 = full corpus")
+except Exception as e:
+    print("[minipc] ETA: unknown (%s)" % e)
+PY
+    [ -f "$OUT" ] && echo "[minipc] note: existing profile $OUT is overwritten at END of run only"
+    echo "[minipc] full-compute prefill now runs; engine stderr streams live below;"
+    echo "[minipc] the hot profile is written ONLY at clean exit — bound the run, do not ^C mid-pass"
     env SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 \
         TRUNK_MAP=1 HOT_FRAC=1.0 KV8=$KV8V HOT_PROFILE=$OUT N_NEW=16 COLI_TEMP=0 \
-        "$ENGINE" "$CAP" 4 "$CORPUS" > /dev/null 2> /tmp/calib.err
+        "$ENGINE" "$CAP" 4 "$PROMPT" > /dev/null 2> >(tee /tmp/calib.err >&2)
+    RC=$?
+    wait 2>/dev/null || true   # let the tee drain
     grep -o "\[hot\].*" /tmp/calib.err || true
+    [ "$RC" -eq 0 ] || die "calibrate run rc=$RC — last lines above, full log /tmp/calib.err"
+    [ -f "$OUT" ] || die "no profile at $OUT — killed early? it lands only at clean exit (cap with Q36_CAL_TOKENS)"
     echo "[minipc] profile: $OUT  (now run: q36-minipc sort <model> <profile>)"
     ;;
   sort)

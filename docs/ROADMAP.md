@@ -17,6 +17,14 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 - [x] **User ask:** full command documentation — docs/COMMANDS.md: launcher, ~30 engine knobs, wire protocol, generators, drivers, patch order, parity gates — `b219e21`
 - [x] **Softmax optimization:** `Q36_FAST_SOFTMAX=1` — 9.5-11.5x kernel, attn phase −6.5% (5/5 pairs), TTFT neutral, more accurate than stock; flash-site negative result isolated + documented — `3aa65fa`
 - [x] **Phase 2a:** stock-safety regression — stock run rc=0 (RSS 3.03 GB) with the MTP head file present; MTP-unaware engines ignore `mtp.*` + meta keys, by construction and by measurement — `94ab7c1`
+- [x] **Calibrate UX fix (2026-10-19, `test` branch):** `calibrate` looked hung on the mini-PC
+      ("stops after warm log, >1 h, never quits"). Root cause: full-compute (`HOT_FRAC=1.0`)
+      prefill over the WHOLE corpus at ~1-2 s/token on dense 27B × 4 cores, engine stderr
+      swallowed to `/tmp/calib.err`, and the profile written ONLY at clean exit (a `^C` lost
+      everything). Launcher now: streams stderr live, caps the corpus at `Q36_CAL_TOKENS`
+      (default 1024; `0` = whole file), prints an ETA banner from the container geometry,
+      and fails loudly with a pointer if no profile lands. Engine-side periodic save +
+      progress lines tracked as **E7**.
 - [x] **Phase 2 prep:** MTP design contract pinned (`docs/MTP_DESIGN_QWEN36.md`, `633d35a`) + synthetic head generator (`scripts/gen_mtp_head_synth.py`, `bcedf90`, shape fix `6d690e0`)
 
 ## Open — phases
@@ -50,13 +58,18 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       anchors against the committed snapshot chain so orig→final replays end-to-end;
       until then the engine/ snapshots + `tools/patch_manifest.json` are the source of
       truth. (Found 2026-10-19; README reproducibility claim corrected in the same commit.)
-- [ ] **E2 — vendor the missing harness files.** `docs/REPORT.md`'s I/O-fidelity shim
-      (`harness/iothrottle.c`) and `scripts/gen_qwen27_synth.sh`'s generator module
-      (`make_synthetic_model.py`) are referenced but not in this repo. Commit them (or
-      link public copies) so the harness is reproducible; errata headers added in the
-      meantime.
-- [ ] **E3 — milestone tags.** Tag `phase-1a`, `phase-1b`, `phase-2a`, `softmax` so engine
-      backups can be pruned and regressions bisected without archaeology.
+- [x] **E2 — harness files vendored/reconstructed (2026-10-19).** `scripts/make_synthetic_model.py`
+      reconstructed from its contract of use in `gen_qwen27_synth.sh` (with the legacy
+      `data_offsets` bug — see `fix_qwen27_container.py` — fixed; CI self-check).
+      `scripts/iothrottle.c` reconstructed from the `REPORT.md` §0 spec (CI: build +
+      bandwidth smoke). Originals were never committed; reconstructed files are labeled as such.
+- [x] **E3 — milestone tags.** `phase-1a`, `phase-1b`, `phase-2a`, `softmax` annotated tags
+      pushed; engine backups prunable once E1 closes.
+- [ ] **E7 — engine-side calibration progress + incremental profile save.** The hot profile is
+      written only at clean exit (`q36_hot_profile_save`, qwen36.c L7624) and prefill emits no
+      progress. Design: periodic `q36_hot_profile_save()` every K prefill tokens + a
+      `[hotcal] token i/N, elapsed` stderr line. Requires a compile-tested environment
+      (mini-PC or CI with the full engine build) before shipping — engine md5 pins move too.
 - [ ] **E4 — launcher `doctor` upgrades.** Report `Q36_FAST_SOFTMAX` engagement (AVX2 build?),
       `Q36_KVQ` tier, `Q36_SLOTS`, and `meta.mtp` presence in the container.
 - [ ] **E5 — prefix-reuse regression gate.** Promote `scripts/exp_prefix_q36.py` to a

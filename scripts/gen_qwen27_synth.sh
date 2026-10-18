@@ -2,9 +2,14 @@
 # Generate a Qwen3.8-27B-shaped SYNTHETIC dense model for the qwen36 engine
 # (scaled-down hidden dim so it fits; same architecture: Gated DeltaNet, no MoE).
 set -e
-SYNTHGEN="${Q36_SYNTHGEN:-$HOME/colibri-research/synthgen}"
-cd "$SYNTHGEN"
-[ -f make_synthetic_model.py ] || { echo "missing $SYNTHGEN/make_synthetic_model.py (set Q36_SYNTHGEN; see ROADMAP E2)"; exit 1; }
+# make_synthetic_model.py is reconstructed in-tree (scripts/); Q36_SYNTHGEN can
+# still point at the original out-of-repo module dir if you have it.
+if [ -n "${Q36_SYNTHGEN:-}" ]; then
+  cd "$Q36_SYNTHGEN"
+else
+  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+  export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+fi
 
 # qwen36 dense: num_experts=0, MLP -> shared expert, GQA attention.
 # Real 27B: hidden 5120, 64 layers (16 attn + 48 delta), MLP 17408, kv_heads 8, head_dim 128.

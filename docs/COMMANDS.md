@@ -39,7 +39,7 @@ q36-minipc <command> <model_dir> [arg]
 | `chat <model>` | interactive chat in the terminal (512 tokens, temp 0.7) | |
 | `bench <model> [prompt]` | honest battery: phase-split timers, peak RSS, expert hit rate | prints `decode tok/s = 1000/(TOTAL ms/token)` — the `Speed:` line includes prefill, never quote it as decode |
 | `seed <model>` | (MoE) write a Zipf-router `.coli_usage` prior | makes expert-cache benchmarks face realistic traffic |
-| `calibrate <model>` | (dense) one `HOT_PROFILE` pass; set `Q36_CORPUS=<text file>` | produces `<model>/hot_profile.json` |
+| `calibrate <model>` | (dense) one `HOT_PROFILE` pass; set `Q36_CORPUS=<text file>` | produces `<model>/hot_profile.json`. Full-compute pass: ETA banner printed; corpus capped at `Q36_CAL_TOKENS` (default 1024, `0`=whole file); engine stderr streams live; **profile written only at clean exit — don't ^C mid-pass** |
 | `sort <model> [profile]` | (dense) hotness-sorted copy of the container via `hot_sort.py` | → `<model>-sorted`; GRIFFIN makes this optional |
 | `doctor <model>` | report: engine binary, knob reference counts, model class, resolved level | run this first whenever something behaves oddly |
 
@@ -61,6 +61,7 @@ q36-minipc <command> <model_dir> [arg]
 | `Q36_GRIFFIN` | `0`/`1` (default 1) | dense only: per-prompt neuron selection, works on unmodified containers |
 | `Q36_HOT_LAYERS` | JSON file | per-layer `{"L0":0.5,…}` fractions (falls back to the global frac) |
 | `Q36_CORPUS` | text file | the calibration corpus for `calibrate` |
+| `Q36_CAL_TOKENS` | integer (default 1024; `0` = whole corpus) | cap the calibration prefill (~4 chars/token); the energy ranking converges early — bound it on small boxes |
 | `Q36_SORT_OUT` | dir | output dir for `sort` |
 | `Q36_RAM_GB` | integer (default: auto) | tell the launcher the real RAM; caps the expert cache accordingly |
 | `Q36_SLOTS` | integer (default 1) | conversations the server multiplexes (`KV_SLOTS`); **one per concurrent conversation** |
@@ -79,6 +80,9 @@ q36-minipc serve ~/Models/qwen36_i4_gs64      # then daily; Q36_LEVEL=eco on 8 G
 
 ```bash
 Q36_CORPUS=~/my_corpus.txt q36-minipc calibrate ~/Models/qwen27_i4   # once
+# calibrate is a FULL-COMPUTE pass (HOT_FRAC=1.0 by necessity): expect ~1-2 s/token
+# on a dense 27B at mini-PC core counts. The launcher caps the corpus at
+# Q36_CAL_TOKENS (default 1024 ≈ 20-35 min) and prints an ETA first; logs stream live.
 q36-minipc sort ~/Models/qwen27_i4                                   # once
 q36-minipc serve ~/Models/qwen27_i4-sorted
 # or skip both steps: GRIFFIN adapts per-prompt on the UNMODIFIED container
