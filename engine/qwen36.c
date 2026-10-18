@@ -5145,6 +5145,7 @@ static void q36_embed_row(Model *m, int id, int pos, float *row) {
 /* The forward: ids[0..S) at pos_base through every layer, the final norm and
  * lm_head on the last `nlogits` rows (one for a step, every row of a speculative
  * verify), each row's logits computed as a decode step computes them. */
+static void q36_mtp_capture(Model *m, const float *x, int S, int pos_base, int nlogits);
 static float *step_ex(Model *m, const int *ids, int S, int pos_base, int nlogits) {
     Cfg *c = &m->c; int D = c->hidden;
     if (m->resident_mode && m->first_step) m->resident_collecting = 1;

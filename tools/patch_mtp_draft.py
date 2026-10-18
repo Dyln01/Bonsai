@@ -198,7 +198,14 @@ static int q36_mtp_propose(Model *m, Q36Spec *sp, int tok, int pos, int room, in
 static void q36_spec_begin(Model *m, Q36Spec *sp, const int *prompt, int np) {
 """)
 
-# 3. hidden capture at the lm_head seam
+# 3. hidden capture at the lm_head seam (+ file-scope fwd decl: step_ex calls it
+#    before the definition that lives with the spec machinery)
+edit("""static float *step_ex(Model *m, const int *ids, int S, int pos_base, int nlogits) {
+""",
+     """static void q36_mtp_capture(Model *m, const float *x, int S, int pos_base, int nlogits);
+static float *step_ex(Model *m, const int *ids, int S, int pos_base, int nlogits) {
+""")
+
 edit("""    for (int r = 0; r < nlogits; r++) {
         float *lr = logit + (int64_t)r * c->vocab;
         rmsnorm_row(last, x + (int64_t)(S - nlogits + r)*D, m->final_norm, D, c->eps);
