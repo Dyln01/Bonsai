@@ -144,7 +144,10 @@ multiplier is worth more than every remaining RAM optimization combined.
   each verify); the post-prompt window is initially short and the gate's
   acceptance EMA judges whether drafting pays — real-context quality is a
   Phase 5 question, mechanics are exact.
-- **NEXT — part 2** (drafting/verify; the part-1 loader has landed): the engine
+- **DONE — part 2 drafting + verify, dense head** (`tools/patch_mtp_draft.py`,
+  2026-10-19, `test`): head forward, hidden capture, proposals beside lookup,
+  rollback, report line; CI gate = greedy output stock-identical for drafts 0..3.
+- **NEXT — part 3** (MoE head + oracle gates + battery): the engine
   integration below — head forward, hidden capture, `SPEC_SRC_MTP` proposal,
   force-oracle gates, draft-cost battery. The pinned part-2 plan (session 2):
   `mtp_layers` in the Cfg G()-parse (L2123 group); `MTPHead` struct (a Layer

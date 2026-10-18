@@ -347,13 +347,15 @@ attention, `mlp.{gate,up,down}`) loads f32-resident from
 `model-mtp.safetensors`; report line `[qwen36 MTP] head loaded: …`. Part 1 is
 inert by construction: knob-off runs are byte-identical, knob-on runs differ
 only by the report line — both enforced in CI (`engine-build.yml`).
-**Part 2 (open):** MoE head (resident int4 experts), head forward on the S=1
-path, hidden capture at the `step_ex` seam, `SPEC_SRC_MTP` proposal beside
-lookup, forced-accept oracle gate, draft-cost battery — plan in
-`docs/MTP_DESIGN_QWEN36.md` §"NEXT".
-
----
-
+**Part 2 LANDED (same branch):** dense-head drafting + verify —
+`tools/patch_mtp_draft.py`: head forward in the S=1 dialect (own K/V rows, qk-norm,
+partial rope, GQA, output gate), hidden capture at the lm_head seam, proposals
+beside lookup (`spec_gate_pick` values decide), head-row rollback on rejection,
+`[qwen36 MTP] run:` acceptance report. With random synthetic weights acceptance
+is ~0 by construction — the CI gate is that greedy output stays byte-identical
+to stock for `Q36_MTP_DRAFTS` 0..3 (verify exactness + rollback proof).
+**Part 3 (open):** MoE head (resident int4 experts), `Q36_MTP_FORCE` oracle
+gates, draft-cost battery on real hardware → `docs/MTP_QWEN36.md`.
 *Everything here is synthetic-container measured; real-checkpoint validation
 is the declared open step (README *Status*). If a command misbehaves, run
 `q36-minipc doctor` and read the stderr banner before anything else.*
