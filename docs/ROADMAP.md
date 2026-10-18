@@ -38,14 +38,20 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       report line `[qwen36 MTP] head loaded`, `q36_mtp_free` in the destroy path.
       CI gates: refusal rc!=0 with message; knob-on loads + token stream
       byte-identical to stock (head inert in part 1).
-- [ ] **Phase 2b-2 — MTP drafting + verify.** MoE head (resident int4 experts),
-      head forward on the S=1 path (matmul_d, rmsnorm_row, rope partial, qk-norm,
-      own KV rows), hidden capture at the `step_ex` lm_head seam, `SPEC_SRC_MTP`
-      proposal beside lookup via `spec_gate_pick`, `Q36_MTP_FORCE=accept|mixed|cycle|rowN`
-      oracle (forced-accept reproduces `g_q36_oracle` byte-exactly; mixed/cycle
-      exercise head-row rollback), knob-unset stock byte-identity, draft-cost
-      battery → `results/results_mtp_q36.json` + report doc. Plan:
-      `docs/MTP_DESIGN_QWEN36.md` §"NEXT".
+- [x] **Phase 2b-2 — MTP drafting + verify, dense head (2026-10-19, `test`).**
+      `tools/patch_mtp_draft.py` (11 anchored edits, backup `.predraft`): head forward in the
+      S=1 dialect (own f32 K/V rows, qk-norm, `rope_head_partial`, GQA scores over the head's
+      standing rows, `softmax_row`, attn output gate, o_proj, y-ring); hidden capture at
+      `step_ex`'s lm_head seam (ring of 8 settled rows); `q36_mtp_propose` (d1 from
+      embed(tok)+hidden[pos-1], deeper drafts from the head's own hidden); source choice
+      beside lookup via `spec_gate_pick` values; `sp->cur_src` in settle + report; head-row
+      rollback = kv_len trim; `[qwen36 MTP] run:` report line. CI gate 3: greedy stdout
+      byte-identical to stock for `Q36_MTP_DRAFTS` 0..3 with `COLI_LOOKUP=0 COLI_SPEC_GATE=0`
+      (random-weight head => every verify rejects => rollback exercised every verify).
+- [ ] **Phase 2b-3 — MoE head + oracle gates + battery.** Resident int4 experts in the head
+      (bypass the LRU store), `Q36_MTP_FORCE=accept|mixed|cycle|rowN` oracle wired to a
+      ref.json-driven CI gate (forced-accept byte-exact), draft-cost battery on real hardware
+      -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
 - [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
       KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
       decay. Design-contract doc first (house practice), then implementation, then rerun the
