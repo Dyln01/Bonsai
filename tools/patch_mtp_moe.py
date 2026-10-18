@@ -38,7 +38,7 @@ edit("""    float *cap; int cap_pos[8]; /* captured model hidden, ring of 8 posi
 } MTPHead;
 """,
      """    float *cap; int cap_pos[8];
-    int E, I, SI, GS;            /* MoE head: experts, inter, shared inter, group size */
+    int E, SI, GS;               /* MoE head: experts, shared inter, expert group size */
     float *rw;                   /* router [E,H] f32 resident */
     float **eg, **eu, **ed;      /* per-expert unpacked f32 (gate/up [I,H], down [H,I]) */
     float *sg, *su, *sd, *shg;   /* shared expert + its scalar gate */
@@ -190,6 +190,7 @@ edit("""        } else {
             h->dense = 0;
             h->E = m->c.n_experts; h->I = m->c.inter; h->SI = m->c.shared_inter;
             h->GS = m->c.expert_gs > 0 ? m->c.expert_gs : 64;
+            int HH = m->c.hidden;
             if (h->E <= 0 || h->I <= 0 || h->E > 1024) {
                 fprintf(stderr, "[qwen36 MTP] head expert config E=%d I=%d out of range — refusing\\n", h->E, h->I);
                 exit(1);
@@ -203,7 +204,7 @@ edit("""        } else {
                 char qn[256], sn[256];
                 snprintf(qn, sizeof qn, "mtp.layers.0.mlp.experts.%d.merged_weight", e);
                 snprintf(sn, sizeof sn, "mtp.layers.0.mlp.experts.%d.qs", e);
-                int64_t gu = (int64_t)h->I * H, du = (int64_t)H * h->I;
+                int64_t gu = (int64_t)h->I * HH, du = (int64_t)HH * h->I;
                 float *all = mtp_unpack_i4_gs(&m->S, qn, sn, 0, 0, 0);   /* placeholder, replaced below */
                 free(all);
                 /* merged layout: [gate IxH | up IxH | down HxI], each int4-gs packed;
@@ -218,7 +219,7 @@ edit("""        } else {
                 st_read_raw(&m->S, qn, pq, 1);
                 if (st_read_f32(&m->S, sn, qs, 0) != nsc) { fprintf(stderr, "[qwen36 MTP] bad scales %s\\n", sn); exit(1); }
                 auto_unpack: ;
-                const int64_t parts[3][2] = { { h->I, H }, { h->I, H }, { H, h->I } };
+                const int64_t parts[3][2] = { { h->I, HH }, { h->I, HH }, { HH, h->I } };
                 int64_t qoff = 0, soff = 0;
                 float **dst[3] = { &h->eg[e], &h->eu[e], &h->ed[e] };
                 for (int pi = 0; pi < 3; pi++) {
