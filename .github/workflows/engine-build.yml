@@ -117,27 +117,24 @@ jobs:
           PY
           SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 \
           COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
-          Q36_MTP=1 Q36_MTP_FORCE=accept COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP=/tmp/l_force_a.bin \
-          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref.json > /dev/null 2> /tmp/force_a.err
+          Q36_MTP=1 Q36_MTP_FORCE=accept COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP_IDS=/tmp/ids_force.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref.json > /tmp/force_a.out 2> /tmp/force_a.err
           grep -q "\[qwen36 MTP\] run:" /tmp/force_a.err || { tail -20 /tmp/force_a.err; exit 1; }
           grep -q "acceptance 100.0%" /tmp/force_a.err || { grep "\[qwen36 MTP\]" /tmp/force_a.err; exit 1; }
-          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
-          b=$(sha256sum /tmp/l_force_a.bin | cut -d' ' -f1)
-          echo "stock=$a forced-accept=$b"
-          [ "$a" = "$b" ]
+          cmp /tmp/ids.txt /tmp/ids_force.txt
+          echo "forced-accept id sequence == stock (oracle reproduced exactly)"
+          grep -q "Matching tokens: 12/12" /tmp/force_a.out
           grep "\[qwen36 MTP\]" /tmp/force_a.err
 
-      - name: MTP gate 5 — forced mixed/cycle (rejections + partial accepts, logits still exact)
+      - name: MTP gate 5 — forced mixed/cycle (rejections + partial accepts, sequence still exact)
         run: |
           set -e
-          a=$(sha256sum /tmp/l_stock.bin | cut -d' ' -f1)
           for F in mixed cycle; do
             SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 \
             COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
-            Q36_MTP=1 Q36_MTP_FORCE=$F COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP=/tmp/l_force_$F.bin \
+            Q36_MTP=1 Q36_MTP_FORCE=$F COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP_IDS=/tmp/ids_$F.txt \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref.json > /dev/null 2> /tmp/force_$F.err
-            b=$(sha256sum /tmp/l_force_$F.bin | cut -d' ' -f1)
-            echo "force=$F stock=$a run=$b"
-            [ "$a" = "$b" ]
+            cmp /tmp/ids.txt /tmp/ids_$F.txt
+            echo "force=$F: id sequence == stock (verify+rollback exact under rejection)"
             grep "\[qwen36 MTP\] run:" /tmp/force_$F.err
           done

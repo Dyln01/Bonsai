@@ -354,8 +354,17 @@ beside lookup (`spec_gate_pick` values decide), head-row rollback on rejection,
 `[qwen36 MTP] run:` acceptance report. With random synthetic weights acceptance
 is ~0 by construction — the CI gate is that greedy output stays byte-identical
 to stock for `Q36_MTP_DRAFTS` 0..3 (verify exactness + rollback proof).
-**Part 3 (open):** MoE head (resident int4 experts), `Q36_MTP_FORCE` oracle
-gates, draft-cost battery on real hardware → `docs/MTP_QWEN36.md`.
+**Part 3a LANDED (same branch):** `Q36_MTP_FORCE=accept|mixed|cycle|rowN` drives
+the MTP proposal path from ref.json's oracle ids; `DUMP_IDS=<path>` writes the
+generated id sequence (CI bootstraps ref.json with it). CI gates: forced-accept
+⇒ 100% acceptance AND the id sequence equals the stock run's (the design's
+"reproduces the oracle text exactly"); mixed/cycle ⇒ sequence still exact under
+rejections + head-row rollback. Note: the *final logits* can legitimately differ
+from a plain step's when the last pick is answered from a verify batch row (S>1
+fp order) — pre-existing engine behavior shared with accepted lookup drafts,
+which is why the oracle invariant is sequence identity, not logit bits.
+**Part 3b (open):** MoE head (resident int4 experts), draft-cost battery on
+real hardware → `docs/MTP_QWEN36.md`.
 *Everything here is synthetic-container measured; real-checkpoint validation
 is the declared open step (README *Status*). If a command misbehaves, run
 `q36-minipc doctor` and read the stderr banner before anything else.*
