@@ -20,12 +20,18 @@ Random weights; Zipf router bias optional (skip — engine doesn't need it).
 import json, os, struct
 import numpy as np
 
-OUT = os.path.expanduser("~/synth_models/synth_coder30")
+OUT = os.path.expanduser(os.environ.get("SYNTH_OUT", "~/synth_models/synth_coder30"))
 os.makedirs(OUT, exist_ok=True)
 for f in os.listdir(OUT):
     os.remove(os.path.join(OUT, f))
 
-H, L, E, K, MLP = 2048, 48, 128, 8, 768        # moe_inter 768 -> 30.2B expert params
+# defaults = the 30B-class geometry; SYNTH_* overrides let CI gate a small MoE
+# with the same code paths (router/groups/int4-gs64 experts) in seconds.
+H   = int(os.environ.get("SYNTH_H",   2048))
+L   = int(os.environ.get("SYNTH_L",   48))
+E   = int(os.environ.get("SYNTH_E",   128))
+K   = int(os.environ.get("SYNTH_K",   8))
+MLP = int(os.environ.get("SYNTH_MLP", 768))   # moe_inter 768 -> 30.2B expert params
 QH, KVH, HD, V = 16, 4, 128, 151936
 GS = 64
 
