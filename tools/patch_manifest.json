@@ -8,7 +8,7 @@
     "matches": "engine/qwen36.c.orig"
   },
   "engine_files": {
-    "NOTICE.md": "428b0cb37afa0540ab0fbc35e6f14815",
+    "NOTICE.md": "bbc3e8e50c41cfab2ae0aedbf8f25a07",
     "kv8_fused.h": "6494bd828002c876c01e0645023c82ff",
     "kv8_parity.c": "3bff73e2fae403fb6d1d3dd52f8612fd",
     "kv_fp8.h": "a92762dab601fb885221dd499db21445",
