@@ -30,7 +30,9 @@ jobs:
         run: python3 -m py_compile tools/*.py scripts/*.py
 
       - name: make_synthetic_model self-check
-        run: python3 scripts/make_synthetic_model.py
+        run: |
+          python3 -m pip install --quiet numpy
+          python3 scripts/make_synthetic_model.py
 
       - name: iothrottle shim build + bandwidth smoke
         run: |
