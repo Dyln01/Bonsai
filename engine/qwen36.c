@@ -2240,7 +2240,8 @@ typedef struct Q36MTPHead {
     float *cap; int cap_pos[8];
     int E, SI, GS;               /* MoE head: experts, shared inter, expert group size */
     float *rw;                   /* router [E,H] f32 resident */
-    float **eg, **eu, **ed;      /* per-expert unpacked f32 (gate/up [I,H], down [H,I]) */
+    uint8_t **eq;                /* per-expert merged int4-gs packed bytes, resident */
+    float **es;                  /* per-expert merged per-group scales, resident */
     float *sg, *su, *sd, *shg;   /* shared expert + its scalar gate */
 } MTPHead;
 
@@ -2302,10 +2303,9 @@ static void q36_mtp_attach(Model *m) {
                 exit(1);
             }
             h->rw = mtp_f32(&m->S, "mtp.layers.0.mlp.gate.weight", NULL);
-            h->eg = calloc((size_t)h->E, sizeof(float *));
-            h->eu = calloc((size_t)h->E, sizeof(float *));
-            h->ed = calloc((size_t)h->E, sizeof(float *));
-            if (!h->eg || !h->eu || !h->ed) { fprintf(stderr, "[qwen36 MTP] OOM experts\n"); exit(1); }
+            h->eq = calloc((size_t)h->E, sizeof(uint8_t *));
+            h->es = calloc((size_t)h->E, sizeof(float *));
+            if (!h->eq || !h->es) { fprintf(stderr, "[qwen36 MTP] OOM experts\n"); exit(1); }
             for (int e = 0; e < h->E; e++) {
                 char qn[256], sn[256];
                 snprintf(qn, sizeof qn, "mtp.layers.0.mlp.experts.%d.merged_weight", e);
@@ -2316,31 +2316,13 @@ static void q36_mtp_attach(Model *m) {
                 st_tensor *tq = st_find(&m->S, qn), *ts = st_find(&m->S, sn);
                 if (!tq || !ts) { fprintf(stderr, "[qwen36 MTP] missing %s\n", qn); exit(1); }
                 int64_t nel = 2 * gu + du;
-                uint8_t *pq = malloc((size_t)(nel / 2));
                 int64_t nsc = 2 * (gu / h->GS) + (du / h->GS);
-                float *qs = malloc((size_t)nsc * sizeof(float));
-                if (!pq || !qs) { fprintf(stderr, "[qwen36 MTP] OOM %s\n", qn); exit(1); }
-                st_read_raw(&m->S, qn, pq, 1);
-                if (st_read_f32(&m->S, sn, qs, 0) != nsc) { fprintf(stderr, "[qwen36 MTP] bad scales %s\n", sn); exit(1); }
-                const int64_t parts[3][2] = { { h->I, HH }, { h->I, HH }, { HH, h->I } };
-                int64_t qoff = 0, soff = 0;
-                float **dst[3] = { &h->eg[e], &h->eu[e], &h->ed[e] };
-                for (int pi = 0; pi < 3; pi++) {
-                    int O = (int)parts[pi][0], In = (int)parts[pi][1];
-                    int ng = In / h->GS;
-                    float *w = falloc((int64_t)O * In);
-                    for (int64_t i = 0; i < (int64_t)O * In; i++) {
-                        int b = pq[qoff / 2 + i / 2];
-                        int nib = (i & 1) ? (b >> 4) & 0xF : b & 0xF;
-                        int qv = nib > 7 ? nib - 16 : nib;
-                        int64_t o = i / In;
-                        w[i] = (float)qv * qs[soff + o * ng + (i - o * In) / h->GS];
-                    }
-                    *dst[pi] = w;
-                    qoff += (int64_t)O * In;
-                    soff += (int64_t)O * ng;
-                }
-                free(pq); free(qs);
+                if (nel & 1) { fprintf(stderr, "[qwen36 MTP] odd merged numel %s\n", qn); exit(1); }
+                h->eq[e] = malloc((size_t)(nel / 2));
+                h->es[e] = malloc((size_t)nsc * sizeof(float));
+                if (!h->eq[e] || !h->es[e]) { fprintf(stderr, "[qwen36 MTP] OOM %s\n", qn); exit(1); }
+                st_read_raw(&m->S, qn, h->eq[e], 1);
+                if (st_read_f32(&m->S, sn, h->es[e], 0) != nsc) { fprintf(stderr, "[qwen36 MTP] bad scales %s\n", sn); exit(1); }
             }
             if (h->SI > 0) {
                 h->sg  = mtp_f32(&m->S, "mtp.layers.0.mlp.shared_expert.gate_proj.weight", NULL);
@@ -2372,8 +2354,8 @@ static void q36_mtp_free(Model *m) {
     free(h->qw); free(h->kw); free(h->vw); free(h->ow);
     free(h->gw); free(h->uw); free(h->dw);
     free(h->hk); free(h->hv); free(h->yring); free(h->cap);
-    if (h->eg) for (int e = 0; e < h->E; e++) { free(h->eg[e]); free(h->eu[e]); free(h->ed[e]); }
-    free(h->eg); free(h->eu); free(h->ed);
+    if (h->eq) for (int e = 0; e < h->E; e++) { free(h->eq[e]); free(h->es[e]); }
+    free(h->eq); free(h->es);
     free(h->rw); free(h->sg); free(h->su); free(h->sd); free(h->shg);
     free(h); m->mtp = NULL;
 }
@@ -5853,6 +5835,33 @@ static void mtp_gemv(float *y, const float *x, const float *W, int I, int O) {
     }
 }
 
+/* y[o] = sum_i x[i] * dequant(pq, qs)[qoff + o*In + i]; rows independent, so
+ * the per-row scratch makes this OpenMP-safe and bit-deterministic. qoff must
+ * be even (every merged part has an even element count). */
+static void mtp_gemv_i4gs(float *y, const float *x, const uint8_t *pq, const float *qs,
+                          int64_t qoff, int64_t soff, int O, int In, int gs) {
+    int ng = In / gs;
+#ifdef _OPENMP
+    #pragma omp parallel for schedule(static)
+#endif
+    for (int o = 0; o < O; o++) {
+        float *t = malloc((size_t)In * sizeof(float));
+        if (!t) { fprintf(stderr, "[qwen36 MTP] OOM row scratch\n"); exit(1); }
+        const uint8_t *rb = pq + (qoff + (int64_t)o * In) / 2;
+        const float *rs = qs + soff + (int64_t)o * ng;
+        for (int i = 0; i < In; i++) {
+            int b = rb[i / 2];
+            int nib = (i & 1) ? (b >> 4) & 0xF : b & 0xF;
+            int qv = nib > 7 ? nib - 16 : nib;
+            t[i] = (float)qv * rs[i / gs];
+        }
+        float s = 0;
+        for (int i = 0; i < In; i++) s += x[i] * t[i];
+        y[o] = s;
+        free(t);
+    }
+}
+
 static const float *q36_mtp_hidden_at(Model *m, int p) {
     if (p < 0 || !m->mtp) return NULL;
     MTPHead *h = m->mtp; int slot = p & 7;
@@ -5879,29 +5888,6 @@ static void q36_mtp_settle(Model *m, int ahead_pos, int keep) {
  * rows, y out (also parked in the y-ring for deeper drafts). Mirrors the
  * model's S=1 attention dialect: qk-norm, rope_head_partial, GQA, softmax_row,
  * attn_out *= sigmoid(gate), then o_proj. */
-/* int4-gs packed (nibble lo|hi, per-group scale) -> resident f32 rows */
-static float *mtp_unpack_i4_gs(shards *S, const char *qn, const char *sn, int O, int In, int gs) {
-    st_tensor *tq = st_find(S, qn), *ts = st_find(S, sn);
-    if (!tq || !ts) { fprintf(stderr, "[qwen36 MTP] missing %s/%s\n", qn, sn); exit(1); }
-    int64_t nel = (int64_t)O * In;
-    uint8_t *pq = malloc((size_t)(nel / 2));
-    float *qs = malloc((size_t)(nel / gs) * sizeof(float));
-    if (!pq || !qs) { fprintf(stderr, "[qwen36 MTP] OOM unpack %s\n", qn); exit(1); }
-    st_read_raw(S, qn, pq, 1);
-    if (st_read_f32(S, sn, qs, 0) != nel / gs) { fprintf(stderr, "[qwen36 MTP] bad scale numel %s\n", sn); exit(1); }
-    float *w = falloc(nel);
-    int ng = In / gs;
-    for (int64_t i = 0; i < nel; i++) {
-        int b = pq[i / 2];
-        int nib = (i & 1) ? (b >> 4) & 0xF : b & 0xF;
-        int qv = nib > 7 ? nib - 16 : nib;
-        int64_t o = i / In;
-        w[i] = (float)qv * qs[o * ng + (i - o * In) / gs];
-    }
-    free(pq); free(qs);
-    return w;
-}
-
 /* head MLP: dense (mlp. prefix) or MoE (router -> group-limited top-k ->
  * renormalised expert mix + optional sigmoid-gated shared expert), mirroring
  * moe_ex's routing dialect on the container's own config. */
@@ -5971,13 +5957,14 @@ static void q36_mtp_mlp(Model *m, const float *x, float *y) {
     float wsum = 0;
     for (int kk = 0; kk < K; kk++) wsum += lg[idx[kk]];
     float *t = falloc(I), *gg = falloc(I), *uu = falloc(I), *tmp = falloc(H);
+    int64_t gu = (int64_t)I * H;                 /* merged layout: gate | up | down */
     for (int kk = 0; kk < K; kk++) {
         int e = idx[kk];
         float w = wsum > 0 ? lg[idx[kk]] / wsum : 0;
-        mtp_gemv(gg, x, h->eg[e], H, I);
-        mtp_gemv(uu, x, h->eu[e], H, I);
+        mtp_gemv_i4gs(gg, x, h->eq[e], h->es[e], 0, 0, I, H, h->GS);
+        mtp_gemv_i4gs(uu, x, h->eq[e], h->es[e], gu, gu / h->GS, I, H, h->GS);
         for (int i = 0; i < I; i++) t[i] = (gg[i] / (1.0f + expf(-gg[i]))) * uu[i];
-        mtp_gemv(tmp, t, h->ed[e], I, H);
+        mtp_gemv_i4gs(tmp, t, h->eq[e], h->es[e], 2 * gu, 2 * (gu / h->GS), H, I, h->GS);
         for (int d = 0; d < H; d++) y[d] += w * tmp[d];
     }
     if (h->SI) {

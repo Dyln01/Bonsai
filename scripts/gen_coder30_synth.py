@@ -32,6 +32,7 @@ L   = int(os.environ.get("SYNTH_L",   48))
 E   = int(os.environ.get("SYNTH_E",   128))
 K   = int(os.environ.get("SYNTH_K",   8))
 MLP = int(os.environ.get("SYNTH_MLP", 768))   # moe_inter 768 -> 30.2B expert params
+SI  = int(os.environ.get("SYNTH_SI",  0))     # shared expert width; 0 = no shared expert
 QH, KVH, HD, V = 16, 4, 128, 151936
 GS = 64
 
@@ -105,6 +106,11 @@ for li in range(L):
         mw, qs = merged_expert()
         t[p+f"mlp.experts.{e}.merged_weight"] = (mw, "U8")
         t[p+f"mlp.experts.{e}.qs"] = (qs, "F32")
+    if SI:
+        t[p+"mlp.shared_expert.gate_proj.weight"] = (f16(SI, H), "F16")
+        t[p+"mlp.shared_expert.up_proj.weight"]   = (f16(SI, H), "F16")
+        t[p+"mlp.shared_expert.down_proj.weight"] = (f16(H, SI), "F16")
+        t[p+"mlp.shared_expert_gate.weight"]      = (f16(1, H), "F16")
     save_st(f"{OUT}/model-{li:05d}.safetensors", t)
     if li % 8 == 0: print(f"layer {li} done", flush=True)
 
@@ -128,7 +134,7 @@ meta = {
   "layer_types": ["full_attention"]*L,
   "q_heads": QH, "kv_heads": KVH, "head_dim": HD,
   "q_head_dim": HD, "k_head_dim": HD, "v_head_dim": HD, "o_in": QH*HD,
-  "num_experts": E, "topk": K, "moe_inter": MLP, "shared_inter": 0,
+  "num_experts": E, "topk": K, "moe_inter": MLP, "shared_inter": SI,
   "n_group": 1, "topk_group": 1, "attn_output_gate": False, "norm_topk_prob": True,
   "has_bias": False, "has_qk_norm": False, "partial_rotary_factor": 1.0,
   "rope_theta": 10000000.0, "rms_eps": 1e-6, "ebits": 4, "expert_gs": GS,

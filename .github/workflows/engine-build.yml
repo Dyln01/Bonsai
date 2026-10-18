@@ -169,3 +169,21 @@ jobs:
           grep -q "acceptance 100.0%" /tmp/moe_f.err || { grep "\[qwen36 MTP\]" /tmp/moe_f.err; exit 1; }
           cmp /tmp/ids_moe.txt /tmp/ids_moe_f.txt
           echo "MoE forced-accept: sequence == stock, acceptance 100%"
+
+      - name: shared-expert head gate (MoE + SI>0)
+        run: |
+          set -e
+          export SYNTH_OUT="$HOME/synth_models/synth_moe_si" SYNTH_H=512 SYNTH_L=8 SYNTH_E=32 SYNTH_K=4 SYNTH_MLP=256 SYNTH_SI=128
+          python3 scripts/gen_coder30_synth.py
+          python3 scripts/make_tokenizer.py "$SYNTH_OUT/tokenizer.json" 4095
+          python3 scripts/gen_mtp_head_synth.py "$SYNTH_OUT"
+          SNAP="$SYNTH_OUT" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP_IDS=/tmp/ids_si.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/si_stock.err || { tail -20 /tmp/si_stock.err; exit 1; }
+          SNAP="$SYNTH_OUT" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          Q36_MTP=1 COLI_LOOKUP=0 COLI_SPEC_GATE=0 DUMP_IDS=/tmp/ids_si_mtp.txt \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/si_mtp.err || { tail -20 /tmp/si_mtp.err; exit 1; }
+          grep -q "dense=0" /tmp/si_mtp.err || { tail -20 /tmp/si_mtp.err; exit 1; }
+          cmp /tmp/ids_si.txt /tmp/ids_si_mtp.txt
+          echo "SI>0 MoE head: drafting-on sequence == stock"
