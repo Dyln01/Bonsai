@@ -25,9 +25,10 @@ q36_render() {
       p=$2; sub(/^p=/,"",p); t=$4; sub(/^t=/,"",t); e=$5; sub(/^eta=/,"",e);
       n=int(p/5); bar="";
       for (i=0;i<20;i++) bar = bar (i<n ? "#" : ".");
-      printf "\r[calib |%s| %3d%%  t=%ss eta=%ss   ", bar, p, t, e;
+      printf "\r[calib |%s| %3d%%  t=%ss eta=%ss   ", bar, p, t, e; np++
     } else { printf "\n%s", $0 }
-  } END { printf "\n" }'
+  } END { printf "\n";
+        if (np == 0) print "[minipc] note: no [prefill] progress lines from the engine — either the prompt was <=1 token, or the binary predates the progress patch (rebuild: cp engine/*.c engine/*.h into colibri c/ + make -C c qwen36)" > "/dev/stderr" }'
 }
 
 # model check only for commands that need one
@@ -119,11 +120,14 @@ PYEOF
     # Bound the run by default: full-compute prefill is ~1-2 s/token on dense 27B
     # at mini-PC core counts. Q36_CAL_TOKENS=0 restores the whole corpus.
     CALTOK="${Q36_CAL_TOKENS:-1024}"
+    case "$CALTOK" in 0|[1-9][0-9]*) ;; *) die "Q36_CAL_TOKENS must be 0 or a positive integer (got '$CALTOK')";; esac
     PROMPT="$CORPUS"
     if [ "$CALTOK" != "0" ]; then
       PROMPT="$(mktemp /tmp/q36cal.XXXXXX)"
-      head -c $((CALTOK * 4)) "$CORPUS" > "$PROMPT"
-      echo "[minipc] calibrate: corpus capped at ~$CALTOK tokens (Q36_CAL_TOKENS=0 for the full file)"
+      head -c $((CALTOK * 4)) "$CORPUS" > "$PROMPT" || die "head -c failed on $CORPUS"
+      BYTES=$(wc -c < "$PROMPT")
+      [ "$BYTES" -ge 4 ] || die "calib prompt ended up empty ($BYTES bytes) — is Q36_CORPUS='$CORPUS' readable and non-empty?"
+      echo "[minipc] calibrate: corpus capped at ~$CALTOK tokens ($BYTES bytes taken, Q36_CAL_TOKENS=0 for the full file)"
     fi
     # ETA banner from the container geometry (2 flops/param/token at HOT_FRAC=1.0,
     # conservative ~6 GFLOP/s per core for int4-GEMV AVX2)
