@@ -149,7 +149,13 @@ jobs:
             KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=$A DUMP=/tmp/l_tq$A.bin DUMP_IDS=/tmp/ids_tq$A.txt \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2>&1
           done
-          ls -l /tmp/l_tq0.bin /tmp/l_tq1.bin
+          ls -l /tmp/l_tq0.bin /tmp/l_tq1.bin /tmp/l_stock.bin
+          python3 - <<'PY'
+          import numpy as np
+          for f in ("/tmp/l_stock.bin", "/tmp/l_tq0.bin", "/tmp/l_tq1.bin"):
+              a = np.fromfile(f, np.float32)
+              print(f, "n=", a.size, "nan=", int(np.isnan(a).sum()), "norm=", float(np.linalg.norm(a)), "head=", [round(float(v),3) for v in a[:6]])
+          PY
           python3 - <<'PY'
           import numpy as np
           for f in ("/tmp/l_tq0.bin", "/tmp/l_tq1.bin"):
