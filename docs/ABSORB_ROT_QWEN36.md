@@ -1,8 +1,13 @@
 # Absorbed-rotation decode for KV_TQ codec 1 (Phase 3b-rot) — qwen36.c
 
 **Date:** 2026-10-19 · status: **design pinned, implementation in same commit**
-**Scope:** codec 1 (rotated-int4) decode path only. Codec 0 (PolarQuant) and the
-flash prefill keep today's math; both are documented follow-ups.
+**Scope:** codec 1 (rotated-int4). Decode first (`patch_tq_absorb.py`), then the
+flash prefill (`patch_tq_absorb_prefill.py`, same knob): query rows rotate once
+per (s0, kvh) block, K/V dequant to rotated-space levels per block instead of
+FWHT per row per block, online-softmax accumulators stay in rotated space
+(rescales are linear) and unrotate once per (row, head) at the cx copy.
+Codec 0 (PolarQuant) keeps today's math — its angle-dependent rotation tree is
+not a fixed linear map (see finding above).
 
 ## The finding Phase 3a left behind
 
@@ -75,4 +80,7 @@ loop is not where TQ pays; left as a follow-up.
 - **3b-scan:** the O(T) decode scan itself (57.65 ms/tok at the 68.4k fixture
   post-3a) — windowing/sparse KV (OasisKV-class, drafts predict rows) belongs
   here or in Phase 4; orthogonal to this patch.
-- **3b-prefill:** absorb in the flash tile loop for TQ TTFT (1.4-1.6x f32 today).
+- **3b-prefill: DONE (same commit series)** — flash tile loop absorbed as above;
+  CI mechanical gate (absorb 0/1 id-identity with flash on) covers it; TTFT win
+  measured on real hardware in the 2b-4 battery (expect the 1.4-1.6x TQ TTFT
+  tax to shrink toward the KV8 class).

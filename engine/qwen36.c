@@ -3673,12 +3673,21 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                     memset(acc, 0, (size_t)QB*q_per_kv*kvd*sizeof(float));
                     for (int l = 0; l < rows*q_per_kv; l++) { mxv[l] = -1e30f; lvs[l] = 0.f; }
                     int tmax = pos_base + s0 + rows;
+                    int absorb = m->kv_tq && m->tq_codec == 1 && g_q36_tq_absorb;  /* 3b-prefill */
+                    float *qrot = absorb ? malloc((size_t)rows*q_per_kv*kvd*sizeof(float)) : NULL;
+                    if (absorb && !qrot) { fprintf(stderr, "OOM qrot\n"); exit(1); }
+                    if (absorb)
+                        for (int l = 0; l < rows; l++)
+                            for (int g = 0; g < q_per_kv; g++)
+                                coli_tq_rotate(query + ((int64_t)(s0+l)*H + kvh*q_per_kv + g)*hd,
+                                               qrot + ((size_t)l*q_per_kv + g)*kvd, kvd, COLI_TQ_SEED);
                     for (int t0 = 0; t0 < tmax; t0 += TB) {
                         int tn = tmax - t0; if (tn > TB) tn = TB;
                         for (int tt = 0; tt < tn; tt++) {
                             const float *ksrc;
                             if (m->kv8 || m->kv_tq) {
-                                q36_kv_dequant_noscale(Kl8 + (kbase + t0 + tt)*rb, kq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                                if (absorb) q36_q4_rot_noscale(Kl8 + (kbase + t0 + tt)*rb, kq + (size_t)tt*kvd, kvd);
+                                else q36_kv_dequant_noscale(Kl8 + (kbase + t0 + tt)*rb, kq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
                                 ksrc = kq + (size_t)tt*kvd;
                             } else ksrc = Kl_f + (kbase + t0 + tt)*kvd;
                             for (int g = 0; g < q_per_kv; g++) {
@@ -3686,15 +3695,18 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                                 for (int l = 0; l < rows; l++) {
                                     int lim = (pos_base + s0 + l) - (t0 + tt) + 1;
                                     sc[((size_t)l*q_per_kv + g)*TB + tt] = lim > 0
-                                        ? dot_f32_lanes(query + ((int64_t)(s0+l)*H + hh)*hd, ksrc, kvd)
+                                        ? dot_f32_lanes(absorb ? qrot + ((size_t)l*q_per_kv + g)*kvd
+                                                               : query + ((int64_t)(s0+l)*H + hh)*hd, ksrc, kvd)
                                           * ((m->kv8 || m->kv_tq) ? Ksc[kbase + t0 + tt] * scale : scale)
                                         : -1e30f;
                                 }
                             }
                         }
                         if (m->kv8 || m->kv_tq)
-                            for (int tt = 0; tt < tn; tt++)
-                                q36_kv_dequant_noscale(Vl8 + (kbase + t0 + tt)*rb, vq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                            for (int tt = 0; tt < tn; tt++) {
+                                if (absorb) q36_q4_rot_noscale(Vl8 + (kbase + t0 + tt)*rb, vq + (size_t)tt*kvd, kvd);
+                                else q36_kv_dequant_noscale(Vl8 + (kbase + t0 + tt)*rb, vq + (size_t)tt*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                            }
                         for (int l = 0; l < rows; l++) {
                             int pos = pos_base + s0 + l;
                             int t_last = t0 + tn - 1; if (t_last > pos) t_last = pos;
@@ -3725,8 +3737,10 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                         int li = l*q_per_kv + g, hh = kvh*q_per_kv + g;
                         float *cx = ctx + ((int64_t)(s0+l)*H + hh)*hd;
                         float inv = 1.f / lvs[li];
+                        if (absorb) coli_tq_unrotate(acc + (size_t)li*kvd, kvd, COLI_TQ_SEED);
                         for (int d = 0; d < kvd; d++) cx[d] = acc[(size_t)li*kvd + d] * inv;
                     }
+                    free(qrot);
                 }
             }
             free(sc); free(acc); free(mxv); free(lvs); free(kq); free(vq);

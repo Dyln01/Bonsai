@@ -91,10 +91,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       accumulate V in rotated space, unrotate once) — per-row decode cost becomes KV8-class
       at half KV8's bytes. `Q36_TQ_ABSORB=0` restores 3a verbatim; CI parity gate: cosine
       >= 0.99999 + identical id sequences, absorb off vs on.
-- [ ] **Phase 3b remainder:** the O(T) decode scan itself (57.65 ms/tok at the 68.4k fixture
-      post-3a) — windowing/sparse-KV (OasisKV-class) here or in Phase 4; and absorbed-rotation
-      in the flash prefill for TQ TTFT. Plus the measured KVTQ battery arms with
-      Q36_TQ_ABSORB=0/1 on real hardware (fold into the 2b-4 battery run).
+- [x] **Phase 3b-prefill — absorbed rotation in the flash tile loop (2026-10-19).**
+      `patch_tq_absorb_prefill.py` (same `Q36_TQ_ABSORB` knob): queries rotate once per
+      (s0,kvh) block, K/V dequant to rotated-space levels per block, accumulators stay
+      rotated through the online softmax, one unrotate per (row,head). Covered by the
+      absorb 0/1 id-identity CI gate (flash on by default).
+- [ ] **Phase 3b remainder:** the O(T) decode scan itself (57.65 ms/tok at the 68.4k
+      fixture post-3a) — windowing/sparse-KV (OasisKV-class) here or in Phase 4. Plus the
+      measured KVTQ battery arms with Q36_TQ_ABSORB=0/1 on real hardware (fold into the
+      2b-4 battery run).
 - [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
       dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
       negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.
