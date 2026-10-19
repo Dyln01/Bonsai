@@ -250,6 +250,8 @@ jobs:
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/e8_$TAG.err || { echo "engine failed on $TAG"; tail -20 /tmp/e8_$TAG.err; exit 1; }
           done
           ls -l /tmp/l_scaled.bin /tmp/l_s1.bin /tmp/layers_scaled.bin || true
+          echo "--- ids_scaled:"; cat /tmp/ids_scaled.txt | tr '\n' ' '; echo
+          echo "--- dump hex:"; od -A d -t f4 /tmp/l_scaled.bin | head -3
           python3 - <<'PY'
           import numpy as np
           a = np.fromfile("/tmp/layers_scaled.bin", np.float32).reshape(-1, 1280)
