@@ -35,9 +35,10 @@ Writes ~/colibri-research/harness/results_prefix_q36.json.
 """
 import subprocess, os, re, json, sys, time
 
-ENGINE = os.path.expanduser("~/colibri/c/qwen36")
-SNAP   = os.path.expanduser("~/synth_models/synth_qwen27")
-OUT    = os.path.expanduser("~/colibri-research/harness/results_prefix_q36.json")
+ENGINE = os.path.expanduser(os.environ.get("PREFIX_ENGINE", "~/colibri/c/qwen36"))
+SNAP   = os.path.expanduser(os.environ.get("PREFIX_SNAP", "~/synth_models/synth_qwen27"))
+OUT    = os.path.expanduser(os.environ.get("PREFIX_OUT", "~/colibri-research/harness/results_prefix_q36.json"))
+LOGDIR = os.path.expanduser(os.environ.get("PREFIX_LOGDIR", "~/colibri-research/harness"))
 SCRUB = ("IOTH_", "SNAP", "CTX", "KVSAVE", "COLI_USAGE", "USAGE_SAVE", "PIN",
          "SERVE", "PROMPT", "Q36_", "KV8", "KV_TQ", "COLI_DENSE_BITS", "COLI_DENSE_INT4",
          "COLI_TIMERS", "N_NEW", "NGEN", "COLI_TEMP", "TRUNK_", "HOT_", "GRIFFIN",
@@ -60,7 +61,8 @@ def run_arm(label, extra_env, max_tok=1, turns=3, convs=2):
     env.update({"SNAP": SNAP, "Q36_MAXT": "4096", "OMP_NUM_THREADS": "4",
                 "COLI_PREFIX_LOG": "1", "SERVE": "1"})
     env.update(extra_env)
-    errlog = os.path.expanduser(f"~/colibri-research/harness/prefix_{label}.err")
+    os.makedirs(LOGDIR, exist_ok=True)
+    errlog = os.path.join(LOGDIR, f"prefix_{label}.err")
     p = subprocess.Popen([ENGINE], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=open(errlog, "wb"), env=env)
     # wait for the READY sentinel

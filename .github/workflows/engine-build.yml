@@ -200,3 +200,25 @@ jobs:
           grep -q "dense=0" /tmp/si_mtp.err || { tail -20 /tmp/si_mtp.err; exit 1; }
           cmp /tmp/ids_si.txt /tmp/ids_si_mtp.txt
           echo "SI>0 MoE head: drafting-on sequence == stock"
+
+      - name: prefix-reuse gate (agent transcript pattern, mux on vs off)
+        run: |
+          set -e
+          PREFIX_ENGINE="$HOME/colibri/c/qwen36" \
+          PREFIX_SNAP="$HOME/synth_models/student_1b_i4" \
+          PREFIX_OUT=/tmp/prefix_results.json PREFIX_LOGDIR=/tmp \
+          python3 scripts/exp_prefix_q36.py mux_on mux_off
+          python3 - <<'PY'
+          import json
+          r = json.load(open("/tmp/prefix_results.json"))
+          on = [x for x in r["mux_on"]["rows"] if x["turn"] >= 2]
+          off = [x for x in r["mux_off"]["rows"] if x["turn"] >= 2]
+          assert on, "no turn>=2 rows in mux_on"
+          for x in on:
+              assert x.get("prefix", "").startswith("reusing"), x
+              pct = int(x["prefix"].split("(")[1].rstrip("%)"))
+              assert pct >= 80, x
+          for x in off:
+              assert x.get("prefix", "").startswith("no reuse"), x
+          print("prefix-reuse gate OK: mux_on reuses >=80% on turns>=2, mux_off never reuses")
+          PY
