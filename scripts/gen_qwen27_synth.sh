@@ -40,7 +40,7 @@ cfg = {
 }
 json.dump(cfg, open(f"{OUT}/config.json", "w"), indent=1)
 # qwen36_meta.json for the dense variant (per docs/qwen36.md the converter writes it)
-json.dump({"num_experts": 0, "dense_intermediate": MLP}, open(f"{OUT}/qwen36_meta.json", "w"))
+json.dump({"num_experts": 0, "dense_intermediate": MLP, "topk": 0}, open(f"{OUT}/qwen36_meta.json", "w"))  # topk 0: dense routes nothing (validate_cfg refuses dense+topk>0)
 
 def rmat(o, i, s=None):
     if s is None: s = (2.0/(o+i))**0.5 * 0.5
