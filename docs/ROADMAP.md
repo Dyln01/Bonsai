@@ -142,3 +142,7 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
   `[timers]` lines.
 - Design-contract doc before implementation; negative results documented, not buried.
 - Parity gates must pass in CI (`.github/workflows/gates.yml`) on every push.
+- Numeric CI gates run on the student container with `STUDENT_REALHEAD=1`: the original
+  degenerate-head student (constant 0.001 lm_head) makes every logit-magnitude gate
+  vacuous — found 2026-10-19 when the 3b cosine gate divided by zero. Sequence/id gates
+  on the old container were mechanical only; real-head container supersedes it.

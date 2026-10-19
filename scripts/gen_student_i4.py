@@ -5,7 +5,8 @@ where possible. For TRUNK_MAP v2 (int4-mapped) smoke + numeric gates."""
 import json, os, struct
 import numpy as np
 
-OUT = os.path.expanduser("~/synth_models/student_1b_i4")
+OUT = os.path.expanduser(os.environ.get("STUDENT_OUT", "~/synth_models/student_1b_i4"))
+REALHEAD = os.environ.get("STUDENT_REALHEAD", "") == "1"   # non-degenerate embed/lm_head for numeric CI gates
 os.makedirs(OUT, exist_ok=True)
 for f in os.listdir(OUT):
     os.remove(os.path.join(OUT, f))
@@ -50,8 +51,10 @@ def mat_i4(o, i, s=None):
     return quant_i4_row(w)
 
 g = {
-  "model.embed_tokens.weight": (np.zeros((V, H), np.float16) + 0.001, "F16"),   # tiny; embed stays resident
-  "lm_head.weight":            (np.zeros((V, H), np.float16) + 0.001, "F16"),
+  "model.embed_tokens.weight": ((rng.standard_normal((V, H)) * 0.02).astype(np.float16) if REALHEAD
+                                else np.zeros((V, H), np.float16) + 0.001, "F16"),
+  "lm_head.weight":            ((rng.standard_normal((V, H)) * (2.0/(V+H))**0.5).astype(np.float16) if REALHEAD
+                                else np.zeros((V, H), np.float16) + 0.001, "F16"),
   "model.norm.weight":         (norm1(H), "F16"),
 }
 save_st(f"{OUT}/model-globals.safetensors", g)

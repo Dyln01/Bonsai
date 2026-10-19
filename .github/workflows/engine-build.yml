@@ -29,10 +29,10 @@ jobs:
       - name: build engine
         run: make -C "$HOME/colibri/c" qwen36 -j"$(nproc)"
 
-      - name: synthetic student container + tokenizer
+      - name: synthetic student container + tokenizer (real-head for numeric gates)
         run: |
           python3 -m pip install --quiet numpy
-          python3 scripts/gen_student_i4.py
+          STUDENT_REALHEAD=1 python3 scripts/gen_student_i4.py
           python3 scripts/make_tokenizer.py "$HOME/synth_models/student_1b_i4/tokenizer.json" 2047
 
       - name: smoke run (prompt mode, greedy)
@@ -60,6 +60,7 @@ jobs:
           b=$(sha256sum /tmp/l_run2.bin | cut -d' ' -f1)
           echo "logits run1=$a run2=$b"
           [ "$a" = "$b" ]
+          python3 -c "import numpy as np; x=np.fromfile('/tmp/l_stock.bin',np.float32); assert np.linalg.norm(x) > 0, 'degenerate logits'; print('logit norm OK', float(np.linalg.norm(x)))"
 
       - name: MTP gate 1 — knob on, headless container must refuse
         run: |
