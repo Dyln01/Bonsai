@@ -226,10 +226,12 @@ jobs:
       - name: E8 gate — per-row .qs scales must matter on the mapped int4 path
         run: |
           set -e
-          rm -rf /tmp/stud_s1 && cp -r "$HOME/synth_models/student_1b_i4" /tmp/stud_s1
+          Q36_HOME="$HOME" bash scripts/gen_qwen27_synth.sh > /dev/null
+          python3 scripts/make_tokenizer.py "$HOME/synth_models/synth_qwen27/tokenizer.json" 4095
+          rm -rf /tmp/q27_s1 && cp -r "$HOME/synth_models/synth_qwen27" /tmp/q27_s1
           python3 - <<'PY'
           import json, struct, os, glob
-          for f in glob.glob("/tmp/stud_s1/*.safetensors"):
+          for f in glob.glob("/tmp/q27_s1/*.safetensors"):
               d = bytearray(open(f, "rb").read())
               n = struct.unpack("<Q", d[:8])[0]
               hdr = json.loads(d[8:8+n])
@@ -241,7 +243,7 @@ jobs:
           print("scales-=1.0 copy ready")
           PY
           for TAG in scaled s1; do
-            if [ "$TAG" = s1 ]; then SNAP=/tmp/stud_s1; else SNAP="$HOME/synth_models/student_1b_i4"; fi
+            if [ "$TAG" = s1 ]; then SNAP=/tmp/q27_s1; else SNAP="$HOME/synth_models/synth_qwen27"; fi
             SNAP="$SNAP" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
             DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/e8_$TAG.err || { echo "engine failed on $TAG"; tail -20 /tmp/e8_$TAG.err; exit 1; }
