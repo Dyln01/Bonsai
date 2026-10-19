@@ -121,6 +121,32 @@ static uint32_t rng = 0x9E3779B9u;
 static float frand(void){ rng = rng*1664525u+1013904223u; return (float)((rng>>8)&0xFFFFFF)/(float)0x1000000 * 2.f - 1.f; }
 static float gauss(void){ float u=(frand()+1.f)*.5f+1e-7f, v=(frand()+1.f)*.5f; return sqrtf(-2.f*logf(u))*cosf(2.f*3.14159265f*v); }
 
+/* E6 retry: ONLINE (flash-shaped) softmax — per-element expf vs q36_fexp with
+ * the scalar block-rescale kept exact. Models the flash loop's exp count:
+ * one expf per (row, t) plus one exact rescale exp per block. */
+static void on_stock(const float *sc, int n, int TB, float *lout) {
+    float m = -1e30f, l = 0.f;
+    for (int t0 = 0; t0 < n; t0 += TB) {
+        int tn = n - t0 < TB ? n - t0 : TB;
+        float m2 = -1e30f;
+        for (int t = 0; t < tn; t++) if (sc[t0+t] > m2) m2 = sc[t0+t];
+        l *= expf(m - m2); m = m2;
+        for (int t = 0; t < tn; t++) l += expf(sc[t0+t] - m2);
+    }
+    *lout = l;
+}
+static void on_fast(const float *sc, int n, int TB, float *lout) {
+    float m = -1e30f, l = 0.f;
+    for (int t0 = 0; t0 < n; t0 += TB) {
+        int tn = n - t0 < TB ? n - t0 : TB;
+        float m2 = -1e30f;
+        for (int t = 0; t < tn; t++) if (sc[t0+t] > m2) m2 = sc[t0+t];
+        l *= expf(m - m2); m = m2;                    /* scalar rescale stays exact */
+        for (int t = 0; t < tn; t++) l += q36_fexp(sc[t0+t] - m2);
+    }
+    *lout = l;
+}
+
 int main(void) {
     /* gate 1: exp accuracy over the softmax domain [-104, 0] */
     double worst = 0; float wx = 0;
@@ -221,6 +247,22 @@ int main(void) {
         printf("\n[silu-shaped] expf: %.1f ns/row(4096)  fast: %.1f  -> %.2fx in the MLP gate | worst |act delta| %.2e\n",
                (t1-t0)/reps*1e9, (t2-t1)/reps*1e9, (t1-t0)/(t2-t1), wact);
         free(src); free(out);
+    }
+    /* E6 retry measurement + error gate (f64 reference) */
+    {
+        int T2 = 16384, TB2 = 256, reps = 2000;
+        float *sc2 = malloc((size_t)T2 * sizeof(float)); float l1, l2;
+        for (int i = 0; i < T2; i++) sc2[i] = -fabsf(gauss()) * 4.f;
+        double mx = -1e30; for (int i = 0; i < T2; i++) if (sc2[i] > mx) mx = sc2[i];
+        double ref = 0; for (int i = 0; i < T2; i++) ref += exp((double)sc2[i] - mx);
+        on_stock(sc2, T2, TB2, &l1); on_fast(sc2, T2, TB2, &l2);
+        double e1 = fabs((double)l1/ref - 1.0), e2 = fabs((double)l2/ref - 1.0);
+        double t0 = now_s(); for (int r = 0; r < reps; r++) on_stock(sc2, T2, TB2, &l1); double t1 = now_s();
+        for (int r = 0; r < reps; r++) on_fast(sc2, T2, TB2, &l2); double t2 = now_s();
+        printf("[online-softmax E6] stock %.0f ns/row(16k) | fast-exp+exact-rescale %.0f -> %.2fx | rel err vs f64: stock %.2e fast %.2e\n",
+               (t1-t0)/reps*1e9, (t2-t1)/reps*1e9, (t1-t0)/(t2-t1), e1, e2);
+        if (e2 > 4*e1 + 1e-6) { printf("GATE FAILED: online fast-exp error too large\n"); return 1; }
+        free(sc2);
     }
     printf("BENCH DONE\n");
     return 0;

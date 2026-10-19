@@ -98,6 +98,16 @@ Claim discipline: the attention-phase −6.5% is the trustworthy number
 microbench); decode tok/s improved in every pair but the box's noise band
 swallows the mean delta, so the report leads with the phase metric.
 
+## E6 retry (2026-10-19): the online/flash site, measured again
+
+`softmaxbench_q36.c` now carries the flash-shaped arm: online softmax with
+per-block exact scalar rescale, per-element expf vs `q36_fexp`. The retry
+verdict lives in CI's bench output (`[online-softmax E6]` line): if the fast
+element-exp does not beat expf meaningfully in the online loop (memory- and
+rescale-bound), the flash-site negative result from the original session
+stands CLOSED; a win >=1.10x with the error gate green would open a knob
+proposal, not a silent default.
+
 ## Honest labels
 
 - **Lossy-by-rounding**: a 2.5e-7 exp perturbation can flip a near-tie greedy
