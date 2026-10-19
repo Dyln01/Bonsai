@@ -246,10 +246,15 @@ jobs:
           for TAG in scaled s1; do
             if [ "$TAG" = s1 ]; then SNAP=/tmp/calm_s1; else SNAP="$HOME/synth_models/student_calm"; fi
             SNAP="$SNAP" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
-            DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt \
+            DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt DUMP_LAYERS=/tmp/layers_$TAG.bin \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/e8_$TAG.err || { echo "engine failed on $TAG"; tail -20 /tmp/e8_$TAG.err; exit 1; }
           done
-          ls -l /tmp/l_scaled.bin /tmp/l_s1.bin || true
+          ls -l /tmp/l_scaled.bin /tmp/l_s1.bin /tmp/layers_scaled.bin || true
+          python3 - <<'PY'
+          import numpy as np
+          a = np.fromfile("/tmp/layers_scaled.bin", np.float32).reshape(-1, 1280)
+          print("layer-row norms:", [float(np.linalg.norm(a[i])) for i in range(0, a.shape[0], 6)][:12])
+          PY
           echo "--- scaled stderr tail:"; tail -6 /tmp/e8_scaled.err || true
           echo "--- s1 stderr tail:"; tail -6 /tmp/e8_s1.err || true
           python3 - <<'PY'
