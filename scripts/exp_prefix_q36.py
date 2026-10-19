@@ -63,13 +63,16 @@ def run_arm(label, extra_env, max_tok=1, turns=3, convs=2):
     env.update(extra_env)
     os.makedirs(LOGDIR, exist_ok=True)
     errlog = os.path.join(LOGDIR, f"prefix_{label}.err")
-    p = subprocess.Popen([ENGINE], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    p = subprocess.Popen([ENGINE, os.environ.get("PREFIX_CAP", "8"), os.environ.get("PREFIX_THREADS", "4")],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=open(errlog, "wb"), env=env)
     # wait for the READY sentinel
     hdr = p.stdout.readline()
     while b"READY" not in hdr and hdr:
         hdr = p.stdout.readline()
     if not hdr:
+        tail = open(errlog, errors="replace").read()[-800:] if os.path.exists(errlog) else ""
+        print(f"[prefix] {label}: no READY sentinel; engine stderr tail:\n{tail}", file=sys.stderr)
         return {"error": "no READY sentinel", "label": label}
     rows = []
     # the agent pattern: each turn resends EVERYTHING the conversation has
@@ -132,10 +135,14 @@ def main():
         ("single_off", {"COLI_KV_PREFIX": "0"},                   1),
         ("mux_agent",  {"KV_SLOTS": "2"},                       24),
     ]
+    bad = 0
     for label, env, mt in arms:
         if a and label not in a:
             continue
-        run_arm(label, env, max_tok=mt)
+        res = run_arm(label, env, max_tok=mt)
+        if isinstance(res, dict) and res.get("error"):
+            bad = 1
+    sys.exit(bad)
 
 if __name__ == "__main__":
     main()
