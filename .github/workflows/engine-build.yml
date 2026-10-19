@@ -45,7 +45,6 @@ jobs:
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run1.out 2> /tmp/run1.err
           rc=$?
           echo "rc=$rc"
-     PY
           grep -q "\[prefill\] p=" /tmp/run1.err && echo "prefill progress lines present"
           grep -c "\[timers\]" /tmp/run1.err || true
           tail -5 /tmp/run1.err
