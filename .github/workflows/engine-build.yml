@@ -249,6 +249,9 @@ jobs:
             DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/e8_$TAG.err || { echo "engine failed on $TAG"; tail -20 /tmp/e8_$TAG.err; exit 1; }
           done
+          ls -l /tmp/l_scaled.bin /tmp/l_s1.bin || true
+          echo "--- scaled stderr tail:"; tail -6 /tmp/e8_scaled.err || true
+          echo "--- s1 stderr tail:"; tail -6 /tmp/e8_s1.err || true
           python3 - <<'PY'
           import numpy as np
           a = np.fromfile("/tmp/l_scaled.bin", np.float32); b = np.fromfile("/tmp/l_s1.bin", np.float32)
