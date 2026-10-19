@@ -18,6 +18,11 @@ jobs:
           gcc -O2 -Iengine -o /tmp/tqp engine/kv_tq_parity_q36.c -lm && /tmp/tqp
           gcc -O2 -mavx2 -mfma -Iengine -o /tmp/smb engine/softmaxbench_q36.c -lm && /tmp/smb
 
+      - name: TQ absorbed-rotation parity (C gate)
+        run: |
+          set -e
+          gcc -O2 -Iengine -o /tmp/absorb engine/tq_absorb_parity.c -lm && /tmp/absorb
+
       - name: engine snapshot verifier
         run: bash tools/verify_engine.sh
 

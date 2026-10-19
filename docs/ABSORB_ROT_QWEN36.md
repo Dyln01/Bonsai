@@ -53,10 +53,17 @@ loop is not where TQ pays; left as a follow-up.
 
 ## Gates
 
-1. CI (engine-build): student container with `KV_TQ=4 KV_TQ_CODEC=1`,
-   `Q36_TQ_ABSORB=0` vs `1`: last-logit cosine ≥ 0.99999 (numpy) **and**
-   `DUMP_IDS` sequences equal (greedy ties are measure-zero at these deltas).
-2. `kv_tq_parity_q36` unchanged (codec math untouched).
+1. **Numeric (C, no container):** `engine/tq_absorb_parity.c` in `gates.yml` —
+   score and rotated-space V-accumulation match the reference dequant path to
+   1e-3 rel for n=64/128. This is where numeric truth lives: random-weight
+   synthetic containers are *mechanical* oracles only (a real-head student run
+   explodes to 1e8 residuals by construction — lesson recorded in ROADMAP
+   rules, 2026-10-19).
+2. **Mechanical (CI engine-build):** student + `KV_TQ=4 KV_TQ_CODEC=1`,
+   `Q36_TQ_ABSORB=0` vs `1`: `DUMP_IDS` sequences equal (both arms exercise the
+   full TQ decode; the absorb arm additionally runs rotate/unrotate once per
+   head-step).
+3. `kv_tq_parity_q36` unchanged (codec math untouched).
 3. Measured decode tok/s on real hardware: the KVTQ battery arms E/F/G with
    `Q36_TQ_ABSORB=0/1` — numbers land in the 2b-4 battery run (mini-PC),
    expectation: TQ4c1 decode moves from ~5x KV8's cost toward KV8-class at

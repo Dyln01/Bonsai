@@ -28,7 +28,8 @@
     "qwen36.c.prei4": "3c19e9e41b7c92cddc2df4e67de883b8",
     "qwen36.c.pregqa": "d6b3ff1c40546661c4a51f208e260277",
     "qwen36.c.prebar": "8528e621c0b1c8665c3e0c2cb8f32932",
-    "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc"
+    "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
+    "tq_absorb_parity.c": "429ac5dd090640e8a7dbbae7ca79ca67"
   },
   "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
   "reproducible_segments": [

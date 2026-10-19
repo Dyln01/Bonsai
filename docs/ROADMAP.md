@@ -142,7 +142,11 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
   `[timers]` lines.
 - Design-contract doc before implementation; negative results documented, not buried.
 - Parity gates must pass in CI (`.github/workflows/gates.yml`) on every push.
-- Numeric CI gates run on the student container with `STUDENT_REALHEAD=1`: the original
-  degenerate-head student (constant 0.001 lm_head) makes every logit-magnitude gate
-  vacuous — found 2026-10-19 when the 3b cosine gate divided by zero. Sequence/id gates
-  on the old container were mechanical only; real-head container supersedes it.
+- Synthetic containers are MECHANICAL oracles (crash-freedom, state-machine and
+  rollback exactness, sequence identity across engine variants), NOT numeric ones:
+  random-weight deep nets explode or degenerate by construction (proved 2026-10-19:
+  degenerate-head student made logit-magnitude gates vacuous; real-head student
+  explodes to 1e8 residuals). Numeric truth lives in the C parity gates
+  (kv8_parity, kv_tq_parity, softmaxbench, tq_absorb_parity) and in measured
+  batteries on real hardware. The `STUDENT_REALHEAD` generator flag stays as an
+  experiment, unused by CI.
