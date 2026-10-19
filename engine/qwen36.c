@@ -243,6 +243,16 @@ static inline void q36_kv_dequant_noscale(const uint8_t *src, float *dst, int kv
     if (tq) coli_kvq_dequant_row(src, 1.f, dst, kvd, bits, codec);
     else kv8_dequant_noscale(src, dst, kvd);
 }
+/* Phase 3b-rot: codec-1 row in ROTATED space, radius 1 (levels/√n), no FWHT —
+ * the absorbed-rotation decode dots these against rotated queries and
+ * unrotates the accumulated output once per head per step. */
+static inline void q36_q4_rot_noscale(const uint8_t *src, float *dst, int n) {
+    float inv = 1.f / sqrtf((float)n);
+    for (int i = 0; i < n; i++) {
+        int c = (src[i >> 1] >> ((i & 1) * 4)) & 0xF;
+        dst[i] = coli_q4_lev[c] * inv;
+    }
+}
 #include "spec_draft.h" /* prompt-lookup drafts and the gate that decides when they pay (COLI_LOOKUP=1) */
 #include "pin_pool.h"   /* riuso del prefisso tra turni (shared) */
 #include "decode_batch.h" /* ColiSubmit + coli_submit_ext: le chiavi key=value di SUBMIT */
@@ -2227,6 +2237,7 @@ static void validate_cfg(const Cfg *c, int n_layers_from_config) {
  * shards instance — and an MTP-unaware engine never requests mtp.* names,
  * which is exactly the stock-safety property measured in Phase 2a. */
 static int  g_q36_progress = 1;   /* Q36_PROGRESS=0 disables prefill progress lines */
+static int  g_q36_tq_absorb = 1;  /* Q36_TQ_ABSORB=0: 3a loop verbatim (A/B + fallback) */
 static int  g_q36_mtp_on = 0;
 static int  g_q36_mtp_drafts = 2;
 static char g_q36_mtp_force[32] = {0};
@@ -3746,18 +3757,28 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
             float *kq = m->kv8_stage + (int64_t)tid * ((2 * KV8_TILE_ROWS + q_per_kv) * kvd);
             float *vq = kq + (int64_t)KV8_TILE_ROWS * kvd;
             float *cxg = vq + (int64_t)KV8_TILE_ROWS * kvd;   /* q_per_kv*kvd tail of the grown staging */
+            int absorb = m->kv_tq && m->tq_codec == 1 && g_q36_tq_absorb
+                         && (q_per_kv * kvd) <= 8192;          /* Phase 3b-rot */
+            float qrg[8192];
             for (int g = 0; g < q_per_kv; g++)
                 for (int dd = 0; dd < kvd; dd++) cxg[(int64_t)g*kvd + dd] = 0.f;
+            if (absorb)
+                for (int g = 0; g < q_per_kv; g++)
+                    coli_tq_rotate(query + ((int64_t)s*H + (kvh*q_per_kv + g))*hd,
+                                   qrg + (size_t)g*kvd, kvd, COLI_TQ_SEED);
             for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
                 int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
-                for (int t = 0; t < tn; t++)
-                    q36_kv_dequant_noscale(K8 + (base + t0 + t)*rb,
-                                           kq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                for (int t = 0; t < tn; t++) {
+                    if (absorb) q36_q4_rot_noscale(K8 + (base + t0 + t)*rb, kq + (int64_t)t*kvd, kvd);
+                    else q36_kv_dequant_noscale(K8 + (base + t0 + t)*rb,
+                                                kq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                }
                 for (int g = 0; g < q_per_kv; g++) {
                     const float *qv = query + ((int64_t)s*H + (kvh*q_per_kv + g))*hd;
                     float *sc = scg + (int64_t)g * m->kv_cap;
                     for (int t = 0; t < tn; t++)
-                        sc[t0 + t] = dot_f32_lanes(qv, kq + (int64_t)t*kvd, kvd)
+                        sc[t0 + t] = dot_f32_lanes(absorb ? qrg + (size_t)g*kvd : qv,
+                                                    kq + (int64_t)t*kvd, kvd)
                                      * (Ksc[base + t0 + t] * scale);
                 }
             }
@@ -3765,9 +3786,11 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                 softmax_row(scg + (int64_t)g * m->kv_cap, qpos + 1);
             for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
                 int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
-                for (int t = 0; t < tn; t++)
-                    q36_kv_dequant_noscale(V8 + (base + t0 + t)*rb,
-                                           vq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                for (int t = 0; t < tn; t++) {
+                    if (absorb) q36_q4_rot_noscale(V8 + (base + t0 + t)*rb, vq + (int64_t)t*kvd, kvd);
+                    else q36_kv_dequant_noscale(V8 + (base + t0 + t)*rb,
+                                                vq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                }
                 for (int t = 0; t < tn; t++) {
                     const float *vrow = vq + (int64_t)t*kvd;
                     for (int g = 0; g < q_per_kv; g++) {
@@ -3777,6 +3800,9 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                     }
                 }
             }
+            if (absorb)
+                for (int g = 0; g < q_per_kv; g++)
+                    coli_tq_unrotate(cxg + (size_t)g*kvd, kvd, COLI_TQ_SEED);
             for (int g = 0; g < q_per_kv; g++)
                 memcpy(ctx + ((int64_t)s*H + (kvh*q_per_kv + g))*hd,
                        cxg + (int64_t)g*kvd, (size_t)kvd*sizeof(float));
@@ -7689,6 +7715,7 @@ int main(int argc, char **argv) {
       const char *mf = getenv("Q36_MTP_FORCE");
       if (mf && *mf) snprintf(g_q36_mtp_force, sizeof g_q36_mtp_force, "%s", mf); }
     { const char *pv = getenv("Q36_PROGRESS"); if (pv && pv[0] == '0') g_q36_progress = 0; }
+    { const char *av = getenv("Q36_TQ_ABSORB"); if (av && av[0] == '0') g_q36_tq_absorb = 0; }
 
     int *prompt=NULL, *full=NULL, *out=NULL;
     int np=0, nfull=0, n_new=0;

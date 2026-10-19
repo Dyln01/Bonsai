@@ -85,10 +85,16 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Measured attention phase: KV8 −34.5%, TQ4c1 −47.0% @16k; KV8 −27.4% @68.4k; f32
       control unchanged; RAM unchanged. `docs/GQA_ABSORB_QWEN36.md` +
       `results/results_gqa_absorb_q36.json`.
-- [ ] **Phase 3b:** true absorbed-score attention (FlashMLA-style math, not just dequant
-      amortization) — targets TQ's residual ~4× decode gap vs KV8 (per-row FWHT unrotate
-      is real work, not redundancy) and the O(T) long-ctx scan decay (57.65 ms/tok at the
-      68.4k fixture post-3a). Then rerun the KVTQ 8-arm matrix + flash battery.
+- [x] **Phase 3b-rot — absorbed-rotation TQ decode (2026-10-19, `absorb`).**
+      `patch_tq_absorb.py` per docs/ABSORB_ROT_QWEN36.md: codec-1's fixed rotation moves out
+      of the per-row loop (rotate queries once per head-step, dot raw rotated-space levels,
+      accumulate V in rotated space, unrotate once) — per-row decode cost becomes KV8-class
+      at half KV8's bytes. `Q36_TQ_ABSORB=0` restores 3a verbatim; CI parity gate: cosine
+      >= 0.99999 + identical id sequences, absorb off vs on.
+- [ ] **Phase 3b remainder:** the O(T) decode scan itself (57.65 ms/tok at the 68.4k fixture
+      post-3a) — windowing/sparse-KV (OasisKV-class) here or in Phase 4; and absorbed-rotation
+      in the flash prefill for TQ TTFT. Plus the measured KVTQ battery arms with
+      Q36_TQ_ABSORB=0/1 on real hardware (fold into the 2b-4 battery run).
 - [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
       dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
       negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.

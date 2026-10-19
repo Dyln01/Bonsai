@@ -140,6 +140,19 @@ jobs:
             grep "\[qwen36 MTP\] run:" /tmp/force_$F.err
           done
 
+      - name: TQ absorb parity (codec 1, Q36_TQ_ABSORB 0 vs 1)
+        run: |
+          set -e
+          for A in 0 1; do
+            SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=12 \
+            COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+            KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=$A DUMP=/tmp/l_tq$A.bin DUMP_IDS=/tmp/ids_tq$A.txt \
+            timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2>&1
+          done
+          cmp /tmp/ids_tq0.txt /tmp/ids_tq1.txt
+          echo "absorb off/on: id sequences identical"
+          python3 -c "import numpy as np; a=np.fromfile('/tmp/l_tq0.bin',np.float32); b=np.fromfile('/tmp/l_tq1.bin',np.float32); c=float(a@b/(np.linalg.norm(a)*np.linalg.norm(b))); print('logit cosine', c); assert c > 0.99999"
+
       - name: MoE head gates (coder30 synth, 128 experts, group-limited top-k)
         run: |
           set -e
