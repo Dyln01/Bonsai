@@ -2226,6 +2226,7 @@ static void validate_cfg(const Cfg *c, int n_layers_from_config) {
  * *.safetensors in the container, so model-mtp.safetensors needs no second
  * shards instance — and an MTP-unaware engine never requests mtp.* names,
  * which is exactly the stock-safety property measured in Phase 2a. */
+static int  g_q36_progress = 1;   /* Q36_PROGRESS=0 disables prefill progress lines */
 static int  g_q36_mtp_on = 0;
 static int  g_q36_mtp_drafts = 2;
 static char g_q36_mtp_force[32] = {0};
@@ -5153,6 +5154,7 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
     Cfg *c = &m->c;
     int D = c->hidden;
     float *nrm = falloc((int64_t)S*D), *tmp = falloc((int64_t)S*D);
+    double _pt0 = (S > 1 && g_q36_progress) ? now_s() : 0.0;
     for (int i = layer_begin; i < layer_end; i++) {
         Layer *l = &m->L[i];
         for (int s = 0; s < S; s++) rmsnorm_row(nrm + (int64_t)s*D, x + (int64_t)s*D, l->in_ln, D, c->eps);
@@ -5188,6 +5190,15 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
             pilot_prefetch(m, i + 2, x, S);
         if (allow_prefetch && g_pilot >= 3 && S <= 8 && i + 3 < c->n_layers)
             pilot_prefetch(m, i + 3, x, S);
+        if (S > 1 && g_q36_progress) {   /* E7: the bar feed — stderr only, no compute */
+            int done = i + 1 - layer_begin, tot = layer_end - layer_begin;
+            double el = now_s() - _pt0;
+            fprintf(stderr, "[prefill] p=%d layer=%d/%d t=%.0f eta=%.0f\n",
+                    done * 100 / tot, done, tot, el, el * (tot - done) / (done > 0 ? done : 1));
+            fflush(stderr);
+        }
+        if (S > 1 && g_hot_profile_path[0] && ((i + 1) & 7) == 0)
+            q36_hot_profile_save();      /* a killed calibrate keeps a partial profile */
     }
     free(nrm); free(tmp);
 }
@@ -7677,6 +7688,7 @@ int main(int argc, char **argv) {
                            fprintf(stderr, "Q36_MTP_DRAFTS must be 0..3\n"); exit(1); } }
       const char *mf = getenv("Q36_MTP_FORCE");
       if (mf && *mf) snprintf(g_q36_mtp_force, sizeof g_q36_mtp_force, "%s", mf); }
+    { const char *pv = getenv("Q36_PROGRESS"); if (pv && pv[0] == '0') g_q36_progress = 0; }
 
     int *prompt=NULL, *full=NULL, *out=NULL;
     int np=0, nfull=0, n_new=0;

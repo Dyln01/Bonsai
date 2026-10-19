@@ -17,6 +17,19 @@ TOOLS="$HOME/bin"
 
 die() { echo "q36-minipc: $*" >&2; exit 2; }
 
+# render the engine's "[prefill] p=.." lines as a one-line progress bar on the
+# terminal; every other line passes through on its own line (portable awk)
+q36_render() {
+  awk '{
+    if ($0 ~ /^\[prefill\] p=/) {
+      p=$2; sub(/^p=/,"",p); t=$4; sub(/^t=/,"",t); e=$5; sub(/^eta=/,"",e);
+      n=int(p/5); bar="";
+      for (i=0;i<20;i++) bar = bar (i<n ? "#" : ".");
+      printf "\r[calib |%s| %3d%%  t=%ss eta=%ss   ", bar, p, t, e;
+    } else { printf "\n%s", $0 }
+  } END { printf "\n" }'
+}
+
 # model check only for commands that need one
 case "$CMD" in
   help) META=""; NEXP=0; CLASS="none" ;;
@@ -70,8 +83,9 @@ case "$CMD" in
     [ -f "$PF" ] || printf 'def fibonacci(n):\n    if n < 2: return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nWrite a function to check if a string is a palindrome. ' > "$PF"
     echo "[minipc] model class: $CLASS (num_experts=$NEXP)"
     env $COMMON N_NEW=64 COLI_TEMP=0 COLI_TIMERS=1 /usr/bin/time -v \
-        "$ENGINE" "$CAP" 4 "$PF" 2>&1 | \
-      grep -E "== qwen36|RSS after load|hit rate|TTFT|decode: [0-9]+ tokens|TOTAL|PEAK RSS|Speed:|PIN|USAGE|warm|hot]"
+        "$ENGINE" "$CAP" 4 "$PF" > /tmp/bench.out 2> >(tee /tmp/bench.err | q36_render >&2)
+    wait 2>/dev/null || true
+    grep -E "== qwen36|RSS after load|hit rate|TTFT|decode: [0-9]+ tokens|TOTAL|PEAK RSS|Speed:|PIN|USAGE|warm|hot]" /tmp/bench.err || true
     echo "---"
     echo "decode tok/s = 1000 / (TOTAL ms/token); Speed: includes prefill."
     ;;
@@ -134,7 +148,7 @@ PY
     echo "[minipc] the hot profile is written ONLY at clean exit — bound the run, do not ^C mid-pass"
     env SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 \
         TRUNK_MAP=1 HOT_FRAC=1.0 KV8=$KV8V HOT_PROFILE=$OUT N_NEW=16 COLI_TEMP=0 \
-        "$ENGINE" "$CAP" 4 "$PROMPT" > /dev/null 2> >(tee /tmp/calib.err >&2)
+        "$ENGINE" "$CAP" 4 "$PROMPT" > /dev/null 2> >(tee /tmp/calib.err | q36_render >&2)
     RC=$?
     wait 2>/dev/null || true   # let the tee drain
     grep -o "\[hot\].*" /tmp/calib.err || true
@@ -151,6 +165,10 @@ PY
     python3 "$TOOLS/hot_sort.py" "$MODEL" "$PROF" "$OUT"
     echo "[minipc] sorted container: $OUT"
     echo "[minipc] serving it: Q36_GRIFFIN=0 (use the static prefix) or keep GRIFFIN=1 (order no longer matters)"
+    ;;
+  watch)
+    echo "[minipc] live bar from /tmp/calib.err (Ctrl-C quits; run calibrate/bench in another terminal)"
+    tail -n +1 -f /tmp/calib.err 2>/dev/null | q36_render
     ;;
   doctor)
     echo "== engine =="; ls -la "$ENGINE" | awk '{print $5, $9}'
@@ -176,6 +194,7 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc calibrate <model_dir>          (dense) HOT_PROFILE run; Q36_CORPUS=<file>
   q36-minipc sort      <model_dir> [prof]   (dense) hot-sort a copy via hot_sort.py
   q36-minipc doctor    <model_dir>          knob/model/level report
+  q36-minipc watch                          live progress bar for a running calibrate/bench
 Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
 KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)

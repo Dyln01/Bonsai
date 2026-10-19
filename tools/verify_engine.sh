@@ -57,7 +57,8 @@ step qwen36.c.predraft qwen36.c.preoracle patch_mtp_draft.py
 step qwen36.c.preoracle qwen36.c.premoe patch_mtp_oracle.py
 step qwen36.c.premoe   qwen36.c.prei4 patch_mtp_moe.py
 step qwen36.c.prei4    qwen36.c.pregqa patch_mtp_i4.py
-step qwen36.c.pregqa   FINAL           patch_gqa_absorb.py
+step qwen36.c.pregqa   qwen36.c.prebar patch_gqa_absorb.py
+step qwen36.c.prebar   FINAL           patch_calib_bar.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then

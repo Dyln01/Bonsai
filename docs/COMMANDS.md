@@ -42,6 +42,7 @@ q36-minipc <command> <model_dir> [arg]
 | `calibrate <model>` | (dense) one `HOT_PROFILE` pass; set `Q36_CORPUS=<text file>` | produces `<model>/hot_profile.json`. Full-compute pass: ETA banner printed; corpus capped at `Q36_CAL_TOKENS` (default 1024, `0`=whole file); engine stderr streams live; **profile written only at clean exit — don't ^C mid-pass** |
 | `sort <model> [profile]` | (dense) hotness-sorted copy of the container via `hot_sort.py` | → `<model>-sorted`; GRIFFIN makes this optional |
 | `doctor <model>` | report: engine binary, knob reference counts, model class, resolved level | run this first whenever something behaves oddly |
+| `watch` | live-render `[prefill]` progress lines from `/tmp/calib.err` as a one-line bar (`[calib |####......|  42%  t=..s eta=..s]`) | second terminal beside a running `calibrate`/`bench`; `calibrate`/`bench` also render inline |
 
 ### 2.1 Levels (`Q36_LEVEL`)
 
@@ -62,6 +63,7 @@ q36-minipc <command> <model_dir> [arg]
 | `Q36_HOT_LAYERS` | JSON file | per-layer `{"L0":0.5,…}` fractions (falls back to the global frac) |
 | `Q36_CORPUS` | text file | the calibration corpus for `calibrate` |
 | `Q36_CAL_TOKENS` | integer (default 1024; `0` = whole corpus) | cap the calibration prefill (~4 chars/token); the energy ranking converges early — bound it on small boxes |
+| `Q36_PROGRESS` | `1`/`0` (default 1) | `[prefill] p=.. layer=.. t=.. eta=..` stderr line per layer of every multi-row forward (the progress-bar feed); stderr-only, compute untouched; also makes a killed `calibrate` keep a partial profile (periodic save every 8 layers) |
 | `Q36_SORT_OUT` | dir | output dir for `sort` |
 | `Q36_RAM_GB` | integer (default: auto) | tell the launcher the real RAM; caps the expert cache accordingly |
 | `Q36_SLOTS` | integer (default 1) | conversations the server multiplexes (`KV_SLOTS`); **one per concurrent conversation** |

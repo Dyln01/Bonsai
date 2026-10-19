@@ -116,11 +116,12 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       bandwidth smoke). Originals were never committed; reconstructed files are labeled as such.
 - [x] **E3 — milestone tags.** `phase-1a`, `phase-1b`, `phase-2a`, `softmax` annotated tags
       pushed; engine backups prunable once E1 closes.
-- [ ] **E7 — engine-side calibration progress + incremental profile save.** The hot profile is
-      written only at clean exit (`q36_hot_profile_save`, qwen36.c L7624) and prefill emits no
-      progress. Design: periodic `q36_hot_profile_save()` every K prefill tokens + a
-      `[hotcal] token i/N, elapsed` stderr line. Requires a compile-tested environment
-      (mini-PC or CI with the full engine build) before shipping — engine md5 pins move too.
+- [x] **E7 — engine-side progress + incremental profile save (2026-10-19, `bar`).**
+      `patch_calib_bar.py`: `[prefill] p=.. layer=i/L t=.. eta=..` stderr line per layer of
+      every S>1 forward (knob `Q36_PROGRESS=0`), periodic `q36_hot_profile_save()` every 8
+      layers when `HOT_PROFILE` is set (a killed calibrate keeps a partial profile), and the
+      launcher renders it: inline bar on `calibrate`/`bench` + `q36-minipc watch` for a
+      second terminal. Stderr-only => CI identity gates prove compute bit-neutrality.
 - [ ] **E4 — launcher `doctor` upgrades.** Report `Q36_FAST_SOFTMAX` engagement (AVX2 build?),
       `Q36_KVQ` tier, `Q36_SLOTS`, and `meta.mtp` presence in the container.
 - [ ] **E5 — prefix-reuse regression gate.** Promote `scripts/exp_prefix_q36.py` to a
