@@ -56,7 +56,11 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
    kernel, −6.5% attention ms/token at 16k ctx, TTFT-neutral and *more accurate than stock*
    (f32 accumulator drift); opt-in, two negative results documented alongside
    (`docs/SOFTMAX_QWEN36.md`).
-8. **q36-minipc launcher** — one command composing the right profile per model class
+8. **GQA-absorbed decode tiles (Phase 3a)** — dequant each KV tile once per GQA group
+   instead of once per query head: KV8 −34.5%, KV_TQ4 −47% attention ms/token at 16k,
+   KV8 −27.4% at the 68.4k fixture; outputs bit-identical (A/B binary DUMP_IDS gates),
+   RAM unchanged, no knobs (`docs/GQA_ABSORB_QWEN36.md`).
+9. **q36-minipc launcher** — one command composing the right profile per model class
    (auto-detects dense vs MoE): `serve|chat|bench|seed|calibrate|sort|doctor`.
 
 Landed on `test` (CI-gated, pending merge + real-hardware battery): **MTP self-speculative

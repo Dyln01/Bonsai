@@ -1,0 +1,36 @@
+{
+  "operating_point": "synth_qwen27, 15960-token prompt (~/prompt_8k.txt) + 68400-token prompt (~/prompt_long.txt), 48 new tokens, 4-core WSL2 Ryzen 7 7735HS, argv 8 4, COLI_LOOKUP=0, COLI_TEMP=0, flash on (engine default)",
+  "patch": "patch_gqa_absorb.py (5 anchored edits, backup engine/qwen36.c.pregqa). GQA-absorbed decode tiles: dequant each K/V tile once per (kvh, s), serve all q_per_kv heads of the group. No knobs.",
+  "note": "A/B identity battery: pre (qwen36.pregqa.bin) vs post (qwen36) on identical arms. Identity gate = DUMP_IDS full-stream md5 (prompt + generated ids). All 8 arms rc=0.",
+  "runs": [
+    { "arm": "f32_16k_pre",  "ptok": 15960, "attn_ms_per_tok": 10.95, "rss_gb": 0.79, "rc": 0 },
+    { "arm": "f32_16k_post", "ptok": 15960, "attn_ms_per_tok": 11.26, "rss_gb": 0.79, "rc": 0 },
+    { "arm": "kv8_16k_pre",  "ptok": 15960, "attn_ms_per_tok": 19.76, "rss_gb": 0.66, "rc": 0 },
+    { "arm": "kv8_16k_post", "ptok": 15960, "attn_ms_per_tok": 12.95, "rss_gb": 0.66, "rc": 0 },
+    { "arm": "tq4c1_16k_pre",  "ptok": 15960, "attn_ms_per_tok": 96.37, "rss_gb": 0.64, "rc": 0 },
+    { "arm": "tq4c1_16k_post", "ptok": 15960, "attn_ms_per_tok": 51.03, "rss_gb": 0.63, "rc": 0 },
+    { "arm": "kv8_68k_pre",  "ptok": 68400, "attn_ms_per_tok": 79.39, "rss_gb": 2.14, "rc": 0 },
+    { "arm": "kv8_68k_post", "ptok": 68400, "attn_ms_per_tok": 57.65, "rss_gb": 2.14, "rc": 0 }
+  ],
+  "identity": {
+    "f32_16k":   { "ids_n": 16008, "verdict": "IDENTICAL" },
+    "kv8_16k":   { "ids_n": 16008, "verdict": "IDENTICAL" },
+    "tq4c1_16k": { "ids_n": 16008, "verdict": "IDENTICAL" },
+    "kv8_68k":   { "ids_n": 68448, "verdict": "IDENTICAL" }
+  },
+  "deltas": {
+    "f32_16k_attn": "+2.8% (noise band; f32 decode path untouched)",
+    "kv8_16k_attn": "-34.5%",
+    "tq4c1_16k_attn": "-47.0%",
+    "kv8_68k_attn": "-27.4%",
+    "rss": "unchanged per arm (gqa_sc scratch = thr*q_per_kv*max_t*4B, ~2.2 MB at 68k ctx)"
+  },
+  "interpretation": "Lossless: the absorbed branch performs the same dots, softmax and t-ascending V accumulation per (head, t) as the per-head loop, so outputs are bit-identical; only the dequant count drops by q_per_kv (2 on synth_qwen27, 5 on the real dense 27B). Residual TQ-vs-KV8 gap (~4x) is per-row codec math (FWHT unrotate), not redundancy -- that is Phase 3b (true absorbed-score / MLA-style), not this patch.",
+  "gates": [
+    "all 8 arms rc=0",
+    "DUMP_IDS streams byte-identical pre vs post on f32/kv8/tq4c1 @16k and kv8 @68.4k",
+    "f32 control unchanged (path untouched)",
+    "mtp-kv8 combined smoke rc=0 (head drafting + absorbed decode coexist)",
+    "chain: verify_engine.sh replays prei4 -> pregqa [patch_mtp_i4.py] -> FINAL [patch_gqa_absorb.py]"
+  ]
+}

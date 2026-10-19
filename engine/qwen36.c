@@ -1094,6 +1094,7 @@ typedef struct {
     kv_prefix kvp;
     float *attn_sc;            /* [attn_sc_thr * kv_cap] score rows, one per thread */
     int attn_sc_thr;
+    float *gqa_sc;             /* [attn_sc_thr * q_per_kv * kv_cap] GQA-absorbed decode: one score row per head of a group (KV8/KV_TQ) */
     double dense_load_s;
     uint32_t *freq;
     int freq_token_count, hot_pinned, hot_n, warmup_tokens, token_count;
@@ -3718,6 +3719,68 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
             }
             free(sc); free(acc); free(mxv); free(lvs); free(kq); free(vq);
         }
+    } else if ((m->kv8 || m->kv_tq) && m->gqa_sc) {
+        /* GQA-absorbed decode tiles: dequantize each K/V tile ONCE per
+         * (kvh, s) and serve every head of its group. The per-head loop
+         * below pays the same dequant q_per_kv times -- on the real 27B
+         * (5 q heads per kv head) that is most of the KV8/KV_TQ decode
+         * cost. The arithmetic per (head, t) is unchanged (same dots,
+         * same softmax row, same t-ascending V accumulation), so the
+         * output is bit-identical, cheaper. */
+        #pragma omp parallel for collapse(2) schedule(static)
+        for (int kvh = 0; kvh < KV; kvh++) {
+        for (int s = 0; s < S; s++) {
+            int qpos = mr ? mr[s].pos : pos_base + s;
+            const float *Kl = mr ? mr[s].seq->K[layer] : m->K[layer], *Vl = mr ? mr[s].seq->V[layer] : m->V[layer];
+            const uint8_t *K8 = (const uint8_t*)Kl, *V8 = (const uint8_t*)Vl;
+            const float *Ksc = mr ? mr[s].seq->Kscale[layer] : m->Kscale[layer];
+            const float *Vsc = mr ? mr[s].seq->Vscale[layer] : m->Vscale[layer];
+            const int rb = m->kv_tq ? m->kvq_row_b : kvd;
+            int64_t base = (int64_t)kvh*m->max_t;
+            int tid = 0;
+#ifdef _OPENMP
+            tid = omp_get_thread_num();
+#endif
+            float *scg = m->gqa_sc + (int64_t)tid * ((int64_t)q_per_kv * m->kv_cap);
+            float *kq = m->kv8_stage + (int64_t)tid * ((2 * KV8_TILE_ROWS + q_per_kv) * kvd);
+            float *vq = kq + (int64_t)KV8_TILE_ROWS * kvd;
+            float *cxg = vq + (int64_t)KV8_TILE_ROWS * kvd;   /* q_per_kv*kvd tail of the grown staging */
+            for (int g = 0; g < q_per_kv; g++)
+                for (int dd = 0; dd < kvd; dd++) cxg[(int64_t)g*kvd + dd] = 0.f;
+            for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
+                int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
+                for (int t = 0; t < tn; t++)
+                    q36_kv_dequant_noscale(K8 + (base + t0 + t)*rb,
+                                           kq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                for (int g = 0; g < q_per_kv; g++) {
+                    const float *qv = query + ((int64_t)s*H + (kvh*q_per_kv + g))*hd;
+                    float *sc = scg + (int64_t)g * m->kv_cap;
+                    for (int t = 0; t < tn; t++)
+                        sc[t0 + t] = dot_f32_lanes(qv, kq + (int64_t)t*kvd, kvd)
+                                     * (Ksc[base + t0 + t] * scale);
+                }
+            }
+            for (int g = 0; g < q_per_kv; g++)
+                softmax_row(scg + (int64_t)g * m->kv_cap, qpos + 1);
+            for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
+                int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
+                for (int t = 0; t < tn; t++)
+                    q36_kv_dequant_noscale(V8 + (base + t0 + t)*rb,
+                                           vq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                for (int t = 0; t < tn; t++) {
+                    const float *vrow = vq + (int64_t)t*kvd;
+                    for (int g = 0; g < q_per_kv; g++) {
+                        float a = scg[(int64_t)g*m->kv_cap + t0 + t] * Vsc[base + t0 + t];
+                        float *cx = cxg + (int64_t)g*kvd;
+                        for (int dd = 0; dd < kvd; dd++) cx[dd] += a * vrow[dd];
+                    }
+                }
+            }
+            for (int g = 0; g < q_per_kv; g++)
+                memcpy(ctx + ((int64_t)s*H + (kvh*q_per_kv + g))*hd,
+                       cxg + (int64_t)g*kvd, (size_t)kvd*sizeof(float));
+        }
+        }
     } else {
     #pragma omp parallel for collapse(2) schedule(static)
     for (int hh = 0; hh < H; hh++) {
@@ -5748,6 +5811,7 @@ static void ensure_kv(Model *m){
      * because it grows with the context exactly like the KV cache does, and
      * because a per-call allocation would run 10x per token. */
     free(m->attn_sc);
+    free(m->gqa_sc);
     m->attn_sc_thr = 1;
 #ifdef _OPENMP
     m->attn_sc_thr = omp_get_max_threads();
@@ -5755,7 +5819,10 @@ static void ensure_kv(Model *m){
 #endif
     m->attn_sc = falloc((int64_t)m->attn_sc_thr * m->max_t);
     free(m->kv8_stage);
-    m->kv8_stage = (m->kv8 || m->kv_tq) ? falloc((int64_t)m->attn_sc_thr * 2 * KV8_TILE_ROWS * c->k_head_dim) : NULL;
+    m->kv8_stage = (m->kv8 || m->kv_tq) ? falloc((int64_t)m->attn_sc_thr * (2 * KV8_TILE_ROWS + c->q_heads / c->kv_heads) * c->k_head_dim) : NULL;
+    /* GQA-absorbed decode: one score row per head of a group, per thread;
+     * q_per_kv rows keep a whole group's scores live across the tile walk. */
+    m->gqa_sc = (m->kv8 || m->kv_tq) ? falloc((int64_t)m->attn_sc_thr * (c->q_heads / c->kv_heads) * m->max_t) : NULL;
     m->kv_cap = m->max_t;
     /* The record describes those same positions, so it survives with them. If
      * its own allocation fails, reuse simply stops: this is an optimisation and
@@ -8165,6 +8232,7 @@ static void qwen36_segment_model_destroy(Qwen36SegmentEngine *engine) {
         free(cache->slot_by_expert); free(cache->slots);
     }
     free(model->attn_sc);
+    free(model->gqa_sc);
     free(model->seen); free(model->is_queued); free(model->is_pinned);
     free(model->momentum_logits); free(model->freq);
     free(model->DN_conv); free(model->DN_rec); free(model->dn_dev_fresh); free(model->dn_host_stale);

@@ -77,10 +77,18 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       scales with experts x f32, so real 35B-class heads fit the 8 GB envelope; dead
       expansion helper dropped. `gen_coder30_synth.py` gains `SYNTH_SI` shared experts;
       CI gate: SI>0 MoE head loads (dense=0) and drafting-on sequence == stock.
-- [ ] **Phase 3:** absorbed-score attention (FlashMLA-style, fold q·K per GQA group) — fixes
-      KV8/TQ decode cost (KV8 −43%, TQ4 −89%, polar −97% in the KVTQ matrix) + O(T) long-ctx
-      decay. Design-contract doc first (house practice), then implementation, then rerun the
-      KVTQ 8-arm matrix + flash battery.
+- [x] **Phase 3a — GQA-absorbed decode tiles (2026-10-19, `main`).** `patch_gqa_absorb.py`:
+      dequant each K/V tile ONCE per (kv-head, row) and serve all q_per_kv heads of the
+      group — the per-head loop paid the same dequant q_per_kv times (2 on synth_qwen27,
+      5 on the real 27B). Lossless by construction; proven bit-identical by A/B binary
+      DUMP_IDS gates (f32/kv8/tq4 @16k + kv8 @68.4k fixture, all rc=0, mtp-kv8 coexists).
+      Measured attention phase: KV8 −34.5%, TQ4c1 −47.0% @16k; KV8 −27.4% @68.4k; f32
+      control unchanged; RAM unchanged. `docs/GQA_ABSORB_QWEN36.md` +
+      `results/results_gqa_absorb_q36.json`.
+- [ ] **Phase 3b:** true absorbed-score attention (FlashMLA-style math, not just dequant
+      amortization) — targets TQ's residual ~4× decode gap vs KV8 (per-row FWHT unrotate
+      is real work, not redundancy) and the O(T) long-ctx scan decay (57.65 ms/tok at the
+      68.4k fixture post-3a). Then rerun the KVTQ 8-arm matrix + flash battery.
 - [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
       dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
       negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.

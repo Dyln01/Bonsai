@@ -25,6 +25,7 @@ ship (kept so we don't retry blindly); **design** = contract pinned, implementat
 | [KVTQ_QWEN36.md](KVTQ_QWEN36.md) | 2026-10-16 | shipped | third KV tier (PolarQuant / rotated-int4), 8-arm battery, RAM-vs-decode honesty table |
 | [PREFIX_REUSE_QWEN36.md](PREFIX_REUSE_QWEN36.md) | 2026-10-16 | shipped | transcript KV-prefix reuse across agent turns (93%, 10-12x turn 2+), agent contract |
 | [SOFTMAX_QWEN36.md](SOFTMAX_QWEN36.md) | 2026-10-17 | shipped | Q36_FAST_SOFTMAX AVX2 fast exp; includes two negative results (flash-site, silu) |
+| [GQA_ABSORB_QWEN36.md](GQA_ABSORB_QWEN36.md) | 2026-10-19 | shipped | GQA-absorbed decode tiles: dequant once per group, KV8 −34.5% / TQ4 −47% attn ms/tok, bit-identical outputs |
 | [BENCH_DENSE27B.md](BENCH_DENSE27B.md) | 2026-10-17 | measured | dense-27B benchmark walkthrough (projections labeled) |
 | [MTP_DESIGN_QWEN36.md](MTP_DESIGN_QWEN36.md) | 2026-10-19 | shipped (test) | MTP head: loader + dense/MoE drafting/verify + oracle proofs + resident int4, all CI-gated; battery on real hardware open (2b-4) |
 | [GRIFFIN_V5.md](GRIFFIN_V5.md) / [HOTNEURON_V4_CALIBRATION.md](HOTNEURON_V4_CALIBRATION.md) | — | — | both list absorbed-score attention as the next architectural lever (now Phase 3) |

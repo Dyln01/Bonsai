@@ -11,7 +11,9 @@
 #
 # Segments replay the FULL chain since the E1 audit closed (2026-10-19):
 #   orig -kv8_flash_v1-> premap -trunkmap-> -trunkmap_v2-> prehot
-#        -hotstack_v1-> pretq -kvtq-> presm -softmax-> qwen36.c
+#        -hotstack_v1-> pretq -kvtq-> presm -softmax-> premtp -mtp->
+#        -mtp_draft-> -mtp_oracle-> -mtp_moe-> prei4 -mtp_i4-> pregqa
+#        -gqa_absorb-> qwen36.c
 # The historical per-feature patchers for the two regenerated windows live in
 # tools/attic/ (see tools/attic/ATTIC.md).
 set -uo pipefail
@@ -54,7 +56,8 @@ step qwen36.c.premtp qwen36.c.predraft patch_mtp.py
 step qwen36.c.predraft qwen36.c.preoracle patch_mtp_draft.py
 step qwen36.c.preoracle qwen36.c.premoe patch_mtp_oracle.py
 step qwen36.c.premoe   qwen36.c.prei4 patch_mtp_moe.py
-step qwen36.c.prei4    FINAL           patch_mtp_i4.py
+step qwen36.c.prei4    qwen36.c.pregqa patch_mtp_i4.py
+step qwen36.c.pregqa   FINAL           patch_gqa_absorb.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then
