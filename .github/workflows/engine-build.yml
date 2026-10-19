@@ -261,11 +261,15 @@ jobs:
           echo "--- s1 stderr tail:"; tail -6 /tmp/e8_s1.err || true
           python3 - <<'PY'
           import numpy as np
-          a = np.fromfile("/tmp/l_scaled.bin", np.float32); b = np.fromfile("/tmp/l_s1.bin", np.float32)
-          na, nb = np.linalg.norm(a), np.linalg.norm(b)
-          assert na > 0 and nb > 0, "degenerate logits"
-          c = float(a @ b / (na * nb))
-          print("cosine(scaled, scales=1):", c)
+          # logits on this synthetic container underflow float32 norms (~1e-35);
+          # the per-layer residual dumps are the healthy observation point.
+          A = np.fromfile("/tmp/layers_scaled.bin", np.float32)
+          B = np.fromfile("/tmp/layers_s1.bin", np.float32)
+          assert A.size == B.size and A.size > 0, "layer dump size mismatch"
+          na, nb = np.linalg.norm(A), np.linalg.norm(B)
+          assert na > 0 and nb > 0, "degenerate layer dumps"
+          c = float(A @ B / (na * nb))
+          print("cosine(layer residuals: scaled vs scales=1):", c)
           assert c < 0.999, "scales had no effect — the E8 clobber is back"
           PY
           echo "E8 gate OK: per-row scales change the mapped-int4 result"
