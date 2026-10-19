@@ -45,6 +45,18 @@ jobs:
           timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /tmp/run1.out 2> /tmp/run1.err
           rc=$?
           echo "rc=$rc"
+          python3 - <<'PY'
+          import json, struct
+          import numpy as np
+          p = f"{__import__('os').environ['HOME']}/synth_models/student_1b_i4/model-globals.safetensors"
+          f = open(p, "rb"); n = struct.unpack("<Q", f.read(8))[0]; hdr = json.loads(f.read(n))
+          o0, o1 = hdr["lm_head.weight"]["data_offsets"]
+          f.seek(8 + n + o0); a = np.frombuffer(f.read(o1 - o0), np.float16).astype(np.float32)
+          print("container lm_head norm:", float(np.linalg.norm(a)), "head:", [round(float(v),5) for v in a[:4]])
+          d = np.fromfile("/tmp/l_stock.bin", np.float32)
+          print("dump norm:", float(np.linalg.norm(d)), "head:", [round(float(v),5) for v in d[:4]])
+          PY
+          tail -5 /tmp/run1.err
           grep -q "\[prefill\] p=" /tmp/run1.err && echo "prefill progress lines present"
           grep -c "\[timers\]" /tmp/run1.err || true
           tail -5 /tmp/run1.err
