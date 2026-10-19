@@ -1,6 +1,11 @@
 # colibri RAM & Throughput Optimization Research
 ### Deep-dive with a synthetic testing harness — no real model weights used
 
+> **Errata 2 (2026-10-19, E8):** dense int4 runs with `TRUNK_MAP=1` dropped the per-row
+> `.qs` scales in the mapped GEMV until `patch_mapsc.py`; every dense number above is a
+> relative A/B on scale-less weights (internally consistent, absolute quality superseded).
+> Re-measurement rides along with the 2b-4 battery.
+>
 > **Errata (2026-10-19):** this report predates the Bonsai rebrand and the repo
 > re-layout. Path map: `~/colibri-research/synthgen/make_synthetic_model.py` and
 > `harness/*` → generators now live in `scripts/` (`gen_*.py|sh`,

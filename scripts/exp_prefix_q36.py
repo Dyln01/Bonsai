@@ -59,7 +59,8 @@ def run_arm(label, extra_env, max_tok=1, turns=3, convs=2):
         if k.startswith(SCRUB):
             del env[k]
     env.update({"SNAP": SNAP, "Q36_MAXT": "4096", "OMP_NUM_THREADS": "4",
-                "COLI_PREFIX_LOG": "1", "SERVE": "1"})
+                "COLI_PREFIX_LOG": "1", "SERVE": "1",
+                "TRUNK_MAP": os.environ.get("PREFIX_TRUNK_MAP", "1")})
     env.update(extra_env)
     os.makedirs(LOGDIR, exist_ok=True)
     errlog = os.path.join(LOGDIR, f"prefix_{label}.err")

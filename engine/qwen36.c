@@ -2630,7 +2630,8 @@ static void load_tq(Model *m, const char *name, int I, int O, int quantize, cons
                             st_read_f32(&m->S, qsname, out->sc, 0);
                         } else { out->sc = NULL; }
                     }
-                    out->w = NULL; out->q = NULL; out->sc = NULL;
+                    if (!is_i4) out->sc = NULL;   /* E8: i4 mapped rows KEEP .qs scales */
+                    out->w = NULL; out->q = NULL;
                     out->I = I; out->O = O;
                     out->q4 = NULL; out->sg = NULL; out->ng = 0;
                     out->vk = NULL; out->vk_off = 0; out->h = NULL;

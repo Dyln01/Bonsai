@@ -222,3 +222,37 @@ jobs:
               assert x.get("prefix", "").startswith("no reuse"), x
           print("prefix-reuse gate OK: mux_on reuses >=80% on turns>=2, mux_off never reuses")
           PY
+
+      - name: E8 gate — per-row .qs scales must matter on the mapped int4 path
+        run: |
+          set -e
+          rm -rf /tmp/stud_s1 && cp -r "$HOME/synth_models/student_1b_i4" /tmp/stud_s1
+          python3 - <<'PY'
+          import json, struct, os, glob
+          for f in glob.glob("/tmp/stud_s1/*.safetensors"):
+              d = bytearray(open(f, "rb").read())
+              n = struct.unpack("<Q", d[:8])[0]
+              hdr = json.loads(d[8:8+n])
+              for k, v in hdr.items():
+                  if k.endswith(".qs") and v["dtype"] == "F32":
+                      o0, o1 = v["data_offsets"]
+                      d[8+n+o0:8+n+o1] = struct.pack("<%df" % ((o1-o0)//4), *([1.0]*((o1-o0)//4)))
+              open(f, "wb").write(d)
+          print("scales-=1.0 copy ready")
+          PY
+          for TAG in scaled s1; do
+            SNAP="$HOME/synth_models/student_1b_i4"; [ "$TAG" = s1 ] && SNAP=/tmp/stud_s1
+            TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+            DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt \
+            timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2>&1
+          done
+          python3 - <<'PY'
+          import numpy as np
+          a = np.fromfile("/tmp/l_scaled.bin", np.float32); b = np.fromfile("/tmp/l_s1.bin", np.float32)
+          na, nb = np.linalg.norm(a), np.linalg.norm(b)
+          assert na > 0 and nb > 0, "degenerate logits"
+          c = float(a @ b / (na * nb))
+          print("cosine(scaled, scales=1):", c)
+          assert c < 0.999, "scales had no effect — the E8 clobber is back"
+          PY
+          echo "E8 gate OK: per-row scales change the mapped-int4 result"

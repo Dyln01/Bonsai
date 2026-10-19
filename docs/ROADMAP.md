@@ -133,6 +133,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       layers when `HOT_PROFILE` is set (a killed calibrate keeps a partial profile), and the
       launcher renders it: inline bar on `calibrate`/`bench` + `q36-minipc watch` for a
       second terminal. Stderr-only => CI identity gates prove compute bit-neutrality.
+- [x] **E8 — TRUNK_MAP int4 scale clobber FIXED (2026-10-19).** `load_tq`'s mmap branch
+      loaded per-row `.qs` scales then nulled them; `matmul_map_i4` ran with rs=1.0 on every
+      dense int4 TRUNK_MAP run since TRUNK_MAP shipped. Fixed by `patch_mapsc.py` (chain hop
+      `.premapsc`); CI gate: a scales-=1.0 container copy must now differ from the real one
+      (pre-fix they matched exactly). Errata: pre-fix dense measurements (LOWRAM/BENCH/student
+      ratios) remain valid as RELATIVE A/B within one container; absolute quality and the
+      hot-neuron energy ranking were computed on scale-less weights — re-measure in the 2b-4
+      battery. Serve-mux on packed containers also needs TRUNK_MAP=1 (launcher always set it;
+      the prefix driver now does too).
 - [ ] **E4 — launcher `doctor` upgrades.** Report `Q36_FAST_SOFTMAX` engagement (AVX2 build?),
       `Q36_KVQ` tier, `Q36_SLOTS`, and `meta.mtp` presence in the container.
 - [ ] **E5 — prefix-reuse regression gate.** Promote `scripts/exp_prefix_q36.py` to a
