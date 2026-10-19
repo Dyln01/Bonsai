@@ -242,7 +242,7 @@ jobs:
           PY
           for TAG in scaled s1; do
             if [ "$TAG" = s1 ]; then SNAP=/tmp/stud_s1; else SNAP="$HOME/synth_models/student_1b_i4"; fi
-            TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+            SNAP="$SNAP" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
             DUMP=/tmp/l_$TAG.bin DUMP_IDS=/tmp/ids_$TAG.txt \
             timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> /tmp/e8_$TAG.err || { echo "engine failed on $TAG"; tail -20 /tmp/e8_$TAG.err; exit 1; }
           done
