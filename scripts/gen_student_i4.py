@@ -7,6 +7,7 @@ import numpy as np
 
 OUT = os.path.expanduser(os.environ.get("STUDENT_OUT", "~/synth_models/student_1b_i4"))
 REALHEAD = os.environ.get("STUDENT_REALHEAD", "") == "1"   # non-degenerate embed/lm_head for numeric CI gates
+CALM = float(os.environ.get("STUDENT_CALM", "0"))          # extra damping on layer weights so residuals stay O(1)
 os.makedirs(OUT, exist_ok=True)
 for f in os.listdir(OUT):
     os.remove(os.path.join(OUT, f))
@@ -47,6 +48,7 @@ def quant_i4_row(w):     # w: [O, I] f32/f16 -> packed U8 [O, I/2] flat, scales 
 
 def mat_i4(o, i, s=None):
     if s is None: s = (2.0/(o+i))**0.5 * 0.5
+    if CALM: s = s * CALM
     w = (rng.standard_normal((o, i)) * s)
     return quant_i4_row(w)
 
