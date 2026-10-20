@@ -1,0 +1,11 @@
+# Keep byte-anchored file classes LF in the working tree on every platform.
+# Windows checkouts (core.autocrlf=true) were converting these to CRLF,
+# which silently breaks: byte-anchored patchers (python, reading with
+# newline=""), the verify_engine.sh chain replay, and any .sh invoked from
+# WSL ("set: pipefail\r: invalid option name"). Blobs are already LF;
+# this only fixes checkout behavior. CI (Linux) is unaffected.
+*.sh  text eol=lf
+*.py  text eol=lf
+*.c   text eol=lf
+*.h   text eol=lf
+*.json text eol=lf
