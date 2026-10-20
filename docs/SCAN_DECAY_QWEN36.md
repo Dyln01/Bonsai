@@ -1,6 +1,6 @@
 # Decode scan decay (Phase 3b-scan) — design contract
 
-**Date:** 2026-10-20 · status: **design pinned, implementation next**
+**Date:** 2026-10-20 · status: **implemented + machinery-gated (shipped, knob default `full`)**
 **Predecessors:** 3a (GQA-absorbed tiles) removed per-head dequant redundancy;
 3b-rot/3b-prefill removed the TQ per-row/per-block FWHT. What remains in decode
 attention is the **row count itself**: every (kv-head, row) pair scans all
@@ -88,3 +88,69 @@ Learned/dynamic predictors (Phase 4), cross-engine ports, OasisKV-style
 draft-prefetch (needs MTP drafts to predict rows — revisit **after** 2b-4
 shows real acceptance rates; that combination is noted in
 `docs/RESEARCH_MAP_DENSE.md` and would compose cleanly with this scan set).
+
+## Implementation status (2026-10-20, shipped)
+
+`engine/scan_decay.h` (knobs, builder, report) + `tools/patch_scan_decay.py`
+(12 anchored edits, backup `qwen36.c.prescan`, chain 16 hops, CI replays).
+
+### Amendments to the contract (both forced by measurement)
+
+1. **The salience table is uint64 fixed-point (x 2^14), not f32.** The flash
+   prefill seeds under `schedule(dynamic)`, so per-thread partial sums group
+   differently run-to-run; float addition is not associative, so an f32
+   table -- and with it the scan set and the generated ids -- would vary.
+   Integer sums are order-associative: the merged table is bit-reproducible
+   under any scheduling (gate 1c proves it end-to-end, prefill included).
+2. **Seeding scope: settle row + prefill chunks, no snapshots.** Decode mass
+   accumulates only from the settle row (s == 0) -- the one row of a verify
+   batch that always stands -- so the q36_spec snapshot/rollback interaction
+   (correctness note 1) vanishes entirely: rejected drafts cannot
+   contaminate the table. Prefill seeds ALL chunk rows via
+   `g_q36_scan_prefill`, set around the chunked prefill driver's call (the
+   only `attention()` call with that exact signature). A `pos_base == 0`
+   gate would have seeded only chunk 1 of the prompt -- the E7 progress
+   work made prefill chunked; the driver flag is the correct signature.
+
+### Gates (synthetic, measured)
+
+| gate | result |
+|------|--------|
+| 1 mechanical: `Q36_SCAN` unset id-identity vs pre-scan binary (kv8 + tq4, 15,960-token prompt) | **PASS** (bit-identical, the `!scan` path is the 3a/3b loops verbatim) |
+| 1 mechanical: two-tier determinism, two runs, full prefill seeding | **PASS** (DUMP_IDS identical) |
+| machinery ceiling: `Q36_SCAN_EPS=1.0` (window+sinks only) | **3.2% rows scanned, attention 16.22 -> 1.36 ms/tok (11.9x)** at 16k |
+| engagement: `EPS=0.05`, `WIN=512` | **54.1% rows, salience kept 0.9575, attention 16.22 -> 13.92 ms/tok (-14.2%)** |
+| 2 salience self-check (repeated-ngram prompt) | **documented NEGATIVE on synthetic** -- see below |
+| machinery ceiling at the **68.4k fixture** (`EPS=1.0`) | **2.4% rows, attention 73.66 -> 5.25 ms/tok (14.0x)** |
+| engagement at 68.4k (`EPS=0.05`) | **45.6% rows, kept 0.9564, attention 73.66 -> 64.49 ms/tok (1.14x)** -- see the gate-4 verdict |
+| 3 quality / 4 speed-on-real-weights | pre-registered Phase 5 arms (unchanged) |
+
+**The gate-2 negative, precisely.** On the random-weight container every
+(layer, kv-head) table row shows the SAME top blocks with values in a
+perfect arithmetic sequence (28431124992, 27894254080, ... -2^29 per block):
+the salience is a pure **causal-coverage gradient** (block b collects mass
+from every query after it; earlier blocks collect more). Identical K rows
+in distribution carry zero content information, so repeated ngrams cannot
+concentrate mass: ngram blocks landed in the EPS=0.5 scan set at 6/14 vs a
+~50% null. The mechanism deterministically tracks the mass it sees -- on
+random weights there is no content signal to track. Gate 2 becomes
+measurable only on real weights (Phase 5) or a container with structured
+K rows (a small generator extension: cluster a token subset along a
+direction so repeats produce genuinely higher dots -- noted as follow-up).
+The knob therefore stays default `full`, exactly as the contract's escape
+hatch requires.
+
+**The gate-4 synthetic verdict (68.4k fixture, all arms rc=0).** The
+machinery ceiling is real: `EPS=1.0` (window + sinks, 2.4% of rows, a
+mostly-CONTIGUOUS set) cuts attention 73.66 -> 5.25 ms/tok (**14.0x**).
+But the honest `EPS=0.05` engagement returns only **1.14x** at 45.6% of
+rows: the salience-gated set is scattered blocks across a 2.1 GB KV pool,
+and random-ish 8 KB chunk reads cost most of what the halved row count
+saves -- the full scan is pure sequential streaming and hard to beat at
+45% coverage. Gate 4 is therefore a documented negative on synthetic at
+`EPS=0.05` (contract: "any fail = documented negative, knob stays full").
+The real question is Phase 5's: real weights concentrate mass far harder
+than random (the whole premise of the salience gate), which shrinks the
+set toward the contiguous-window regime where the 14x ceiling lives --
+and if they do not, the lever is dead for this architecture and this file
+records why. Full numbers: `results/results_scan_decay_q36.json`.

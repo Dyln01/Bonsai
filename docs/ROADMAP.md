@@ -110,9 +110,17 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       interactions pinned (spec snapshots, prefix reuse, KV-tier composition), four
       pre-registered gates incl. the ≤+0.5% ppl band and the ≥2x 68.4k speed gate.
       Implementation open; OasisKV draft-prefetch noted as a post-2b-4 composition.
-- [ ] **Phase 3b remainder:** implementation of the scan contract above, plus the
-      measured KVTQ battery arms with Q36_TQ_ABSORB=0/1 on real hardware (fold into the
-      2b-4 battery run).
+- [x] **Phase 3b-scan — two-tier deterministic decode scan (2026-10-20, `main`).**
+      `engine/scan_decay.h` + `patch_scan_decay.py` (chain 16 hops, backup .prescan):
+      window + measured sinks + salience-gated 128-row blocks; table uint64
+      fixed-point so schedule(dynamic) cannot break bit-reproducibility; seeding
+      = settle row + prefill chunks (no spec snapshots needed). Gates on synthetic:
+      scan-off id-identity PASS (kv8+tq4), two-run determinism PASS, machinery
+      ceiling 3.2% rows -> 11.9x attention at 16k (EPS=1.0), EPS=0.05 engages at
+      54% rows / -14% attention; gate 2 (ngram self-check) = documented NEGATIVE
+      (random weights = pure causal-coverage gradient, zero content signal;
+      needs real weights or a structured container); quality + real-speed gates
+      pre-registered as Phase 5 arms. Knob Q36_SCAN default full.
 - [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
       dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
       negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.

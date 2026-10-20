@@ -62,6 +62,11 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
    RAM unchanged, no knobs (`docs/GQA_ABSORB_QWEN36.md`).
 9. **q36-minipc launcher** — one command composing the right profile per model class
    (auto-detects dense vs MoE): `serve|chat|bench|seed|calibrate|sort|doctor`.
+10. **Q36_SCAN two-tier decode scan (Phase 3b-scan)** — window + measured sinks +
+    salience-gated 128-row blocks; uint64 fixed-point salience keeps the scan set
+    bit-reproducible under OpenMP; default OFF (`Q36_SCAN=full` preserves stock
+    bit-exactly); machinery ceiling 3.2% rows scanned -> 11.9x attention at 16k
+    (`docs/SCAN_DECAY_QWEN36.md`).
 
 Landed on `test` (CI-gated, pending merge + real-hardware battery): **MTP self-speculative
 head** — loader, dense+MoE drafting/verify on the existing spec machinery, force-oracle

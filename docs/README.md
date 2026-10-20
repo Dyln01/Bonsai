@@ -28,7 +28,7 @@ ship (kept so we don't retry blindly); **design** = contract pinned, implementat
 | [SOFTMAX_QWEN36.md](SOFTMAX_QWEN36.md) | 2026-10-17 | shipped | Q36_FAST_SOFTMAX AVX2 fast exp; includes two negative results (flash-site, silu) |
 | [GQA_ABSORB_QWEN36.md](GQA_ABSORB_QWEN36.md) | 2026-10-19 | shipped | GQA-absorbed decode tiles: dequant once per group, KV8 −34.5% / TQ4 −47% attn ms/tok, bit-identical outputs |
 | [BENCH_DENSE27B.md](BENCH_DENSE27B.md) | 2026-10-17 | measured | dense-27B benchmark walkthrough (projections labeled) |
-| [SCAN_DECAY_QWEN36.md](SCAN_DECAY_QWEN36.md) | 2026-10-20 | design | Phase 3b-scan: two-tier deterministic decode scan (window + sinks + salience-gated blocks); gates pre-registered |
+| [SCAN_DECAY_QWEN36.md](SCAN_DECAY_QWEN36.md) | 2026-10-20 | shipped (machinery; knob default full) | Phase 3b-scan implemented: integer salience table, settle-row+prefill seeding, gates 1 PASS + machinery ceiling, gate-2 synthetic negative documented |
 | [ABSORB_ROT_QWEN36.md](ABSORB_ROT_QWEN36.md) | 2026-10-19 | shipped (absorb branch) | Phase 3b-rot: absorbed-rotation TQ decode (per-row FWHT eliminated); 3b-scan/3b-prefill follow-ups |
 | [MTP_QWEN36.md](MTP_QWEN36.md) | 2026-10-20 | shipped | 2b-4 battery: gate T(n) curve, forced-accept 3 tok/forward at +11% bound, TQ4 absorb end-to-end -54% |
 | [GQA_ABSORB_QWEN36.md](GQA_ABSORB_QWEN36.md) | 2026-10-19 | shipped | Phase 3a: GQA-absorbed decode tiles (dequant once per group); measured KV8 −34.5% / TQ4 −47% attn |

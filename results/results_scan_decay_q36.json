@@ -1,0 +1,40 @@
+{
+  "operating_point": "synth_qwen27 (24L: 6 attention + 18 DeltaNet), 15,960-token prompt (~/prompt_8k.txt) + 68,400-token prompt (~/prompt_long.txt, full length), greedy, 4-core WSL2 Ryzen 7 7735HS, argv 8 4, COLI_LOOKUP=0",
+  "patch": "patch_scan_decay.py (12 anchored edits, backup engine/qwen36.c.prescan) + engine/scan_decay.h. Two-tier deterministic scan: Q36_SCAN=two-tier, window Q36_SCAN_WIN=4096, sinks Q36_SCAN_SINK=256, salience-gated 128-row blocks to 1-Q36_SCAN_EPS. Knob default full (stock bit-exact).",
+  "design_amendments": [
+    "salience table = uint64 fixed-point (x 2^14), not f32: flash seeding runs under schedule(dynamic); integer sums are order-associative so the table/scan-set/ids are bit-reproducible under any scheduling",
+    "seeding = decode settle row (s==0, the one verify row that always stands -- no spec snapshot/rollback interaction) + ALL prefill chunk rows via g_q36_scan_prefill (the chunked prefill driver is the only caller with that attention() signature; a pos_base==0 gate would have seeded only chunk 1)"
+  ],
+  "gates": {
+    "g1_mechanical_identity": {
+      "verdict": "PASS",
+      "detail": "Q36_SCAN unset: id-identity vs the pre-scan binary on kv8 and tq4c1 arms at 15,960-token prompt (DUMP_IDS full streams, bit-identical)"
+    },
+    "g1_mechanical_determinism": {
+      "verdict": "PASS",
+      "detail": "Q36_SCAN=two-tier two runs: DUMP_IDS identical, full prefill seeding active (integer table under OpenMP)"
+    },
+    "machinery_ceiling_16k": { "attn_ms_per_tok": 1.36, "rows_pct": 3.2, "baseline_ms_per_tok": 16.22, "speedup": 11.9, "config": "EPS=1.0 WIN=512" },
+    "engagement_16k": { "attn_ms_per_tok": 13.92, "rows_pct": 54.1, "mass_kept": 0.9575, "baseline_ms_per_tok": 16.22, "speedup": 1.165, "config": "EPS=0.05 WIN=512" },
+    "g2_ngram_self_check": {
+      "verdict": "NEGATIVE (documented)",
+      "detail": "Every (layer, kv-head) shows IDENTICAL top blocks with values in a perfect arithmetic sequence (-2^29 per block): the salience is a pure causal-coverage gradient; iid random K rows carry zero content information. Ngram blocks landed in the EPS=0.5 set at 6/14 vs ~50% null. Measurable only on real weights (Phase 5) or a structured container (generator follow-up)."
+    },
+    "battery_68k": {
+      "baseline_full": { "attn_ms_per_tok": 73.66, "rows_pct": 100.0 },
+      "two_tier_eps005": { "attn_ms_per_tok": 64.49, "rows_pct": 45.6, "mass_kept": 0.9564, "speedup": 1.142 },
+      "two_tier_eps10": { "attn_ms_per_tok": 5.25, "rows_pct": 2.4, "mass_kept": 0.0114, "speedup": 14.03 },
+      "all_arms_rc": 0
+    },
+    "g4_speed_synthetic": {
+      "verdict": "NEGATIVE at eps=0.05 (documented); machinery ceiling 14x at eps=1.0",
+      "detail": "At 68.4k the eps=0.05 set is 45.6% of rows but returns only 1.14x: scattered block access across a 2.1 GB KV pool costs most of the linear row win, while the small mostly-contiguous window+sinks set (2.4%) reaches 14x. Real concentration (and its access pattern) is a Phase 5 real-weights question; the knob stays default full per the contract's escape hatch."
+    },
+    "g3_quality": "pre-registered Phase 5 arm (wikitext-2 ppl <= +0.5% rel), unchanged"
+  },
+  "notes": [
+    "attention ms/tok = the engine's [timers] attention phase; never the Speed line (prefill included there)",
+    "DeltaNet layers keep no KV rows and are skipped by the scan; debug dumps walk is_attn layers only",
+    "the qsort-per-build cost is negligible (~120k compares/token at 68k); the cost story is memory access, not selection"
+  ]
+}

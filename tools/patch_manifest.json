@@ -14,7 +14,7 @@
     "kv_fp8.h": "a92762dab601fb885221dd499db21445",
     "kv_tq.h": "6a476ecd475326942ceb345829792196",
     "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-    "qwen36.c": "49286a76d4b4869b03b432bba9be3549",
+    "qwen36.c": "e639efe5470f970ff789552c24d9b9d4",
     "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
     "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
     "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
@@ -31,7 +31,9 @@
     "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
     "tq_absorb_parity.c": "429ac5dd090640e8a7dbbae7ca79ca67",
     "qwen36.c.preabsp": "5a90dfd069685530de049bd90f42d5a2",
-    "qwen36.c.premapsc": "8d1d31f0bbc7c27b1b9da52f8f973795"
+    "qwen36.c.premapsc": "8d1d31f0bbc7c27b1b9da52f8f973795",
+    "qwen36.c.prescan": "49286a76d4b4869b03b432bba9be3549",
+    "scan_decay.h": "fa109ebf057a71c8b17153112ddef1fa"
   },
   "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
   "reproducible_segments": [
@@ -150,8 +152,16 @@
       "scripts": [
         "patch_mapsc.py"
       ],
-      "to": "qwen36.c",
+      "to": "qwen36.c.prescan",
       "added": "E8 scale fix"
+    },
+    {
+      "from": "qwen36.c.prescan",
+      "scripts": [
+        "patch_scan_decay.py"
+      ],
+      "to": "qwen36.c",
+      "added": "Phase 3b-scan two-tier deterministic decode scan"
     }
   ],
   "drift_audit": {

@@ -1105,6 +1105,9 @@ typedef struct {
     float *attn_sc;            /* [attn_sc_thr * kv_cap] score rows, one per thread */
     int attn_sc_thr;
     float *gqa_sc;             /* [attn_sc_thr * q_per_kv * kv_cap] GQA-absorbed decode: one score row per head of a group (KV8/KV_TQ) */
+    uint64_t *sal;             /* 3b-scan: fixed-point (x2^14) attention mass per [layer][kv_head][128-row block] */
+    int sal_blocks;            /*   block columns of sal; grows with max_t, contents preserved across grows */
+    int *scan_rows;            /*   per-thread scratch: [thr][kv_cap row-ids | sbcap block-ids | sbcap sel bytes] */
     double dense_load_s;
     uint32_t *freq;
     int freq_token_count, hot_pinned, hot_n, warmup_tokens, token_count;
@@ -3561,6 +3564,8 @@ static inline void mrope_at(const Model *m, int p, int pos3[3]) {
  *  - partial RoPE on the first rotary_dim dims of each head (text: mRoPE == standard).
  *  - scale = head_dim^-0.5; GQA repeat_kv.
  *  - attn_out = attn_out * sigmoid(gate), then o_proj (input dim = q_heads*head_dim). */
+#include "scan_decay.h"   /* Phase 3b-scan: two-tier deterministic decode scan (knobs, builder, report) */
+
 static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_base, float *out) {
     Cfg *c = &m->c;
     double _aproj0 = tm_now();
@@ -3652,8 +3657,23 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
         const int QB = q36_flash_tile("Q36_FLASH_QB", 64, 8, 512);
         const int TB = q36_flash_tile("Q36_FLASH_TB", 128, 16, 2048);
         if (getenv("Q36_FLASH_DEBUG")) fprintf(stderr, "[flash] engaged S=%d QB=%d TB=%d H=%d kv8=%d tq=%d\n", S, QB, TB, H, m->kv8, m->kv_tq);
+        /* 3b-scan prefill seeding: per-thread fixed-point partials merged
+         * after the region in thread order (integer sums are exact, so the
+         * dynamic schedule cannot make the table vary run to run). Only
+         * the true prefill (pos_base == 0) seeds. */
+        int scols = m->sal ? m->sal_blocks : 0;
+        int sthr = 1;
+#ifdef _OPENMP
+        sthr = omp_get_max_threads();
+#endif
+        uint64_t *sseed = (q36_scan_two() && scols > 0 && g_q36_scan_prefill)
+                          ? calloc((size_t)sthr * KV * scols, sizeof(uint64_t)) : NULL;
         #pragma omp parallel
         {
+            int f_tid = 0;
+#ifdef _OPENMP
+            f_tid = omp_get_thread_num();
+#endif
             float *sc  = malloc((size_t)QB*q_per_kv*TB*sizeof(float));
             float *acc = malloc((size_t)QB*q_per_kv*kvd*sizeof(float));
             float *mxv = malloc((size_t)QB*q_per_kv*sizeof(float));
@@ -3724,9 +3744,12 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                                     lvs[li] *= r; mxv[li] = m2;
                                 }
                                 for (int t = t0; t <= t_last; t++) {
-                                    float p = expf(sc[(size_t)li*TB + (t - t0)] - m2);
+                                    float pw = expf(sc[(size_t)li*TB + (t - t0)] - m2);
+                                    float p = pw;   /* pw: un-V-scaled mass, for the scan seeding */
                                     if (m->kv8 || m->kv_tq) p *= Vsc[kbase + t];
                                     lvs[li] += p;
+                                    if (sseed) sseed[((int64_t)f_tid*KV + kvh)*scols + (t >> 7)]
+                                                   += (uint64_t)(pw * (float)Q36_SCAN_SCALE);
                                     const float *vr = (m->kv8 || m->kv_tq) ? vq + (size_t)(t - t0)*kvd
                                                              : Vl_f + (kbase + t)*kvd;
                                     for (int d = 0; d < kvd; d++) ax[d] += p * vr[d];
@@ -3745,6 +3768,12 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                 }
             }
             free(sc); free(acc); free(mxv); free(lvs); free(kq); free(vq);
+        }
+        if (sseed) {   /* thread-order merge; integer sums keep it bit-exact */
+            for (int i = 0; i < sthr; i++)
+                for (int64_t j = 0; j < (int64_t)KV*scols; j++)
+                    m->sal[(int64_t)layer*c->kv_heads*scols + j] += sseed[(int64_t)i*KV*scols + j];
+            free(sseed);
         }
     } else if ((m->kv8 || m->kv_tq) && m->gqa_sc) {
         /* GQA-absorbed decode tiles: dequantize each K/V tile ONCE per
@@ -3781,6 +3810,76 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                 for (int g = 0; g < q_per_kv; g++)
                     coli_tq_rotate(query + ((int64_t)s*H + (kvh*q_per_kv + g))*hd,
                                    qrg + (size_t)g*kvd, kvd, COLI_TQ_SEED);
+            /* 3b-scan: two-tier walk (docs/SCAN_DECAY_QWEN36.md). The scan
+             * set is a deterministic function of the fixed-point salience
+             * table; skipped rows contribute exactly 0 mass because the
+             * softmax renormalizes over the scanned slots only (the
+             * documented approximation, hence the real-weights gates). */
+            int scan = (q36_scan_two() && !mr && m->sal) ? 1 : 0;
+            int *srows = NULL, *sbl = NULL; unsigned char *ssel = NULL;
+            if (scan) {
+                int sbcap = (m->kv_cap >> 7) + 8;
+                srows = m->scan_rows + (int64_t)tid * (m->kv_cap + 2 * sbcap);
+                sbl = srows + m->kv_cap;
+                ssel = (unsigned char*)(sbl + sbcap);
+                int nbl = q36_scan_build(m, layer, kvh, qpos, ssel, sbl);
+                int nslot = 0;
+                for (int bi = 0; bi < nbl; bi++) {
+                    int t0 = sbl[bi] << 7;
+                    int tn = qpos - t0 + 1; if (tn > 128) tn = 128;
+                    if (tn <= 0) continue;
+                    for (int t = 0; t < tn; t++) {
+                        if (absorb) q36_q4_rot_noscale(K8 + (base + t0 + t)*rb, kq + (int64_t)t*kvd, kvd);
+                        else q36_kv_dequant_noscale(K8 + (base + t0 + t)*rb,
+                                                    kq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                        srows[nslot + t] = t0 + t;
+                    }
+                    for (int g = 0; g < q_per_kv; g++) {
+                        const float *qvs = absorb ? qrg + (size_t)g*kvd
+                                                  : query + ((int64_t)s*H + (kvh*q_per_kv + g))*hd;
+                        float *sc = scg + (int64_t)g * m->kv_cap;
+                        for (int t = 0; t < tn; t++)
+                            sc[nslot + t] = dot_f32_lanes(qvs, kq + (int64_t)t*kvd, kvd)
+                                          * (Ksc[base + t0 + t] * scale);
+                    }
+                    nslot += tn;
+                }
+                for (int g = 0; g < q_per_kv; g++)
+                    softmax_row(scg + (int64_t)g * m->kv_cap, nslot);
+                if (s == 0 || g_q36_scan_prefill) {   /* settle row (the one
+                                  row of a verify that always stands) or any
+                                  prefill chunk row -- no snapshot/rollback
+                                  needed either way */
+                    uint64_t *salrow = Q36_SAL(m, layer, kvh);
+                    for (int g = 0; g < q_per_kv; g++) {
+                        float *sc = scg + (int64_t)g * m->kv_cap;
+                        for (int i = 0; i < nslot; i++)
+                            salrow[srows[i] >> 7] += (uint64_t)(sc[i] * (float)Q36_SCAN_SCALE);
+                    }
+                }
+                int slot = 0;
+                for (int bi = 0; bi < nbl; bi++) {
+                    int t0 = sbl[bi] << 7;
+                    int tn = qpos - t0 + 1; if (tn > 128) tn = 128;
+                    if (tn <= 0) continue;
+                    for (int t = 0; t < tn; t++) {
+                        if (absorb) q36_q4_rot_noscale(V8 + (base + t0 + t)*rb, vq + (int64_t)t*kvd, kvd);
+                        else q36_kv_dequant_noscale(V8 + (base + t0 + t)*rb,
+                                                    vq + (int64_t)t*kvd, kvd, m->kv_tq, m->tq_bits, m->tq_codec);
+                    }
+                    for (int t = 0; t < tn; t++) {
+                        const float *vrow = vq + (int64_t)t*kvd;
+                        int row = srows[slot + t];
+                        for (int g = 0; g < q_per_kv; g++) {
+                            float a = scg[(int64_t)g*m->kv_cap + slot + t] * Vsc[base + row];
+                            float *cx = cxg + (int64_t)g*kvd;
+                            for (int dd = 0; dd < kvd; dd++) cx[dd] += a * vrow[dd];
+                        }
+                    }
+                    slot += tn;
+                }
+            }
+            if (!scan) {
             for (int t0 = 0; t0 <= qpos; t0 += KV8_TILE_ROWS) {
                 int tn = qpos - t0 + 1; if (tn > KV8_TILE_ROWS) tn = KV8_TILE_ROWS;
                 for (int t = 0; t < tn; t++) {
@@ -3815,6 +3914,7 @@ static void attention(Model *m, Layer *l, int layer, float *x, int S, int pos_ba
                     }
                 }
             }
+            }   /* !scan: the 3a/3b loops verbatim -- Q36_SCAN=full identity path */
             if (absorb)
                 for (int g = 0; g < q_per_kv; g++)
                     coli_tq_unrotate(cxg + (size_t)g*kvd, kvd, COLI_TQ_SEED);
@@ -5201,7 +5301,9 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
         for (int s = 0; s < S; s++) rmsnorm_row(nrm + (int64_t)s*D, x + (int64_t)s*D, l->in_ln, D, c->eps);
         double _t0 = tm_now();
         if (c->is_attn[i]) {
+            g_q36_scan_prefill = 1;   /* 3b-scan: this exact call signature exists only in the chunked prefill driver -- flag it so the seeding covers every chunk, never a verify batch */
             attention(m, l, i, nrm, S, pos_base, tmp);
+            g_q36_scan_prefill = 0;
             tm_add(S, 1, tm_now()-_t0);
         } else {
             deltanet(m, l, i, nrm, S, pos_base, tmp);
@@ -5876,6 +5978,35 @@ static void ensure_kv(Model *m){
      * q_per_kv rows keep a whole group's scores live across the tile walk. */
     m->gqa_sc = (m->kv8 || m->kv_tq) ? falloc((int64_t)m->attn_sc_thr * (c->q_heads / c->kv_heads) * m->max_t) : NULL;
     m->kv_cap = m->max_t;
+    /* 3b-scan: salience table [n_layers][kv_heads][sal_blocks] uint64. It
+     * grows with the context like everything here, but its contents must
+     * SURVIVE a grow (the prefill seeds it once), so a grow copies the old
+     * per-(layer,kvh) rows forward. Fixed-point, not f32: the flash path
+     * seeds under schedule(dynamic) and integer sums are order-associative,
+     * so the merged table (and the scan set, and the ids) is bit-exact. */
+    if (q36_scan_two() && (m->kv8 || m->kv_tq)) {
+        int nb = (m->max_t + 127) >> 7;
+        if (!m->sal) {
+            m->sal = calloc((size_t)((int64_t)c->n_layers * c->kv_heads) * nb, sizeof(uint64_t));
+            if (!m->sal) { fprintf(stderr, "[scan] OOM sal\n"); exit(1); }
+            m->sal_blocks = nb;
+        } else if (nb > m->sal_blocks) {
+            int64_t cells = (int64_t)c->n_layers * c->kv_heads;
+            uint64_t *ns = calloc((size_t)(cells * nb), sizeof(uint64_t));
+            if (!ns) { fprintf(stderr, "[scan] OOM sal grow\n"); exit(1); }
+            for (int64_t i = 0; i < cells; i++)
+                memcpy(ns + i * nb, m->sal + i * m->sal_blocks,
+                       (size_t)m->sal_blocks * sizeof(uint64_t));
+            free(m->sal); m->sal = ns; m->sal_blocks = nb;
+        }
+        int sbcap = (m->kv_cap >> 7) + 8;
+        free(m->scan_rows);
+        m->scan_rows = calloc((size_t)m->attn_sc_thr * (m->kv_cap + 2 * sbcap), sizeof(int));
+        if (!m->scan_rows) { fprintf(stderr, "[scan] OOM scratch\n"); exit(1); }
+    } else if (m->sal || m->scan_rows) {
+        free(m->sal); m->sal = NULL; m->sal_blocks = 0;
+        free(m->scan_rows); m->scan_rows = NULL;
+    }
     /* The record describes those same positions, so it survives with them. If
      * its own allocation fails, reuse simply stops: this is an optimisation and
      * must never be the reason a turn fails. */
@@ -6449,6 +6580,7 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
           if (tm_on()) g_tm_step += tm_now()-_s0; }
     }
     q36_spec_end(m, sp);
+    q36_scan_report(m);
     { const char *ip = getenv("DUMP_IDS");
       if (ip && *ip) { FILE *f = fopen(ip, "w");
         if (f) { for (int i = 0; i < len; i++) fprintf(f, "%d\n", out[i]);
@@ -8287,6 +8419,7 @@ static void qwen36_segment_model_destroy(Qwen36SegmentEngine *engine) {
     }
     free(model->attn_sc);
     free(model->gqa_sc);
+    free(model->sal); free(model->scan_rows);
     free(model->seen); free(model->is_queued); free(model->is_pinned);
     free(model->momentum_logits); free(model->freq);
     free(model->DN_conv); free(model->DN_rec); free(model->dn_dev_fresh); free(model->dn_host_stale);
