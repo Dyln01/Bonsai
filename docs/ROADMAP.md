@@ -107,13 +107,12 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
       negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.
       Grounding: `docs/RESEARCH_MAP_DENSE.md`.
-- [ ] **Phase 5:** real-weights validation — GATED on user sign-off (breaks the no-download
-      rule). Protocol doc first (eval set + checksums, perplexity arms, MTP acceptance rate,
-      KV-tier quality neutrality, download budget + license check); execution only after
-      sign-off; refresh README projected rows afterwards.
-
-## Open — engineering / hygiene
-
+- [ ] **Phase 5:** real-weights validation — GATED on user sign-off. The contract is
+      written and reviewable: `docs/VALIDATION_PROTOCOL_QWEN36.md` (checkpoints + license
+      checks, wikitext-2 ppl arms A-I with pre-registered acceptance bands, mini-PC
+      mechanics M1-M5, resumable session procedure, sign-off checkbox). Execution begins
+      only after the checkbox is ticked; `scripts/make_wikitest_ref.py` lands with the
+      session commit.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
       engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no
