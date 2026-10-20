@@ -99,8 +99,13 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (s0,kvh) block, K/V dequant to rotated-space levels per block, accumulators stay
       rotated through the online softmax, one unrotate per (row,head). Covered by the
       absorb 0/1 id-identity CI gate (flash on by default).
-- [ ] **Phase 3b remainder:** the O(T) decode scan itself (57.65 ms/tok at the 68.4k
-      fixture post-3a) — windowing/sparse-KV (OasisKV-class) here or in Phase 4. Plus the
+- [x] **Phase 3b-scan design contract (2026-10-20):** `docs/SCAN_DECAY_QWEN36.md` —
+      two-tier deterministic decode scan (local window + measured sink blocks +
+      salience-gated 128-row blocks, ε-budget), knobs default `full`, correctness
+      interactions pinned (spec snapshots, prefix reuse, KV-tier composition), four
+      pre-registered gates incl. the ≤+0.5% ppl band and the ≥2x 68.4k speed gate.
+      Implementation open; OasisKV draft-prefetch noted as a post-2b-4 composition.
+- [ ] **Phase 3b remainder:** implementation of the scan contract above, plus the
       measured KVTQ battery arms with Q36_TQ_ABSORB=0/1 on real hardware (fold into the
       2b-4 battery run).
 - [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
