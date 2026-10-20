@@ -68,7 +68,10 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (SI>0; no synthetic MoE container carries shared experts yet) and resident-int4
       experts (3b unpacks to f32 at attach — fine for synth heads, too heavy for real
       35B-class heads on 8 GB).
-- [ ] **Phase 2b-4 — draft-cost battery on real hardware + report.** Per-draft cost `d`
+- [ ] **Phase 2b-4 — draft-cost battery on real hardware + report.** Runner ready:
+      `tools/run_battery.sh <model> <prompt>` (arms A f32 / B kv8 / C tq4-absorb0 /
+      D tq4-absorb1 / E kv8+MTP drafts / F kv8+MTP forced-accept; emits
+      results/battery_<host>_<ts>.json + summary table). Per-draft cost `d`
       (the gate's input), verify T(n) by row count, tokens/forward under forced acceptance,
       on the mini-PC; -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
 - [x] **Phase 2b-5 — resident-int4 head experts + SI>0 gate (2026-10-19, `test`).**
