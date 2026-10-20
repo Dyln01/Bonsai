@@ -69,10 +69,12 @@ loop is not where TQ pays; left as a follow-up.
    full TQ decode; the absorb arm additionally runs rotate/unrotate once per
    head-step).
 3. `kv_tq_parity_q36` unchanged (codec math untouched).
-3. Measured decode tok/s on real hardware: the KVTQ battery arms E/F/G with
-   `Q36_TQ_ABSORB=0/1` — numbers land in the 2b-4 battery run (mini-PC),
-   expectation: TQ4c1 decode moves from ~5x KV8's cost toward KV8-class at
-   half KV8's bytes.
+3. Measured end-to-end (2b-4 battery, 2026-10-20, synth_qwen27 @15,960-token
+   prompt, 4-core WSL2, `[timers]` decode TOTAL — `results/results_mtp_q36.json`):
+   **TQ4c1 decode 53.39 -> 24.49 ms/tok (-54.1%) with absorb ON**, moving TQ4
+   from 3.05x KV8's decode cost to 1.40x at 0.63 GB RSS vs KV8's 0.66 (f32 0.79)
+   — KV8-class at half KV8's bytes, as expected. The remaining 1.40x is per-row
+   codec work, not the FWHT.
 4. Bit-neutrality of the *off* path: all existing identity gates re-run.
 
 ## Follow-ups (Phase 3b remainder)

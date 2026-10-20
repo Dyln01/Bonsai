@@ -30,6 +30,7 @@ ship (kept so we don't retry blindly); **design** = contract pinned, implementat
 | [BENCH_DENSE27B.md](BENCH_DENSE27B.md) | 2026-10-17 | measured | dense-27B benchmark walkthrough (projections labeled) |
 | [SCAN_DECAY_QWEN36.md](SCAN_DECAY_QWEN36.md) | 2026-10-20 | design | Phase 3b-scan: two-tier deterministic decode scan (window + sinks + salience-gated blocks); gates pre-registered |
 | [ABSORB_ROT_QWEN36.md](ABSORB_ROT_QWEN36.md) | 2026-10-19 | shipped (absorb branch) | Phase 3b-rot: absorbed-rotation TQ decode (per-row FWHT eliminated); 3b-scan/3b-prefill follow-ups |
+| [MTP_QWEN36.md](MTP_QWEN36.md) | 2026-10-20 | shipped | 2b-4 battery: gate T(n) curve, forced-accept 3 tok/forward at +11% bound, TQ4 absorb end-to-end -54% |
 | [GQA_ABSORB_QWEN36.md](GQA_ABSORB_QWEN36.md) | 2026-10-19 | shipped | Phase 3a: GQA-absorbed decode tiles (dequant once per group); measured KV8 −34.5% / TQ4 −47% attn |
 | [MTP_DESIGN_QWEN36.md](MTP_DESIGN_QWEN36.md) | 2026-10-19 | shipped (test) | MTP head: loader + dense/MoE drafting/verify + oracle proofs + resident int4, all CI-gated; battery on real hardware open (2b-4) |
 | [GRIFFIN_V5.md](GRIFFIN_V5.md) / [HOTNEURON_V4_CALIBRATION.md](HOTNEURON_V4_CALIBRATION.md) | — | — | both list absorbed-score attention as the next architectural lever (now Phase 3) |

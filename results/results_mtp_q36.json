@@ -1,0 +1,53 @@
+{
+ "host": "LAPTOP-JP38O2O7",
+ "ts": "2026-10-20T10:03:51",
+ "model": "/home/dylan/synth_models/synth_qwen27",
+ "prompt": "/home/dylan/prompt_8k.txt",
+ "threads": 4,
+ "n_new": 64,
+ "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted)",
+ "arms": {
+  "A": {
+   "rc": 0,
+   "decode_ms_per_tok": 16.88,
+   "ttft_s": 82.4,
+   "peak_rss_gb": 0.79,
+   "mtp_report": null
+  },
+  "B": {
+   "rc": 0,
+   "decode_ms_per_tok": 17.51,
+   "ttft_s": 76.38,
+   "peak_rss_gb": 0.66,
+   "mtp_report": null
+  },
+  "C": {
+   "rc": 0,
+   "decode_ms_per_tok": 53.39,
+   "ttft_s": 91.1,
+   "peak_rss_gb": 0.63,
+   "mtp_report": null
+  },
+  "D": {
+   "rc": 0,
+   "decode_ms_per_tok": 24.49,
+   "ttft_s": 87.31,
+   "peak_rss_gb": 0.64,
+   "mtp_report": null
+  },
+  "E": {
+   "rc": 0,
+   "decode_ms_per_tok": 16.22,
+   "ttft_s": 76.85,
+   "peak_rss_gb": 0.69,
+   "mtp_report": "[qwen36 MTP] run: acceptance 0.0% (0/123 drafts in 62 verifies) | gate T(1) 16.3 ms, rows 2:1.73 3:2.64, rho 0.50, acceptance by position 0.00 0.60 0.50 0.50 0.50"
+  },
+  "F": {
+   "rc": 0,
+   "decode_ms_per_tok": 19.45,
+   "ttft_s": 76.4,
+   "peak_rss_gb": 0.7,
+   "mtp_report": null
+  }
+ }
+}

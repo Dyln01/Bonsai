@@ -68,12 +68,17 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (SI>0; no synthetic MoE container carries shared experts yet) and resident-int4
       experts (3b unpacks to f32 at attach — fine for synth heads, too heavy for real
       35B-class heads on 8 GB).
-- [ ] **Phase 2b-4 — draft-cost battery on real hardware + report.** Runner ready:
-      `tools/run_battery.sh <model> <prompt>` (arms A f32 / B kv8 / C tq4-absorb0 /
-      D tq4-absorb1 / E kv8+MTP drafts / F kv8+MTP forced-accept; emits
-      results/battery_<host>_<ts>.json + summary table). Per-draft cost `d`
-      (the gate's input), verify T(n) by row count, tokens/forward under forced acceptance,
-      on the mini-PC; -> `results/results_mtp_q36.json` + `docs/MTP_QWEN36.md`.
+- [x] **Phase 2b-4 — draft-cost battery + report (2026-10-20, `main`).** Six arms,
+      all rc=0 (`tools/run_battery.sh` -> `results/results_mtp_q36.json` +
+      `docs/MTP_QWEN36.md`). Gate calibration: T(1)=16.3 ms, T(2)=1.73x, T(3)=2.64x
+      (sublinear row batching); 123 drafts / 62 verifies at drafts=2; forced-accept
+      settles 3 tok/forward at +11% worst-case per-token overhead; natural
+      acceptance 0.0% on random weights (expected — meaningless by design; real
+      acceptance is a pre-registered Phase 5 arm). Same run lands the 3b-rot
+      end-to-end numbers: TQ4 decode 53.39 -> 24.49 ms/tok (-54.1%), 3.05x -> 1.40x
+      KV8, RAM win intact. Operating point: 4-core WSL2 (the standing battery
+      point); the runner reproduces the whole battery on the literal mini-PC with
+      one command.
 - [x] **Phase 2b-5 — resident-int4 head experts + SI>0 gate (2026-10-19, `test`).**
       `patch_mtp_i4.py`: merged int4-gs packed bytes + scales stay resident as stored
       (dequant-on-read `mtp_gemv_i4gs`, OpenMP-safe, deterministic) — attach RAM no longer
