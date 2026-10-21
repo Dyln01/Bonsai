@@ -133,9 +133,16 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       per the pre-registered rule; the machinery (dump + fit + gate) is
       retained as the ready-to-run Phase 5 arm on real containers.
       `docs/PREDICTOR_QWEN36.md` + `results/results_predictor_q36.json`.
-- [ ] **Phase 4 (remaining):** cross-engine KV8/TQ ports (GLM/qwen38) with
-      per-engine parity gates; windowing/predictor revisit ONLY as a Phase 5
-      real-weights arm (same harness, same decision rule).
+- [x] **Phase 4b design contract (2026-10-20):** `docs/WINDOWING_QWEN36.md` —
+      per-layer resident neuron-row window over the dense gather path (FIFO,
+      byte-identical copies so output is cache-history-independent), value cases
+      pinned honestly around 4a's negative (real weights + GRIFFIN-on-HDD), four
+      pre-registered gates (offline sim on 4a dumps → CI id-identity → /proc/io
+      read-bytes cut on the mini-PC → Phase 5 ppl neutrality), three implementation
+      slices scoped.
+- [ ] **Phase 4b implementation:** slices 1-3 per the contract (engine patch
+      `patch_window.py` + sim script + I/O gate/battery arms).
+- [ ] **Phase 4c:** cross-engine KV8/TQ ports (GLM/qwen38) with
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
