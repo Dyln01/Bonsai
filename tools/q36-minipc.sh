@@ -158,6 +158,15 @@ try:
         print("[minipc]   Q36_ASSUME_BW_MBPS adjusts the I/O term; the real rate is cached after this run")
     print("[minipc] plus a one-time trunk-warm pass before the first progress line (cold cache: minutes),")
     print("[minipc] and a SILENT tail after the bar hits 100%: 16 decode tokens, each re-streaming the trunk")
+    try:
+        L = max(1, int(json.load(open(os.path.join(model, "qwen36_meta.json"))).get("n_layers", 0)
+                       or json.load(open(os.path.join(model, "config.json"))).get("num_hidden_layers", 1)))
+    except Exception:
+        L = 64
+    gap = toks * (2 * P / (threads * 6e9)) / L + (trunk / L) / bw
+    print("[minipc] the bar updates ONCE PER LAYER: expect ~%.0f s between lines at %d tokens (%d layers)."
+          % (gap, toks, L))
+    print("[minipc] minutes of silence mid-bar are normal — check top/iostat before calling it stuck")
     print("[minipc] too long? Q36_CAL_TOKENS=<n> caps it (the energy ranking converges early); 0 = full corpus")
 except Exception as e:
     print("[minipc] ETA: unknown (%s)" % e)
