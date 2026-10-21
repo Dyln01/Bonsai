@@ -5332,6 +5332,7 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
     int D = c->hidden;
     float *nrm = falloc((int64_t)S*D), *tmp = falloc((int64_t)S*D);
     double _pt0 = (S > 1 && g_q36_progress) ? now_s() : 0.0;
+    double _lt0 = _pt0;
     for (int i = layer_begin; i < layer_end; i++) {
         Layer *l = &m->L[i];
         for (int s = 0; s < S; s++) rmsnorm_row(nrm + (int64_t)s*D, x + (int64_t)s*D, l->in_ln, D, c->eps);
@@ -5382,9 +5383,11 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
             pilot_prefetch(m, i + 3, x, S);
         if (S > 1 && g_q36_progress) {   /* E7: the bar feed — stderr only, no compute */
             int done = i + 1 - layer_begin, tot = layer_end - layer_begin;
-            double el = now_s() - _pt0;
-            fprintf(stderr, "[prefill] p=%d layer=%d/%d t=%.0f eta=%.0f\n",
-                    done * 100 / tot, done, tot, el, el * (tot - done) / (done > 0 ? done : 1));
+            double el = now_s() - _pt0, dt = now_s() - _lt0;
+            _lt0 = now_s();
+            fprintf(stderr, "[prefill] p=%d layer=%d/%d t=%.0f eta=%.0f kind=%s dt=%.0f\n",
+                    done * 100 / tot, done, tot, el, el * (tot - done) / (done > 0 ? done : 1),
+                    c->is_attn[i] ? "attn" : "dn", dt);
             fflush(stderr);
         }
         if (S > 1 && g_hot_profile_path[0] && ((i + 1) & 7) == 0)

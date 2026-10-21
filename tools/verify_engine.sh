@@ -67,7 +67,8 @@ step qwen36.c.premapsc qwen36.c.prescan patch_mapsc.py
 step qwen36.c.prescan  qwen36.c.preptk patch_scan_decay.py
 step qwen36.c.preptk   qwen36.c.preftz patch_profile_tok.py
 step qwen36.c.preftz   qwen36.c.prestream patch_ftz.py
-step qwen36.c.prestream FINAL            patch_trunk_stream.py
+step qwen36.c.prestream qwen36.c.preprog2 patch_trunk_stream.py
+step qwen36.c.preprog2  FINAL            patch_progress_dt.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then
