@@ -14,7 +14,7 @@
     "kv_fp8.h": "a92762dab601fb885221dd499db21445",
     "kv_tq.h": "6a476ecd475326942ceb345829792196",
     "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-    "qwen36.c": "4495cdc386858e742092398989a5769d",
+    "qwen36.c": "a6fddae3d1b250b78250631a1d09fc54",
     "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
     "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
     "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
@@ -34,7 +34,8 @@
     "qwen36.c.premapsc": "8d1d31f0bbc7c27b1b9da52f8f973795",
     "qwen36.c.prescan": "49286a76d4b4869b03b432bba9be3549",
     "scan_decay.h": "fa109ebf057a71c8b17153112ddef1fa",
-    "qwen36.c.preptk": "e639efe5470f970ff789552c24d9b9d4"
+    "qwen36.c.preptk": "e639efe5470f970ff789552c24d9b9d4",
+    "qwen36.c.preftz": "4495cdc386858e742092398989a5769d"
   },
   "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
   "reproducible_segments": [
@@ -169,8 +170,16 @@
       "scripts": [
         "patch_profile_tok.py"
       ],
-      "to": "qwen36.c",
+      "to": "qwen36.c.preftz",
       "added": "Phase 4 per-token profiling dumps (Q36_PROFILE_TOK)"
+    },
+    {
+      "from": "qwen36.c.preftz",
+      "scripts": [
+        "patch_ftz.py"
+      ],
+      "to": "qwen36.c",
+      "added": "FTZ/DAZ denormal guard"
     }
   ],
   "drift_audit": {

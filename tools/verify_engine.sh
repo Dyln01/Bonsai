@@ -65,7 +65,8 @@ step qwen36.c.preabsorb qwen36.c.preabsp patch_tq_absorb.py
 step qwen36.c.preabsp  qwen36.c.premapsc patch_tq_absorb_prefill.py
 step qwen36.c.premapsc qwen36.c.prescan patch_mapsc.py
 step qwen36.c.prescan  qwen36.c.preptk patch_scan_decay.py
-step qwen36.c.preptk   FINAL            patch_profile_tok.py
+step qwen36.c.preptk   qwen36.c.preftz patch_profile_tok.py
+step qwen36.c.preftz   FINAL            patch_ftz.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then

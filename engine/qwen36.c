@@ -7833,7 +7833,22 @@ static void vk_tier_start(Model *m, const char *snap, int cap, int expert_is_int
 }
 #endif
 
+/* Flush-to-zero + denormals-are-zero for this thread's MXCSR. See
+ * patch_ftz.py docstring: subnormals in a recurrence chain are an hours-long
+ * crawl, not a numerics feature. */
+static void q36_ftz_daz(void) {
+#if defined(__SSE__)
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
+}
+
 int main(int argc, char **argv) {
+    q36_ftz_daz();
+#ifdef _OPENMP
+    #pragma omp parallel
+    { q36_ftz_daz(); }   /* whole pool, once; pool size is fixed for the run */
+#endif
     /* Physical-core team sizing, as colibri/inkling/kimi_k3/olmoe/deepseek-v41
      * do. Without it this engine takes one thread per logical CPU, which on an
      * SMT host doubles the team for no arithmetic and pays a barrier per tiny
