@@ -166,7 +166,8 @@ try:
               % (total / 60, toks, spt_c, toks * spt_c / 60, 17, one_stream, 17 * one_stream / 60, bw / 1e6))
         print("[minipc]   Q36_ASSUME_BW_MBPS adjusts the I/O term; the real rate is cached after this run")
     print("[minipc] plus a one-time trunk-warm pass before the first progress line (cold cache: minutes),")
-    print("[minipc] and a SILENT tail after the bar hits 100%: 16 decode tokens, each re-streaming the trunk")
+    print("[minipc] and a SILENT tail after the bar hits 100%: Q36_CAL_NEW decode tokens (default 2,")
+    print("[minipc]   formerly 16) — each re-streams the whole trunk, so on HDD the tail is minutes")
     try:
         L = max(1, int(json.load(open(os.path.join(model, "qwen36_meta.json"))).get("n_layers", 0)
                        or json.load(open(os.path.join(model, "config.json"))).get("num_hidden_layers", 1)))
@@ -185,7 +186,7 @@ PY
     echo "[minipc] the hot profile is written ONLY at clean exit — bound the run, do not ^C mid-pass"
     env SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 \
         TRUNK_MAP=1 HOT_FRAC=1.0 KV8=$KV8V HOT_PROFILE=$OUT N_NEW=16 COLI_TEMP=0 \
-        Q36_TRUNK_STREAM="${Q36_TRUNK_STREAM:-1}" \
+        Q36_TRUNK_STREAM="${Q36_TRUNK_STREAM:-1}" N_NEW="${Q36_CAL_NEW:-2}" \
         "$ENGINE" "$CAP" 4 "$PROMPT" > /dev/null 2> >(tee /tmp/calib.err | q36_render >&2)
     RC=$?
     wait 2>/dev/null || true   # let the tee drain
