@@ -151,12 +151,13 @@ try:
         spt_c = 2 * P / (threads * 6e9)
         trunk = sum(os.path.getsize(f) for f in glob.glob(os.path.join(model, "*.safetensors")))
         bw = float(os.environ.get("Q36_ASSUME_BW_MBPS", "1500")) * 1e6
-        spt_io = trunk / bw
-        spt = max(spt_c, spt_io)
-        print("[minipc] ETA: ~%d tokens x ~%.1f s/token => >= ~%.0f min  (first-run model: compute %.1f + trunk-stream %.1f s/tok at %.0f MB/s; the larger wins)"
-              % (toks, spt, toks * spt / 60, spt_c, spt_io, bw / 1e6))
+        one_stream = trunk / bw            # prefill streams the trunk ONCE for all N tokens;
+        total = toks * spt_c + 17 * one_stream   # the 16 decode tokens re-stream it one-by-one
+        print("[minipc] ETA: >= ~%.0f min  (first-run model: %d tokens x %.1f s compute = %.0f min, + %d trunk streams x %.0f s = %.1f min at %.0f MB/s)"
+              % (total / 60, toks, spt_c, toks * spt_c / 60, 17, one_stream, 17 * one_stream / 60, bw / 1e6))
         print("[minipc]   Q36_ASSUME_BW_MBPS adjusts the I/O term; the real rate is cached after this run")
-    print("[minipc] plus a one-time trunk-warm pass before the first progress line (cold cache: minutes)")
+    print("[minipc] plus a one-time trunk-warm pass before the first progress line (cold cache: minutes),")
+    print("[minipc] and a SILENT tail after the bar hits 100%: 16 decode tokens, each re-streaming the trunk")
     print("[minipc] too long? Q36_CAL_TOKENS=<n> caps it (the energy ranking converges early); 0 = full corpus")
 except Exception as e:
     print("[minipc] ETA: unknown (%s)" % e)
