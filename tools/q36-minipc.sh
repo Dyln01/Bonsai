@@ -129,20 +129,34 @@ PYEOF
       [ "$BYTES" -ge 4 ] || die "calib prompt ended up empty ($BYTES bytes) — is Q36_CORPUS='$CORPUS' readable and non-empty?"
       echo "[minipc] calibrate: corpus capped at ~$CALTOK tokens ($BYTES bytes taken, Q36_CAL_TOKENS=0 for the full file)"
     fi
-    # ETA banner from the container geometry (2 flops/param/token at HOT_FRAC=1.0,
-    # conservative ~6 GFLOP/s per core for int4-GEMV AVX2)
+    # ETA banner: measured rate from the last calibrate on THIS box if present;
+    # otherwise max(compute, weight-streaming I/O) — at HOT_FRAC=1.0 every token
+    # re-streams the whole trunk, which on an 8 GB box dominates compute.
     python3 - "$MODEL" "$THREADS" "$PROMPT" <<'PY'
-import json, os, sys
+import glob, json, os, sys, time
 model, threads, prompt = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 try:
-    cfg = json.load(open(os.path.join(model, "config.json")))
-    H, L = cfg.get("hidden_size", 0), cfg.get("num_hidden_layers", 0)
-    I = cfg.get("intermediate_size", 0)
-    P = L * (4 * H * H + 3 * H * I)
     toks = max(1, os.path.getsize(prompt) // 4)
-    spt = 2 * P / (threads * 6e9)
-    print("[minipc] ETA: ~%d calib tokens x ~%.1f s/token (full compute, %d threads) => >= ~%.0f min"
-          % (toks, spt, threads, toks * spt / 60))
+    rate_f = os.path.join(model, ".q36_cal_rate")
+    if os.path.exists(rate_f):
+        spt, when = open(rate_f).read().split()
+        spt, when = float(spt), float(when)
+        age = (time.time() - when) / 86400
+        print("[minipc] ETA: ~%d tokens x %.2f s/token (MEASURED on this box %.1f d ago) => ~%.0f min"
+              % (toks, spt, age, toks * spt / 60))
+    else:
+        cfg = json.load(open(os.path.join(model, "config.json")))
+        H, L, I = cfg.get("hidden_size", 0), cfg.get("num_hidden_layers", 0), cfg.get("intermediate_size", 0)
+        P = L * (4 * H * H + 3 * H * I)
+        spt_c = 2 * P / (threads * 6e9)
+        trunk = sum(os.path.getsize(f) for f in glob.glob(os.path.join(model, "*.safetensors")))
+        bw = float(os.environ.get("Q36_ASSUME_BW_MBPS", "1500")) * 1e6
+        spt_io = trunk / bw
+        spt = max(spt_c, spt_io)
+        print("[minipc] ETA: ~%d tokens x ~%.1f s/token => >= ~%.0f min  (first-run model: compute %.1f + trunk-stream %.1f s/tok at %.0f MB/s; the larger wins)"
+              % (toks, spt, toks * spt / 60, spt_c, spt_io, bw / 1e6))
+        print("[minipc]   Q36_ASSUME_BW_MBPS adjusts the I/O term; the real rate is cached after this run")
+    print("[minipc] plus a one-time trunk-warm pass before the first progress line (cold cache: minutes)")
     print("[minipc] too long? Q36_CAL_TOKENS=<n> caps it (the energy ranking converges early); 0 = full corpus")
 except Exception as e:
     print("[minipc] ETA: unknown (%s)" % e)
@@ -158,6 +172,18 @@ PY
     grep -o "\[hot\].*" /tmp/calib.err || true
     [ "$RC" -eq 0 ] || die "calibrate run rc=$RC — last lines above, full log /tmp/calib.err"
     [ -f "$OUT" ] || die "no profile at $OUT — killed early? it lands only at clean exit (cap with Q36_CAL_TOKENS)"
+    python3 - "$MODEL" <<'PY'
+import os, re, sys, time
+err = "/tmp/calib.err"
+txt = open(err, errors="replace").read() if os.path.exists(err) else ""
+m = re.search(r"\[timers\] prefill: (\d+) tokens\s+dn=([\d.]+) attn=([\d.]+) moe=([\d.]+)\(sh=[\d.]+ rt=[\d.]+\) head=([\d.]+) ms", txt)
+if m:
+    toks = int(m.group(1))
+    ms = sum(float(m.group(i)) for i in (2, 3, 4, 5))
+    if toks > 0:
+        open(os.path.join(sys.argv[1], ".q36_cal_rate"), "w").write("%.4f %d" % (ms / 1000.0 / toks, time.time()))
+        print("[minipc] measured %.2f s/token cached in .q36_cal_rate — next ETA is measured, not modeled" % (ms / 1000.0 / toks))
+PY
     echo "[minipc] profile: $OUT  (now run: q36-minipc sort <model> <profile>)"
     ;;
   sort)
