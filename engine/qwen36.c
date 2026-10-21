@@ -2272,6 +2272,7 @@ static void validate_cfg(const Cfg *c, int n_layers_from_config) {
  * shards instance — and an MTP-unaware engine never requests mtp.* names,
  * which is exactly the stock-safety property measured in Phase 2a. */
 static int  g_q36_progress = 1;   /* Q36_PROGRESS=0 disables prefill progress lines */
+static int  g_q36_trunk_stream = 0;  /* 1 = TRUNK_MAP streaming mode (HDD/small-RAM) */
 static int  g_q36_tq_absorb = 1;  /* Q36_TQ_ABSORB=0: 3a loop verbatim (A/B + fallback) */
 static int  g_q36_mtp_on = 0;
 static int  g_q36_mtp_drafts = 2;
@@ -5350,7 +5351,7 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
         if (allow_prefetch && g_pilot >= 1 && S <= 8 && i + 1 < c->n_layers)
             pilot_prefetch(m, i + 1, x, S);
 #ifdef MADV_WILLNEED
-        if (i + 2 < c->n_layers && m->L[i + 2].q.map) {   /* TRUNK_MAP readahead */
+        if (!g_q36_trunk_stream && i + 2 < c->n_layers && m->L[i + 2].q.map) {   /* TRUNK_MAP readahead */
             const QW *nq[6] = { &m->L[i+2].q, &m->L[i+2].k, &m->L[i+2].v, &m->L[i+2].o,
                                 &m->L[i+2].sh_g, &m->L[i+2].sh_u };
             for (int qw = 0; qw < 6; qw++)
@@ -5364,6 +5365,17 @@ static void layers_forward_range(Model *m, float *x, int S, int pos_base,
         tm_add(S, 2, tm_now()-_t0);
         for (int64_t j = 0; j < (int64_t)S*D; j++) x[j] += tmp[j];
         if (lf) fwrite(x + (int64_t)(S-1)*D, sizeof(float), D, lf);
+#ifdef MADV_WILLNEED
+        if (g_q36_trunk_stream) {   /* streaming: this layer's slabs are done — keep the
+                                       cache footprint at ~one layer, not the whole trunk,
+                                       so reclaim has nothing to thrash on small boxes */
+            const QW *cq[10] = { &l->q, &l->k, &l->v, &l->o, &l->sh_g, &l->sh_u, &l->sh_d,
+                                 &l->dn_qkv, &l->dn_z, &l->dn_out };
+            for (int qw = 0; qw < 10; qw++)
+                if (cq[qw]->map) madvise((void*)(((uintptr_t)cq[qw]->map) & ~(uintptr_t)4095),
+                                         (size_t)cq[qw]->map_len + 4096, MADV_DONTNEED);
+        }
+#endif
         if (allow_prefetch && g_pilot >= 2 && S <= 8 && i + 2 < c->n_layers)
             pilot_prefetch(m, i + 2, x, S);
         if (allow_prefetch && g_pilot >= 3 && S <= 8 && i + 3 < c->n_layers)
@@ -7904,6 +7916,8 @@ int main(int argc, char **argv) {
     if (rplen>=5 && strcmp(refpath+rplen-5, ".json")==0) is_ref = 1;
     g_q36_ref_mode = is_ref;
     { const char *hp = getenv("HOT_PROFILE"); if (hp && *hp) snprintf(g_hot_profile_path, sizeof g_hot_profile_path, "%s", hp); }
+    g_q36_trunk_stream = g_hot_profile_path[0] ? 1 : 0;   /* calibrate streams by default */
+    { const char *tv = getenv("Q36_TRUNK_STREAM"); if (tv && *tv) g_q36_trunk_stream = tv[0] == '1'; }
     { const char *tp = getenv("Q36_PROFILE_TOK");
       if (tp && *tp) { snprintf(g_tok_dump_path, sizeof g_tok_dump_path, "%s", tp);
         const char *kk = getenv("Q36_PROFILE_TOK_K");

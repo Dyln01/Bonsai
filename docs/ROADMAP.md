@@ -180,6 +180,17 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 - [ ] **E6 — flash-site fast-exp retry.** The online-softmax negative result gets one retry
       with the block-rescaled form before it is considered closed (`engine/softmaxbench_q36.c`).
 
+- [x] **E9 — HDD/small-RAM streaming mode (2026-10-20).** Field report: calibrate
+      "frozen at layer 48 for 2 h" on an 8 GB mini-PC with a **rotating disk**. Cause:
+      TRUNK_MAP's greedy i+2 WILLNEED prefetch + unbounded page cache on a box that can
+      neither hold the trunk nor seek three interleaved streams — reclaim/seek thrash,
+      not a hang. `patch_trunk_stream.py` (`Q36_TRUNK_STREAM`, auto-on with HOT_PROFILE):
+      no greedy prefetch + MADV_DONTNEED each layer's ten slabs after its MoE, bounding
+      the cache footprint to ~one layer. Launcher also probes
+      /sys/block/*/queue/rotational for the ETA bandwidth default (150 vs 1500 MB/s).
+      CI: stream-mode id-identity gate. NVMe boxes unchanged (knob 0, default off
+      outside calibrate).
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

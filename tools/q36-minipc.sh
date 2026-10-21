@@ -150,7 +150,16 @@ try:
         P = L * (4 * H * H + 3 * H * I)
         spt_c = 2 * P / (threads * 6e9)
         trunk = sum(os.path.getsize(f) for f in glob.glob(os.path.join(model, "*.safetensors")))
-        bw = float(os.environ.get("Q36_ASSUME_BW_MBPS", "1500")) * 1e6
+        bw_env = os.environ.get("Q36_ASSUME_BW_MBPS")
+        if bw_env:
+            bw = float(bw_env) * 1e6
+        else:
+            rot = False
+            import glob as _g
+            for rf in _g.glob("/sys/block/*/queue/rotational"):
+                try: rot = rot or open(rf).read().strip() == "1"
+                except OSError: pass
+            bw = (150 if rot else 1500) * 1e6
         one_stream = trunk / bw            # prefill streams the trunk ONCE for all N tokens;
         total = toks * spt_c + 17 * one_stream   # the 16 decode tokens re-stream it one-by-one
         print("[minipc] ETA: >= ~%.0f min  (first-run model: %d tokens x %.1f s compute = %.0f min, + %d trunk streams x %.0f s = %.1f min at %.0f MB/s)"
@@ -176,6 +185,7 @@ PY
     echo "[minipc] the hot profile is written ONLY at clean exit — bound the run, do not ^C mid-pass"
     env SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 \
         TRUNK_MAP=1 HOT_FRAC=1.0 KV8=$KV8V HOT_PROFILE=$OUT N_NEW=16 COLI_TEMP=0 \
+        Q36_TRUNK_STREAM="${Q36_TRUNK_STREAM:-1}" \
         "$ENGINE" "$CAP" 4 "$PROMPT" > /dev/null 2> >(tee /tmp/calib.err | q36_render >&2)
     RC=$?
     wait 2>/dev/null || true   # let the tee drain
