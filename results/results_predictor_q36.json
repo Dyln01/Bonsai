@@ -1,0 +1,21 @@
+{
+  "operating_point": "student_1b_i4cal (20L dense, D=1280, I=3456), full compute (HOT_FRAC=1, GRIFFIN=0), 4096-token corpora: A = first half, B = last half of ~/prompt_long.txt (disjoint). Q36_PROFILE_TOK dumps, K=64.",
+  "machinery": "patch_profile_tok.py (4 anchored edits, backup qwen36.c.preptk): Q36_PROFILE_TOK=<prefix> per-layer raw dumps (record = x[D] f32 | K u32 idx | K f32 energy, structured-dtype loader required -- reading the u32 bytes as f32 and casting turns every index into a denormal 0 and silently voids the whole gate, which is exactly how the first G2 run produced a four-way 0.039 'tie').",
+  "g2_offline_gate": {
+    "rule": "predictor mean energy coverage on corpus B must beat static-A AND griffin-j by >= 0.05 (docs/PREDICTOR_QWEN36.md)",
+    "means_over_20_layers": {
+      "static-A": 1.0,
+      "static-B": 1.0,
+      "griffin-j": 1.0,
+      "predictor_linear_ridge": 0.9996
+    },
+    "verdict": "documented NEGATIVE on synthetic",
+    "reason": "The per-token true top-K set is CONSTANT: the aggregate top-64 covers 100.00% of every token's top-K energy on every layer, so static-A (trained on the other corpus), static-B (same corpus) and GRIFFIN's per-sequence selection are all exactly the true set. On random-weight containers the energy ranking is norm-driven and content-independent; the Deja Vu premise (per-token contextual variation) is absent by construction. There is nothing for a predictor to add and nothing to window."
+  },
+  "interpretation": [
+    "this is the design doc's pre-named negative mode, now with the sharpest possible evidence: not 'the tail is small' but 'the tail does not move'",
+    "the machinery is retained and is exactly what Phase 5 needs: the same Q36_PROFILE_TOK dump on a REAL container measures the true per-token variation; if real weights show moving top-K sets, the same ridge/MLP fit + coverage harness runs unchanged and the >= +0.05 rule decides the runtime unlock",
+    "the window item dies with the predictor on synthetic (no per-token sets to cache); GRIFFIN remains the strongest selector available for this container class"
+  ],
+  "notes": "all runs rc=0; dumps 20 layers x 4096 records x 5632 B; ridge fit is closed-form (deterministic)"
+}

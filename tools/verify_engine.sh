@@ -15,7 +15,7 @@
 #        -mtp_draft-> -mtp_oracle-> -mtp_moe-> prei4 -mtp_i4-> pregqa
 #        -gqa_absorb-> prebar -calib_bar-> preabsorb -tq_absorb->
 #        preabsp -tq_absorb_prefill-> premapsc -mapsc-> prescan
-#        -scan_decay-> qwen36.c
+#        -scan_decay-> preptk -profile_tok-> qwen36.c
 # The historical per-feature patchers for the two regenerated windows live in
 # tools/attic/ (see tools/attic/ATTIC.md).
 set -uo pipefail
@@ -64,7 +64,8 @@ step qwen36.c.prebar   qwen36.c.preabsorb patch_calib_bar.py
 step qwen36.c.preabsorb qwen36.c.preabsp patch_tq_absorb.py
 step qwen36.c.preabsp  qwen36.c.premapsc patch_tq_absorb_prefill.py
 step qwen36.c.premapsc qwen36.c.prescan patch_mapsc.py
-step qwen36.c.prescan  FINAL            patch_scan_decay.py
+step qwen36.c.prescan  qwen36.c.preptk patch_scan_decay.py
+step qwen36.c.preptk   FINAL            patch_profile_tok.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then

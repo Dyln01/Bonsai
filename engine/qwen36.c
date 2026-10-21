@@ -119,6 +119,38 @@ static void q36_griff_finalize(int layer, double frac, int I) {
 }
 static HotAcc g_hot_acc[512]; static int g_hot_acc_n = 0;
 static char   g_hot_profile_path[1024] = {0};
+/* ---- Phase 4: per-token profiling dump -- see docs/PREDICTOR_QWEN36.md.
+ * Sibling of the corpus-sum accumulator above: keeps what a Deja Vu-class
+ * predictor needs -- the layer INPUT row and the true per-token top-K
+ * neurons with their energies, from the FULL compute the MLP just did. */
+static char   g_tok_dump_path[1024] = {0};
+static int    g_tok_dump_k = 64;
+#define Q36_TOK_MAXI 16384
+static void q36_tok_dump(int layer, const float *x, const float *en, int D, int I) {
+    if (!g_tok_dump_path[0]) return;
+    static FILE *tf[512];
+    static float ce[Q36_TOK_MAXI]; static uint32_t ci[Q36_TOK_MAXI];
+    if (layer < 0 || layer >= 512 || I <= 0 || I > Q36_TOK_MAXI) return;
+    int K = g_tok_dump_k < I ? g_tok_dump_k : I;
+    /* fixed-K insertion scan: most rows fail the first compare */
+    int n = 0;
+    for (int i = 0; i < I; i++) {
+        float e = en[i];
+        if (n < K || e > ce[K-1]) {
+            int j = n < K ? n++ : K-1;
+            while (j > 0 && ce[j-1] < e) { ce[j] = ce[j-1]; ci[j] = ci[j-1]; j--; }
+            ce[j] = e; ci[j] = (uint32_t)i;
+        }
+    }
+    if (!tf[layer]) {
+        char pth[1200]; snprintf(pth, sizeof pth, "%s_L%d.bin", g_tok_dump_path, layer);
+        tf[layer] = fopen(pth, "ab");
+        if (!tf[layer]) { fprintf(stderr, "[tok-dump] cannot open: %s", pth); g_tok_dump_path[0] = 0; return; }
+    }
+    fwrite(x, sizeof(float), (size_t)D, tf[layer]);
+    fwrite(ci, sizeof(uint32_t), (size_t)K, tf[layer]);
+    fwrite(ce, sizeof(float), (size_t)K, tf[layer]);
+}
 static void q36_hot_acc_add(int layer, const float *g, const float *u, int n) {
     if (!g_hot_profile_path[0]) return;
     if (layer >= g_hot_acc_n) {
@@ -4306,6 +4338,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             if(!qtd(l->qth_shu,u,xs,D,I)) matmul_d(u,xs,&l->sh_u,1,D,I);
             for(int i=0;i<I;i++){float sv=g[i];g[i]=(sv/(1.f+expf(-sv)))*u[i];}
             { int _li = (int)(l - m->L); q36_hot_acc_add(_li, g, u, I); }
+            { int _li2 = (int)(l - m->L); q36_tok_dump(_li2, xs, g, D, I); }
             if(!qtd(l->qth_shd,hh,g,I,D)) matmul_d(hh,g,&l->sh_d,1,I,D);
             float sgate=1.f;
             if(l->sh_gate){float sg=0.f;for(int i=0;i<D;i++)sg+=xs[i]*l->sh_gate[i];sgate=1.f/(1.f+expf(-sg));}
@@ -4322,6 +4355,8 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             { int _li = (int)(l - m->L); q36_griff_observe(_li, bg, rows, I, I); }
 for(int64_t q=0;q<(int64_t)rows*I;q++){float sv=bg[q];bg[q]=(sv/(1.f+expf(-sv)))*bu[q];}
             { int _li = (int)(l - m->L); q36_hot_acc_add(_li, bg, bu, I); }
+            for (int s = 0; s < rows; s++)
+                q36_tok_dump((int)(l - m->L), x + (int64_t)(base+s)*D, bg + (int64_t)s*I, D, I);
             matmul_d(bh,bg,&l->sh_d,rows,I,D);
             for(int s=0;s<rows;s++){
                 const float *xs=x+(int64_t)(base+s)*D;
@@ -7854,6 +7889,11 @@ int main(int argc, char **argv) {
     if (rplen>=5 && strcmp(refpath+rplen-5, ".json")==0) is_ref = 1;
     g_q36_ref_mode = is_ref;
     { const char *hp = getenv("HOT_PROFILE"); if (hp && *hp) snprintf(g_hot_profile_path, sizeof g_hot_profile_path, "%s", hp); }
+    { const char *tp = getenv("Q36_PROFILE_TOK");
+      if (tp && *tp) { snprintf(g_tok_dump_path, sizeof g_tok_dump_path, "%s", tp);
+        const char *kk = getenv("Q36_PROFILE_TOK_K");
+        if (kk && *kk) { g_tok_dump_k = atoi(kk); if (g_tok_dump_k < 1) g_tok_dump_k = 64; }
+        fprintf(stderr, "[tok-dump] per-token pairs (K=%d) -> %s", g_tok_dump_k, g_tok_dump_path); } }
     { const char *mv = getenv("Q36_MTP"); if (mv && mv[0] == '1') g_q36_mtp_on = 1;
       const char *md = getenv("Q36_MTP_DRAFTS");
       if (md && *md) { g_q36_mtp_drafts = atoi(md);

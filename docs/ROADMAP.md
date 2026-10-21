@@ -121,10 +121,21 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (random weights = pure causal-coverage gradient, zero content signal;
       needs real weights or a structured container); quality + real-speed gates
       pre-registered as Phase 5 arms. Knob Q36_SCAN default full.
-- [ ] **Phase 4:** windowing (sliding active-neuron cache, Apple LLM-in-Flash analog) +
-      dynamic predictor (Deja Vu/ShadowLLM class, must beat GRIFFIN or stay a documented
-      negative) + cross-engine KV8/TQ ports (GLM/qwen38) with per-engine parity gates.
-      Grounding: `docs/RESEARCH_MAP_DENSE.md`.
+- [x] **Phase 4a — predictor + window: documented NEGATIVE on synthetic
+      (2026-10-20, `main`).** `Q36_PROFILE_TOK` per-token dumps
+      (`patch_profile_tok.py`, chain 17 hops) + `scripts/exp_predictor_q36.py`
+      (three-way offline gate). Measured on student_1b_i4cal, disjoint
+      4096-token corpora: static-A == static-B == GRIFFIN == **1.0000**
+      energy coverage — the per-token top-K set is CONSTANT (norm-driven,
+      content-independent on random weights); the Deja Vu premise is absent
+      by construction, the ridge fit learns the constant set (0.9996), and
+      the window has no per-token sets to cache. Runtime work NOT unlocked
+      per the pre-registered rule; the machinery (dump + fit + gate) is
+      retained as the ready-to-run Phase 5 arm on real containers.
+      `docs/PREDICTOR_QWEN36.md` + `results/results_predictor_q36.json`.
+- [ ] **Phase 4 (remaining):** cross-engine KV8/TQ ports (GLM/qwen38) with
+      per-engine parity gates; windowing/predictor revisit ONLY as a Phase 5
+      real-weights arm (same harness, same decision rule).
 - [ ] **Phase 5:** real-weights validation — GATED on user sign-off. The contract is
       written and reviewable: `docs/VALIDATION_PROTOCOL_QWEN36.md` (checkpoints + license
       checks, wikitext-2 ppl arms A-I with pre-registered acceptance bands, mini-PC
