@@ -1,0 +1,23 @@
+Write a function that reverses a string in Python.
+def reverse(s): return s[::-1]
+Explain the difference between a process and a thread, with one example of each.
+The server returned HTTP 429 for 6 of 80 requests; summarize what likely caused it and propose a retry policy with backoff.
+{"tool": "shell", "command": "du -sh /var/log/*", "purpose": "find the largest log before rotating"}
+Summarize this meeting note into three bullet points and one action item with an owner.
+Refactor this loop into a comprehension without changing behavior:
+for x in items:
+    if x.active:
+        out.append(x.name)
+Why does my SQLite write latency spike when the WAL checkpoint runs? Answer in under 100 words.
+Draft a polite follow-up email asking for review on a pull request that has been open for four days.
+Convert this YAML config to equivalent environment variables:
+server:
+  port: 8080
+  log_level: info
+Explain what a DNS A record is to a non-technical colleague in two sentences.
+Read the traceback below and name the most likely root cause in one sentence: KeyError: 'user_id' at handler.py:88.
+Plan a week of work to migrate a cron-based ETL to an idempotent scheduled job with retries and alerting.
+What is the time complexity of bisect.insort on a list of n elements, and when would a heap be better?
+Translate this error message into plain language: "ENOSPC: no space left on device, write".
+Give me five test cases for a function that parses semantic version strings, including two edge cases.
+The customer says the export button does nothing in Safari but works in Chrome; list three diagnostics to run first.

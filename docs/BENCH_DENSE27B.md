@@ -147,6 +147,8 @@ thrash, prompt-token counts).
 
 ```bash
 # once: calibrate on YOUR corpus, sort a copy (or skip both — GRIFFIN adapts per-prompt)
+#   what goes in the corpus? representative traffic — see the subsection below.
+#   repo example you can start from: docs/examples/q36_corpus_example.txt
 Q36_CORPUS=~/corpus.txt q36-minipc calibrate $M
 q36-minipc sort $M
 q36-minipc serve $M-sorted              # OpenAI-compatible; Q36_SLOTS=<conversations>
@@ -155,3 +157,33 @@ q36-minipc serve $M-sorted              # OpenAI-compatible; Q36_SLOTS=<conversa
 Agent traffic: keep the three prefix-reuse rules in
 [COMMANDS.md §5](COMMANDS.md) — byte-exact append-only resends, one slot
 per conversation, `Q36_MAXT` ≥ full transcript.
+
+#### The calibration corpus (`Q36_CORPUS`), concretely
+
+`calibrate` measures per-neuron activation energy over this text to decide the
+hot-neuron ordering — so the file should read like your real traffic, not like
+an essay. Rules of thumb: representative > long; diverse > repeated; put the
+best samples first (the launcher reads the first `Q36_CAL_TOKENS`×~4 bytes,
+default ≈4 KB); plain UTF-8 text; 20–100 KB total is plenty. Nothing is
+generated from it and nothing leaves the machine.
+
+A working example (also committed at
+[`docs/examples/q36_corpus_example.txt`](examples/q36_corpus_example.txt) —
+copy it and swap in your own logs):
+
+```text
+Write a function that reverses a string in Python.
+The server returned HTTP 429 for 6 of 80 requests; summarize what likely caused it
+and propose a retry policy with backoff.
+{"tool": "shell", "command": "du -sh /var/log/*", "purpose": "find the largest log before rotating"}
+Refactor this loop into a comprehension without changing behavior: for x in items: ...
+Read the traceback and name the most likely root cause in one sentence: KeyError: 'user_id'.
+Draft a polite follow-up email asking for review on a pull request open for four days.
+```
+
+Mix your actual domains in the same file — code for a coding box, tool-call
+JSON for an agent box, prose for a chat box. Avoid one repeated line (it
+biases the ranking) and avoid eval prose like wikitext (that is Phase 5's
+corpus, different job). And remember: calibration is optional — with
+`GRIFFIN=1` (default) the unmodified container adapts per prompt; the sorted
+copy only makes every later run a bit cheaper.

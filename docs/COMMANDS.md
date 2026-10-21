@@ -61,7 +61,7 @@ q36-minipc <command> <model_dir> [arg]
 | `Q36_HOT_FRAC` | 0.25 … 1.0 | dense only: fraction of MLP neurons computed; **1.0 = exact full model** |
 | `Q36_GRIFFIN` | `0`/`1` (default 1) | dense only: per-prompt neuron selection, works on unmodified containers |
 | `Q36_HOT_LAYERS` | JSON file | per-layer `{"L0":0.5,…}` fractions (falls back to the global frac) |
-| `Q36_CORPUS` | text file | the calibration corpus for `calibrate` |
+| `Q36_CORPUS` | text file | the calibration corpus for `calibrate` — representative traffic samples; worked example in `docs/examples/q36_corpus_example.txt` and `docs/BENCH_DENSE27B.md` §calibration corpus |
 | `Q36_CAL_TOKENS` | integer (default 1024; `0` = whole corpus) | cap the calibration prefill (~4 chars/token); the energy ranking converges early — bound it on small boxes |
 | `Q36_PROGRESS` | `1`/`0` (default 1) | `[prefill] p=.. layer=.. t=.. eta=..` stderr line per layer of every multi-row forward (the progress-bar feed); stderr-only, compute untouched; also makes a killed `calibrate` keep a partial profile (periodic save every 8 layers) |
 | `Q36_SORT_OUT` | dir | output dir for `sort` |

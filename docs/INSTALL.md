@@ -60,16 +60,21 @@ git clone https://github.com/Dyln01/Bonsai bonsai
 
 ### 2.3 Overlay the Bonsai engine files
 
+Copy with the **glob**, not a file list — the header set grows with phases and a
+stale list once caused `fatal error: scan_decay.h: No such file or directory`:
+
 ```bash
-cp ~/bonsai/engine/qwen36.c        ~/colibri/c/
-cp ~/bonsai/engine/kv8_fused.h     ~/colibri/c/
-cp ~/bonsai/engine/kv_fp8.h        ~/colibri/c/   # vendored byte-identical from colibri bf24429
-cp ~/bonsai/engine/kv8_parity.c     ~/colibri/c/
-cp ~/bonsai/engine/kv_tq.h         ~/colibri/c/
-cp ~/bonsai/engine/scan_decay.h    ~/colibri/c/   # Phase 3b-scan (two-tier decode scan)
-cp ~/bonsai/engine/kv_tq_parity_q36.c ~/colibri/c/
-# future-proof alternative: cp ~/bonsai/engine/*.c ~/bonsai/engine/*.h ~/colibri/c/
+cp ~/bonsai/engine/*.c ~/bonsai/engine/*.h ~/colibri/c/
+# completeness check — fails loudly if c/ is missing anything the snapshot ships:
+for f in ~/bonsai/engine/*.c ~/bonsai/engine/*.h; do
+  b=$(basename "$f"); [ -f "$HOME/colibri/c/$b" ] || { echo "MISSING in c/: $b"; exit 1; }
+done
+echo "overlay complete: $(ls ~/colibri/c/*.h | wc -l) headers, $(ls ~/colibri/c/*.c | wc -l) sources"
 ```
+
+(`kv_fp8.h` is vendored byte-identical from colibri `bf24429`; `scan_decay.h` is
+Phase 3b-scan. If make ever reports a missing header again, re-run the glob —
+your `c/` copy predates a phase.)
 
 ### 2.4 Build
 
