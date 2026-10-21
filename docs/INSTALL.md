@@ -66,10 +66,16 @@ cp ~/bonsai/engine/kv8_fused.h     ~/colibri/c/
 cp ~/bonsai/engine/kv_fp8.h        ~/colibri/c/   # vendored byte-identical from colibri bf24429
 cp ~/bonsai/engine/kv8_parity.c     ~/colibri/c/
 cp ~/bonsai/engine/kv_tq.h         ~/colibri/c/
+cp ~/bonsai/engine/scan_decay.h    ~/colibri/c/   # Phase 3b-scan (two-tier decode scan)
 cp ~/bonsai/engine/kv_tq_parity_q36.c ~/colibri/c/
+# future-proof alternative: cp ~/bonsai/engine/*.c ~/bonsai/engine/*.h ~/colibri/c/
 ```
 
 ### 2.4 Build
+
+If make fails with `fatal error: scan_decay.h: No such file or directory`,
+your `c/` copy predates Phase 3b-scan: re-copy the headers (`cp ~/bonsai/engine/*.h
+~/colibri/c/`) — the explicit list above and the CI overlay both carry it now.
 
 ```bash
 make -C ~/colibri/c qwen36

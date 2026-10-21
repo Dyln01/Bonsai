@@ -21,7 +21,7 @@ jobs:
       - name: overlay Bonsai engine snapshot
         run: |
           cp engine/qwen36.c   "$HOME/colibri/c/"
-          cp engine/kv8_fused.h engine/kv_fp8.h engine/kv_tq.h engine/scan_decay.h "$HOME/colibri/c/"
+          cp engine/*.h "$HOME/colibri/c/"   # glob: the header set grows with phases
           # stock check: our .orig must equal the pinned stock file
           cmp engine/qwen36.c.orig "$HOME/colibri/c/qwen36.c.orig" 2>/dev/null || true
           md5sum engine/qwen36.c.orig

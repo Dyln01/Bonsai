@@ -109,8 +109,9 @@ results/  measured JSON from every battery
 ## Engine
 
 The modified engine lives in a colibri checkout (Apache-2.0): clone
-`github.com/JustVugg/colibri`, copy `engine/qwen36.c`, `engine/kv8_fused.h`,
-`engine/kv8_parity.c` over `c/`, `make -C c qwen36`. The `engine/` snapshots are the
+`github.com/JustVugg/colibri`, copy `engine/*.c` and `engine/*.h` over `c/`
+(the glob on purpose: the header set grows with phases — an explicit list
+went stale once already), `make -C c qwen36`. The `engine/` snapshots are the
 source of truth (md5-pinned in `tools/patch_manifest.json`), and the patch
 scripts in `tools/` reproduce them **byte-exactly from stock** — the full chain
 orig→premap→prehot→pretq→presm→final replays under `tools/verify_engine.sh`
