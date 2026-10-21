@@ -136,12 +136,12 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
 - [ ] **Phase 4 (remaining):** cross-engine KV8/TQ ports (GLM/qwen38) with
       per-engine parity gates; windowing/predictor revisit ONLY as a Phase 5
       real-weights arm (same harness, same decision rule).
-- [ ] **Phase 5:** real-weights validation — GATED on user sign-off. The contract is
-      written and reviewable: `docs/VALIDATION_PROTOCOL_QWEN36.md` (checkpoints + license
-      checks, wikitext-2 ppl arms A-I with pre-registered acceptance bands, mini-PC
-      mechanics M1-M5, resumable session procedure, sign-off checkbox). Execution begins
-      only after the checkbox is ticked; `scripts/make_wikitest_ref.py` lands with the
-      session commit.
+- [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
+      Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
+      the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
+      M5 via run_battery.sh when meta.mtp; manifest sha256s; summary JSON with the
+      §3 bands applied). Awaiting the mini-PC run + numbers; report doc
+      `docs/REALWEIGHTS_QWEN36.md` gets written from `summary.json`.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
       engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no

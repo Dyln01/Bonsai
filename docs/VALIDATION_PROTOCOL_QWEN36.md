@@ -82,8 +82,11 @@ rerun: the knob's default stays off and the number goes in the report as-is.
 
 ## 6. Sign-off
 
-- [ ] I (the repo owner) approve downloading the checkpoint(s) marked in §1
+- [x] I (the repo owner) approve downloading the checkpoint(s) marked in §1
       to `~/Models/` on the mini-PC for this one validation session, under the
       checkpoints' own licenses; nothing enters the repo.
 
-Date / initials: ______________________
+**Signed in chat, 2026-10-20:** "continue with phase 5 skip phase 4 for now".
+Scope recorded: **W1 (dense 27B) first**; W2 (MoE+MTP arms) on a follow-up
+session whenever wanted. Session runner: `tools/run_phase5.sh` (resumable,
+per-arm caching, bands mirrored from §3, summary JSON out).
