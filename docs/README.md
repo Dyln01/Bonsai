@@ -28,6 +28,7 @@ ship (kept so we don't retry blindly); **design** = contract pinned, implementat
 | [SOFTMAX_QWEN36.md](SOFTMAX_QWEN36.md) | 2026-10-17 | shipped | Q36_FAST_SOFTMAX AVX2 fast exp; includes two negative results (flash-site, silu) |
 | [GQA_ABSORB_QWEN36.md](GQA_ABSORB_QWEN36.md) | 2026-10-19 | shipped | GQA-absorbed decode tiles: dequant once per group, KV8 −34.5% / TQ4 −47% attn ms/tok, bit-identical outputs |
 | [BENCH_DENSE27B.md](BENCH_DENSE27B.md) | 2026-10-17 | measured | dense-27B benchmark walkthrough (projections labeled) |
+| [CROSS_ENGINE_KVQ.md](CROSS_ENGINE_KVQ.md) | 2026-10-22 | design+slice1 | Phase 4c: KV8/TQ ports to qwen38 then glm53; per-engine patchers + manifest section; slice 1 build proof green |
 | [WINDOWING_QWEN36.md](WINDOWING_QWEN36.md) | 2026-10-20 | design | Phase 4b: per-layer neuron window cache (resident rows over the gather path); value cases = real weights + GRIFFIN-on-HDD; gates pre-registered |
 | [PREDICTOR_QWEN36.md](PREDICTOR_QWEN36.md) | 2026-10-20 | negative | Phase 4a: Deja-Vu-class predictor — per-token top-K constant on synthetic; machinery kept as Phase 5 arm |
 | [SCAN_DECAY_QWEN36.md](SCAN_DECAY_QWEN36.md) | 2026-10-20 | shipped (machinery; knob default full) | Phase 3b-scan implemented: integer salience table, settle-row+prefill seeding, gates 1 PASS + machinery ceiling, gate-2 synthetic negative documented |

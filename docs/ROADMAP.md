@@ -163,7 +163,11 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       **measurement pending on the HDD mini-PC** (one command). Launcher default for
       `Q36_WIN_MB` stays 0 until then — sim budget floor: the window only beats static
       at cap ≥ ~2K neurons (≈2.1 GB on dense 27B frac 0.25), infeasible in 8 GB.
-- [ ] **Phase 4c:** cross-engine KV8/TQ ports (GLM/qwen38) with
+- [~] **Phase 4c — cross-engine KV8/TQ ports:** contract pinned
+      (`docs/CROSS_ENGINE_KVQ.md`: qwen38 first, glm53 MLA latents second; per-engine
+      patchers + separate manifest section; bf24429 anchor-drift policy via CI build
+      proof). **Slice 1 shipped (2026-10-22):** `make qwen38 glm53` green in CI with
+      Bonsai headers overlaid + SYNTH_-parameterized qwen38 generator. Slices 2-4 open.
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,

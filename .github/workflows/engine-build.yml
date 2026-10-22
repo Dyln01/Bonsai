@@ -157,6 +157,21 @@ jobs:
           cmp /tmp/ids_win.txt /tmp/ids_nowin.txt
           echo "window on/off: id sequences identical (byte-identical copies by construction)"
 
+      - name: cross-engine build proof (qwen38 + glm53 from pinned colibri, our headers overlaid)
+        run: |
+          set -e
+          make -C "$HOME/colibri/c" qwen38 glm53 -j"$(nproc)"
+          ls -la "$HOME/colibri/c/qwen38" "$HOME/colibri/c/glm53"
+          echo "sibling engines build with Bonsai headers overlaid (4c slice 1)"
+
+      - name: qwen38 small synth container (parameterized generator)
+        run: |
+          set -e
+          SYNTH_OUT="$HOME/synth_models/synth_q38_ci" SYNTH_H=512 SYNTH_L=8 SYNTH_MLP=1024 \
+          SYNTH_V=4096 SYNTH_QH=4 SYNTH_KVH=2 SYNTH_HD=64 \
+          python3 scripts/gen_qwen38_27b_f16.py
+          du -sh "$HOME/synth_models/synth_q38_ci"
+
       - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
         run: |
           set -e

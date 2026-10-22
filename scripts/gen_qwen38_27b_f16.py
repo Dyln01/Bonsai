@@ -9,13 +9,20 @@ TRUNK_MAP correctness is format-level (mmap + f16 dequant), which random weights
 import json, os, struct
 import numpy as np
 
-OUT = os.path.expanduser("~/synth_models/synth_qwen38_27b_f16")
+# defaults = the real 27B geometry; SYNTH_* overrides let CI gate a small qwen38
+# container with the same code paths (f16 dense + DeltaNet + MTP-ready meta).
+OUT = os.path.expanduser(os.environ.get("SYNTH_OUT", "~/synth_models/synth_qwen38_27b_f16"))
 os.makedirs(OUT, exist_ok=True)
 for f in os.listdir(OUT):
     os.remove(os.path.join(OUT, f))
 
-H, L, MLP, V = 5120, 64, 17408, 248320
-QH, KVH, HD = 40, 8, 128
+H   = int(os.environ.get("SYNTH_H",   5120))
+L   = int(os.environ.get("SYNTH_L",   64))
+MLP = int(os.environ.get("SYNTH_MLP", 17408))
+V   = int(os.environ.get("SYNTH_V",   248320))
+QH  = int(os.environ.get("SYNTH_QH",  40))
+KVH = int(os.environ.get("SYNTH_KVH", 8))
+HD  = int(os.environ.get("SYNTH_HD",  128))
 DN_VH, DN_KH, DN_KDIM, DN_VDIM, CONVK = 32, 8, 128, 128, 4
 CONV_DIM = 2*DN_KH*DN_KDIM + DN_VH*DN_VDIM     # 4096
 
