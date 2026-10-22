@@ -1,6 +1,6 @@
 # Neuron window cache (Phase 4b) — design contract
 
-**Date:** 2026-10-20 · status: **design pinned, implementation next (sliced)**
+**Date:** 2026-10-20 · status: **slice 1 shipped (2026-10-22, `main`)** — slices 2-3 open
 **Predecessor:** Phase 4a (`docs/PREDICTOR_QWEN36.md`) measured the per-token
 top-K neuron sets on synthetic weights and found them **constant** (norm-driven,
 content-independent): the Deja-Vu predictor premise is absent there by
@@ -67,8 +67,10 @@ report `[qwen36 win] …` beside the existing spec/lookup lines.
 
 ## Implementation slices (one commit each, CI-green each)
 
-1. cache struct + FIFO + gather-path hook + knobs + report line (engine patch
-   `patch_window.py`, chain hop `.prewin`); CI mechanical gate.
+1. **DONE:** cache struct + FIFO + gather-path hook + knobs + report line
+   (`patch_window.py`, chain hop `.prewin`, 21 hops); CI mechanical gate with
+   `GRIFFIN=1` (the gather path runs only on decode rows with a Griffin set —
+   the gate initially passed vacuously with hits 0 until that was pinned).
 2. `scripts/exp_window_sim.py` + the sim run on existing 4a dumps (synthetic
    curve into `results/results_window_sim_q36.json`).
 3. `scripts/exp_window_q36.py` I/O gate + battery arms for the mini-PC
