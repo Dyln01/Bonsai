@@ -1051,6 +1051,7 @@ typedef struct {
     float *in_ln, *post_ln, *qn, *kn, *gate_bias;
     QW q, k, v, o, gate;
     QW sh_g, sh_u, sh_d; float *sh_gate;   /* shared expert (dense, int8-during-load) + shared_expert_gate */
+    struct Q36Win *win;                    /* Phase 4b: resident neuron-row window (NULL = off) */
     /* Gated DeltaNet (linear_attention) dense weights (f16->f32 via st_read_f32). */
     QW dn_qkv, dn_z; float *dn_b, *dn_a;   /* in_proj_qkv/z (int8-during-load), b/a (not dense-matmul'd) */
     float *dn_conv;                        /* conv1d.weight [conv_dim, convk] (groups=conv_dim) */
@@ -2273,6 +2274,8 @@ static void validate_cfg(const Cfg *c, int n_layers_from_config) {
  * which is exactly the stock-safety property measured in Phase 2a. */
 static int  g_q36_progress = 1;   /* Q36_PROGRESS=0 disables prefill progress lines */
 static int  g_q36_trunk_stream = 0;  /* 1 = TRUNK_MAP streaming mode (HDD/small-RAM) */
+static int  g_q36_win_mb = 0;        /* Q36_WIN_MB: resident neuron window budget (0 = off) */
+static uint64_t g_win_hit, g_win_miss;
 static int  g_q36_tq_absorb = 1;  /* Q36_TQ_ABSORB=0: 3a loop verbatim (A/B + fallback) */
 static int  g_q36_mtp_on = 0;
 static int  g_q36_mtp_drafts = 2;
@@ -4208,6 +4211,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
     if (gs && gs->k > 0 && gs->k < I && S == 1) {
         /* gather-selected neurons: compute gate/up rows gs->idx[0..k), combine,
          * then down over the same original indices. */
+        q36_win_ensure(m, l, layer, D, I);
         int K = gs->k;
         const int *ix = gs->idx;
         float *gg = g, *uu = u;
@@ -4219,9 +4223,15 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             QW ng = l->sh_g; ng.O = 1; ng.I = D;
             /* shift the map to row o: rows are o*(I/2 or I) bytes — build a row view */
             float gval, uval;
+            int wslot = q36_win_lookup(m, l, o);
+            if (wslot < 0 && l->win) q36_win_insert(m, l, o, D, I), wslot = q36_win_tab_find(l->win, o);
             {
                 const QW *w = &l->sh_g;
-                if (w->map) {
+                if (w->map && wslot >= 0) {
+                    QW rv = *w; rv.map = (char *)l->win->grow[wslot]; rv.map_len = l->win->rowb;
+                    rv.O = 1; rv.I = D; rv.sc = &l->win->gsc[wslot];
+                    matmul_d(&gval, xs, &rv, 1, D, 1);
+                } else if (w->map) {
                     int64_t rowbytes = (w->map_len == (int64_t)D*I/2) ? (D/2) : (D * 2);
                     QW rv = *w; rv.map = (char*)w->map + (int64_t)o * rowbytes; rv.map_len = rowbytes; rv.O = 1; rv.I = D; rv.sc = w->sc ? w->sc + o : NULL;
                     matmul_d(&gval, xs, &rv, 1, D, 1);
@@ -4233,7 +4243,11 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             }
             {
                 const QW *w = &l->sh_u;
-                if (w->map) {
+                if (w->map && wslot >= 0) {
+                    QW rv = *w; rv.map = (char *)l->win->urow[wslot]; rv.map_len = l->win->rowb;
+                    rv.O = 1; rv.I = D; rv.sc = &l->win->usc[wslot];
+                    matmul_d(&uval, xs, &rv, 1, D, 1);
+                } else if (w->map) {
                     int64_t rowbytes = (w->map_len == (int64_t)D*I/2) ? (D/2) : (D * 2);
                     QW rv = *w; rv.map = (char*)w->map + (int64_t)o * rowbytes; rv.map_len = rowbytes; rv.O = 1; rv.I = D; rv.sc = w->sc ? w->sc + o : NULL;
                     matmul_d(&uval, xs, &rv, 1, D, 1);
@@ -4249,6 +4263,31 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             const QW *dw = &l->sh_d;
             if (dw->map && dw->map_len == (int64_t)D*I/2) {
                 const uint8_t *mp = (const uint8_t*)dw->map; const float *sc = dw->sc;
+                /* window: cached down columns answer from RAM (sequential per d) */
+                const uint8_t **csrc = NULL;
+                if (l->win) {
+                    csrc = malloc((size_t)K * sizeof(uint8_t *));
+                    for (int j = 0; j < K; j++) {
+                        int s2 = q36_win_tab_find(l->win, ix[j]);
+                        csrc[j] = s2 >= 0 ? l->win->dcol[s2] : NULL;
+                    }
+                }
+                #pragma omp parallel for schedule(static)
+                for (int d = 0; d < D; d++) {
+                    const uint8_t *row = mp + (int64_t)d * (I >> 1);
+                    float acc = 0;
+                    for (int j = 0; j < K; j++) {
+                        int i2 = ix[j];
+                        uint8_t b = csrc && csrc[j] ? csrc[j][d >> 1] : row[i2 >> 1];
+                        int nibsel = (csrc && csrc[j]) ? (d & 1) : (i2 & 1);
+                        int8_t e = (int8_t)((nibsel) ? (b >> 4) : (b & 0xF));
+                        if (e & 8) e -= 16;
+                        acc += (float)e * gg[j];
+                    }
+                    hh[d] = acc * (sc ? sc[d] : 1.0f);
+                }
+                free((void*)csrc);
+                if (0) {
                 #pragma omp parallel for schedule(static)
                 for (int d = 0; d < D; d++) {
                     const uint8_t *row = mp + (int64_t)d * (I >> 1);
@@ -4261,6 +4300,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
                         acc += (float)e * gg[j];
                     }
                     hh[d] = acc * (sc ? sc[d] : 1.0f);
+                }
                 }
             } else if (dw->map) {
                 const uint16_t *mp = (const uint16_t*)dw->map;
@@ -4641,6 +4681,107 @@ static void moe_vk_run(Model *m, Layer *l, int layer, const float *x, int S, flo
  * so `out` gets the routed experts' rank-order sum alone (the Vulkan dense chain runs
  * the router and the shared expert on the device and adds them there). moe() is
  * moe_ex(..., NULL, 0): the same operations in the same order as before. */
+/* ---- Phase 4b: resident neuron-row window (byte-identical packed copies) ---- */
+typedef struct Q36Win {
+    int cap, tab, head, n;             /* FIFO slots, open-address table (pow2), fill */
+    int *idx;                          /* slot -> neuron index (-1 empty) */
+    int *slot_of;                      /* table: neuron -> slot (-1 empty) */
+    uint8_t **grow, **urow, **dcol;    /* slot -> packed bytes (gate row, up row, down col) */
+    float *gsc, *usc;                  /* slot -> row scale copies */
+    int64_t rowb, dcolb;               /* packed bytes per gate/up row and per down column */
+} Q36Win;
+
+static int q36_win_tab_find(const Q36Win *w, int o) {
+    unsigned h = (unsigned)o * 2654435761u;
+    int i = (int)(h & (unsigned)(w->tab - 1));
+    for (int probe = 0; probe < w->tab; probe++) {
+        int s = w->slot_of[i];
+        if (s < 0) return -1;
+        if (w->idx[s] == o) return s;
+        i = (i + 1) & (w->tab - 1);
+    }
+    return -1;
+}
+
+static void q36_win_tab_put(Q36Win *w, int o, int slot) {
+    unsigned h = (unsigned)o * 2654435761u;
+    int i = (int)(h & (unsigned)(w->tab - 1));
+    for (int probe = 0; probe < w->tab; probe++) {
+        int s = w->slot_of[i];
+        if (s < 0 || w->idx[s] == o) { w->slot_of[i] = slot; return; }
+        i = (i + 1) & (w->tab - 1);
+    }
+}
+
+static void q36_win_ensure(Model *m, Layer *l, int layer, int D, int I) {
+    if (l->win || g_q36_win_mb <= 0) return;
+    if (!l->sh_g.map || l->sh_g.map_len != (int64_t)D * I / 2) return;   /* int4-mapped dialect only */
+    if (!l->sh_d.map || l->sh_d.map_len != (int64_t)D * I / 2) return;
+    int n_mlp = 0;
+    for (int i = 0; i < m->c.n_layers; i++)
+        if (m->L[i].sh_g.map && m->L[i].sh_g.map_len == (int64_t)D * I / 2) n_mlp++;
+    if (n_mlp < 1) return;
+    int64_t per = (int64_t)(D / 2) * 2 + (int64_t)(D / 2);                /* gate+up rows + down col */
+    int64_t cap = ((int64_t)g_q36_win_mb * 1024 * 1024 / n_mlp) / (per + 16);
+    if (cap < 64) return;
+    Q36Win *w = calloc(1, sizeof *w);
+    int tab = 64; while (tab < cap * 2) tab <<= 1;
+    w->cap = (int)cap; w->tab = tab; w->rowb = D / 2; w->dcolb = D / 2;
+    w->idx = malloc((size_t)cap * sizeof(int));
+    w->slot_of = malloc((size_t)tab * sizeof(int));
+    w->grow = calloc((size_t)cap, sizeof(uint8_t *));
+    w->urow = calloc((size_t)cap, sizeof(uint8_t *));
+    w->dcol = calloc((size_t)cap, sizeof(uint8_t *));
+    w->gsc = malloc((size_t)cap * sizeof(float));
+    w->usc = malloc((size_t)cap * sizeof(float));
+    if (!w->idx || !w->slot_of || !w->grow || !w->urow || !w->dcol || !w->gsc || !w->usc) { free(w); return; }
+    for (int i = 0; i < cap; i++) w->idx[i] = -1;
+    for (int i = 0; i < tab; i++) w->slot_of[i] = -1;
+    for (int i = 0; i < cap; i++) {
+        w->grow[i] = malloc((size_t)(D / 2)); w->urow[i] = malloc((size_t)(D / 2)); w->dcol[i] = malloc((size_t)(D / 2));
+        if (!w->grow[i] || !w->urow[i] || !w->dcol[i]) { free(w); l->win = NULL; return; }
+    }
+    l->win = w;
+}
+
+static int q36_win_lookup(Model *m, Layer *l, int o) {
+    if (!l->win) return -1;
+    int s = q36_win_tab_find(l->win, o);
+    if (s >= 0) g_win_hit++; else g_win_miss++;
+    return s;
+}
+
+static void q36_win_insert(Model *m, Layer *l, int o, int D, int I) {
+    Q36Win *w = l->win;
+    if (!w || q36_win_tab_find(w, o) >= 0) return;
+    int s = w->head; w->head = (w->head + 1) % w->cap;
+    if (w->idx[s] >= 0) {   /* evict: drop its table entry */
+        unsigned h = (unsigned)w->idx[s] * 2654435761u;
+        int i = (int)(h & (unsigned)(w->tab - 1));
+        for (int probe = 0; probe < w->tab; probe++) {
+            if (w->slot_of[i] == s) { w->slot_of[i] = -1; break; }
+            i = (i + 1) & (w->tab - 1);
+        }
+    }
+    const uint8_t *gm = (const uint8_t *)l->sh_g.map, *um = (const uint8_t *)l->sh_u.map, *dm = (const uint8_t *)l->sh_d.map;
+    memcpy(w->grow[s], gm + (int64_t)o * w->rowb, (size_t)w->rowb);
+    memcpy(w->urow[s], um + (int64_t)o * w->rowb, (size_t)w->rowb);
+    for (int d = 0; d < D; d += 2) {   /* down column o: nibbles (d,o) for all d, packed pair-wise */
+        w->dcol[s][d / 2] = 0;         /* filled below, nibble at a time */
+    }
+    for (int d = 0; d < D; d++) {
+        uint8_t b = dm[(int64_t)d * (I / 2) + (o >> 1)];
+        int nib = (o & 1) ? (b >> 4) & 0xF : b & 0xF;
+        if (d & 1) w->dcol[s][d / 2] |= (uint8_t)(nib << 4);
+        else       w->dcol[s][d / 2] |= (uint8_t)nib;
+    }
+    w->gsc[s] = l->sh_g.sc ? l->sh_g.sc[o] : 1.0f;
+    w->usc[s] = l->sh_u.sc ? l->sh_u.sc[o] : 1.0f;
+    w->idx[s] = o;
+    q36_win_tab_put(w, o, s);
+    if (w->n < w->cap) w->n++;
+}
+
 static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
                    const float *logits_in, int routed_only) {
     Cfg *c = &m->c; int D = c->hidden, E = c->n_experts, K = c->topk, I = c->inter;
@@ -6629,6 +6770,11 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
           logit = q36_spec_step(m, sp, best, len - 1, n_new - 1 - s);
           if (tm_on()) g_tm_step += tm_now()-_s0; }
     }
+    if (g_q36_win_mb > 0)
+        fprintf(stderr, "[qwen36 win] hits %llu misses %llu (%.1f%% hit-rate), budget %d MB\n",
+                (unsigned long long)g_win_hit, (unsigned long long)g_win_miss,
+                (g_win_hit + g_win_miss) ? 100.0 * g_win_hit / (g_win_hit + g_win_miss) : 0.0,
+                g_q36_win_mb);
     q36_spec_end(m, sp);
     q36_scan_report(m);
     { const char *ip = getenv("DUMP_IDS");
@@ -7921,6 +8067,7 @@ int main(int argc, char **argv) {
     { const char *hp = getenv("HOT_PROFILE"); if (hp && *hp) snprintf(g_hot_profile_path, sizeof g_hot_profile_path, "%s", hp); }
     g_q36_trunk_stream = g_hot_profile_path[0] ? 1 : 0;   /* calibrate streams by default */
     { const char *tv = getenv("Q36_TRUNK_STREAM"); if (tv && *tv) g_q36_trunk_stream = tv[0] == '1'; }
+    { const char *wv = getenv("Q36_WIN_MB"); if (wv && *wv) g_q36_win_mb = atoi(wv); }
     { const char *tp = getenv("Q36_PROFILE_TOK");
       if (tp && *tp) { snprintf(g_tok_dump_path, sizeof g_tok_dump_path, "%s", tp);
         const char *kk = getenv("Q36_PROFILE_TOK_K");

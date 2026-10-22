@@ -14,7 +14,7 @@
     "kv_fp8.h": "a92762dab601fb885221dd499db21445",
     "kv_tq.h": "6a476ecd475326942ceb345829792196",
     "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-    "qwen36.c": "d5a5e9c3aff79816024499e0eb4c0efd",
+    "qwen36.c": "b595574bbac5d2be3100d2465eeb8a09",
     "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
     "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
     "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
@@ -37,7 +37,8 @@
     "qwen36.c.preptk": "e639efe5470f970ff789552c24d9b9d4",
     "qwen36.c.preftz": "4495cdc386858e742092398989a5769d",
     "qwen36.c.prestream": "a6fddae3d1b250b78250631a1d09fc54",
-    "qwen36.c.preprog2": "42a739c640bb5d46eab743702f9a9079"
+    "qwen36.c.preprog2": "42a739c640bb5d46eab743702f9a9079",
+    "qwen36.c.prewin": "d5a5e9c3aff79816024499e0eb4c0efd"
   },
   "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
   "reproducible_segments": [
@@ -196,8 +197,16 @@
       "scripts": [
         "patch_progress_dt.py"
       ],
-      "to": "qwen36.c",
+      "to": "qwen36.c.prewin",
       "added": "per-layer dt/kind forensics"
+    },
+    {
+      "from": "qwen36.c.prewin",
+      "scripts": [
+        "patch_window.py"
+      ],
+      "to": "qwen36.c",
+      "added": "Phase 4b slice 1"
     }
   ],
   "drift_audit": {
