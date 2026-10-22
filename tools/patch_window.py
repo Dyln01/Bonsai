@@ -152,7 +152,7 @@ static void q36_win_insert(Model *m, Layer *l, int o, int D, int I) {
     if (w->n < w->cap) w->n++;
 }
 
-static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
+static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
 """)
 
 # 3. gate/up row views answer from the window when present

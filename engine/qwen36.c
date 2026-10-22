@@ -4294,7 +4294,7 @@ static void q36_win_insert(Model *m, Layer *l, int o, int D, int I) {
     if (w->n < w->cap) w->n++;
 }
 
-static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
+static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
                                     float *out, float *g, float *u, float *hh) {
     Cfg *c=&m->c; int D=c->hidden, I=c->shared_inter;
     if (I <= 0) return;   /* no shared expert (qwen3_moe) */
