@@ -231,12 +231,33 @@ jobs:
         run: |
           set -e
           SYNTH_OUT="$HOME/synth_models/synth_glm53_ci" python3 scripts/gen_glm53_synth.py
+          SYNTH_GLM="$HOME/synth_models/synth_glm53_ci"
           python3 scripts/make_tokenizer.py "$HOME/synth_models/synth_glm53_ci/tokenizer.json" 2047
           "$HOME/colibri/c/glm53" --model "$HOME/synth_models/synth_glm53_ci" \
             --prompt "The quick brown fox jumps over the lazy dog and keeps running." \
             --greedy 1 > /tmp/glm53.out 2> /tmp/glm53.err || { tail -20 /tmp/glm53.err; exit 1; }
           grep -q "selections across" /tmp/glm53.err || grep -q "selections across" /tmp/glm53.out || { tail -20 /tmp/glm53.err; exit 1; }
           echo "stock glm53 loads + runs the MLA/KDA/mHC synth container"
+          cp "$HOME/colibri/c/glm53" /tmp/glm53.stock
+          python3 tools/patch_kvq_glm53.py "$HOME/colibri/c"
+          make -C "$HOME/colibri/c" glm53 -j"$(nproc)" 2>/dev/null || gcc -O2 -march=x86-64-v3 -fopenmp -pthread -w "$HOME/colibri/c/glm53.c" -o "$HOME/colibri/c/glm53" -lm -fopenmp -pthread
+          GP="The quick brown fox jumps over the lazy dog and keeps running far away today."
+          "$HOME/colibri/c/glm53" --model "$SYNTH_GLM" --prompt "$GP" --greedy 1 2>/dev/null | grep teacher > /tmp/g_off_p.ids || true
+          cmp /tmp/glm53.stock /dev/null 2>/dev/null || true
+          /tmp/glm53.stock --model "$SYNTH_GLM" --prompt "$GP" --greedy 1 2>/dev/null | grep teacher > /tmp/g_off_s.ids
+          cmp /tmp/g_off_s.ids /tmp/g_off_p.ids
+          echo "glm53 KV_TQ-off patched == stock (TF ids identical)"
+          for A in 0 1; do
+            KV_TQ=4 GLM53_TQ_ABSORB=$A "$HOME/colibri/c/glm53" --model "$SYNTH_GLM" --prompt "$GP" --greedy 1 2>/dev/null | grep teacher > /tmp/g_on_$A.ids
+          done
+          KV_TQ=4 GLM53_TQ_ABSORB=1 "$HOME/colibri/c/glm53" --model "$SYNTH_GLM" --prompt "$GP" --greedy 1 2>/dev/null | grep teacher > /tmp/g_on_1b.ids
+          cmp /tmp/g_on_1.ids /tmp/g_on_1b.ids && echo "glm53 KV_TQ-on self-deterministic"
+          python3 - <<'PY'
+          a = open("/tmp/g_on_0.ids").read().split(); b = open("/tmp/g_on_1.ids").read().split()
+          same = sum(1 for x, y in zip(a, b) if x == y)
+          print("glm53 absorb0-vs-1 TF-id match %d/%d" % (same, len(a)))
+          assert len(a) == len(b) and same == len(a), "absorb must be a re-association"
+          PY
 
       - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
         run: |

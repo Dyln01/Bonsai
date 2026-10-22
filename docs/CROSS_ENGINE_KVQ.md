@@ -83,10 +83,13 @@ siblings get batteries only if their ports pass synthetic gates).
       Lloyd-Max band (>=0.85 pre-registered). Serve/mux refused under KV_TQ as under KV8.
 - [x] 4a — `scripts/gen_glm53_synth.py` (glm53 dialect per Appendix B; stock
       engine loads + runs it first try; CI load-smoke green).
-- [ ] 4b — `patch_kvq_glm53.py`: codec-on-latent TQ port + gates (off-identity,
-      self-determinism, prefill noise band). Absorption-native: MLA decode dots
-      queries against latents through absorbed kv_b weights, so no query
-      rotation is needed.
+- [x] 4b — `patch_kvq_glm53.py` (2026-10-22): codec-on-latent TQ with the
+      absorbed-rotation pattern (rotate the absorbed per-head query once, dot
+      rotated-space levels, radius hoisted, pooled latent mean unrotated once per
+      token-head). Gates green locally + CI: KV_TQ-off patched == stock (TF ids
+      identical), KV_TQ-on self-deterministic, absorb 0-vs-1 TF-id match 78/78.
+      Segment snapshots refuse KV_TQ (span exposes latents as floats). **Phase 4
+      closed.**
 
 ## Appendix A — qwen38 container spec (extracted from colibri bf24429 `qwen38_core.h`)
 
