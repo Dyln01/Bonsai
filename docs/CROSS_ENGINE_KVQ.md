@@ -74,3 +74,50 @@ siblings get batteries only if their ports pass synthetic gates).
       KV8=1 vs 0 last-logit cosine ≥ 0.999; RSS delta = row-width math.
 - [ ] 3 — `patch_tq_q38.py` + absorb + gates
 - [ ] 4 — glm53 latent TQ + generator + gates
+
+## Appendix A — qwen38 container spec (extracted from colibri bf24429 `qwen38_core.h`)
+
+Checklist for slice 2a-2 (generator rewrite). `<P>` = `model` or
+`model.language_model` (auto-detected via the embed name). All weights load via
+`q38_load_weight` (quantizes per engine policy) or `q38_load_tensor` (resident f32).
+
+**config.json (text_config or root):** `model_type="qwen4_exp_text"`,
+`hidden_act="silu"`, `output_gate_type="sigmoid"`, `attention_bias=false`,
+`tie_word_embeddings=false`, `hidden_size`, `num_hidden_layers`, `vocab_size`,
+`max_position_embeddings`, `eos_token_id`, `rms_norm_eps`,
+`rope_parameters{rope_type="default", rope_theta, partial_rotary_factor}`,
+`hc_count` (def 4), `hc_lowrank` (def 320; hc_width = hc_count*hidden),
+`num_attention_heads`, `num_key_value_heads`, `head_dim`,
+`indexer_n_heads`, `indexer_kv_heads`, `indexer_head_dim`, `indexer_budget`,
+`indexer_compress_ratio`, `num_experts`, `num_experts_per_tok`,
+`moe_intermediate_size`, `shared_expert_intermediate_size`, `norm_topk_prob`,
+`linear_num_key_heads`, `linear_num_value_heads`, `linear_key_head_dim`,
+`linear_value_head_dim`, `linear_conv_kernel_dim`,
+`ple_embed_dim` (def hidden), `ple_conv_kernel_size` (def 4), `ngram_size` (def 3),
+`heads_per_ngram` (def 8), `split_ngram_parts` (def 1),
+`ple_layer_ids` (ABSENT = no PLE tensors needed), `layer_types` (REQUIRED,
+one per layer: `full_attention`|`qwen_sparse_attention`|`linear_attention`).
+
+**Boundaries:** `<P>.embed_tokens.weight` [V,H] · `lm_head.weight` [V,H]
+(no prefix) · `<P>.hyper_connection_mixer.{hc_norm.weight [hc_width],
+input_mix_weight_down.weight [rank,width], input_mix_weight_up.weight [width,rank]}`
+(no block_inject on the final mixer).
+
+**Every layer:** `attn_hyper_connection.*` and `mlp_hyper_connection.*` =
+`{hc_norm.weight, input_mix_weight_down.weight, input_mix_weight_up.weight,
+block_inject_weight.weight [hc_count,hc_width]}` · `mlp.gate.weight` [E,H] ·
+`mlp.shared_expert.{gate,up,down}_proj.weight` · `mlp.shared_expert_gate.weight` [H] ·
+experts: per-expert `mlp.experts.<e>.{gate,up,down}_proj.weight` (a fused
+`mlp.experts.gate_up_proj` variant also exists; use the per-expert form).
+
+**full_attention layers:** `self_attn.{q_proj [QH*HD*2,H], k_proj [KVH*HD,H],
+v_proj [KVH*HD,H], o_proj [H,QH*HD]}` · `self_attn.{q_norm,k_norm}.weight` [HD] ·
+`self_attn.indexer.index_qk_proj.weight` [(IQH+IKH)*ID, H] ·
+`self_attn.indexer.{q_layernorm,k_layernorm}.weight` [ID].
+
+**linear_attention layers:** `linear_attn.{in_proj_qkv [conv_dim,H], in_proj_z [vd,H],
+in_proj_b [vh,H], in_proj_a [vh,H], conv1d.weight [conv_dim*convk], dt_bias [vh],
+A_log [vh], norm.weight [vdim], out_proj.weight [H,vd]}`.
+
+**Optional:** PLE tensors only if `ple_layer_ids` set; vision only if
+`Q38_VISION=1` (set 0 in CI); MTP head only if the container carries it.
