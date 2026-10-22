@@ -81,7 +81,12 @@ siblings get batteries only if their ports pass synthetic gates).
       CI gates green — absorb 0-vs-1 cosine **1.0** (prefill and full), absorb1
       self-deterministic byte-identical, tq-on-vs-off prefill cosine 0.91 inside the
       Lloyd-Max band (>=0.85 pre-registered). Serve/mux refused under KV_TQ as under KV8.
-- [ ] 4 — glm53 latent TQ + generator + gates
+- [x] 4a — `scripts/gen_glm53_synth.py` (glm53 dialect per Appendix B; stock
+      engine loads + runs it first try; CI load-smoke green).
+- [ ] 4b — `patch_kvq_glm53.py`: codec-on-latent TQ port + gates (off-identity,
+      self-determinism, prefill noise band). Absorption-native: MLA decode dots
+      queries against latents through absorbed kv_b weights, so no query
+      rotation is needed.
 
 ## Appendix A — qwen38 container spec (extracted from colibri bf24429 `qwen38_core.h`)
 

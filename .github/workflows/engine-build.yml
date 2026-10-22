@@ -227,6 +227,17 @@ jobs:
           assert c3 > 0.85, "beyond Lloyd-Max 4-bit noise band"
           PY
 
+      - name: glm53 synth container + load smoke (4c slice 4a)
+        run: |
+          set -e
+          SYNTH_OUT="$HOME/synth_models/synth_glm53_ci" python3 scripts/gen_glm53_synth.py
+          python3 scripts/make_tokenizer.py "$HOME/synth_models/synth_glm53_ci/tokenizer.json" 2047
+          "$HOME/colibri/c/glm53" --model "$HOME/synth_models/synth_glm53_ci" \
+            --prompt "The quick brown fox jumps over the lazy dog and keeps running." \
+            --greedy 1 > /tmp/glm53.out 2> /tmp/glm53.err || { tail -20 /tmp/glm53.err; exit 1; }
+          grep -q "selections across" /tmp/glm53.err || grep -q "selections across" /tmp/glm53.out || { tail -20 /tmp/glm53.err; exit 1; }
+          echo "stock glm53 loads + runs the MLA/KDA/mHC synth container"
+
       - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
         run: |
           set -e
