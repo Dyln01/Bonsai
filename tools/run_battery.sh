@@ -19,8 +19,17 @@ TS=$(date +%Y%m%d-%H%M%S)
 OUT="${3:-results/battery_$(hostname -s)_$TS.json}"
 THR="${BATTERY_THREADS:-4}"; NNEW="${BATTERY_NNEW:-64}"; CAP="${BATTERY_CAP:-8}"
 ARMS="${BATTERY_ARMS:-A B C D E F W0 W256 W1G}"
+FRAC="${BATTERY_FRAC:-1.0}"; MAXT="${BATTERY_MAXT:-16384}"
+PB=$(wc -c < "$PF")
+if [ "$PB" -gt "$MAXT" ]; then
+  echo "run_battery: prompt is ~$PB tokens (byte-level tokenizer) but Q36_MAXT=$MAXT." >&2
+  echo "  raise BATTERY_MAXT, or use a shorter prompt. 8 GB mini-PC profile:" >&2
+  echo "  BATTERY_FRAC=0.25 BATTERY_MAXT=8192 with a <=8k-token prompt" >&2
+  echo "  (e.g. head -c 7900 ~/eval/prompt_8k.txt > ~/eval/prompt_7k.txt)" >&2
+  exit 2
+fi
 W=/tmp/battery_$TS; mkdir -p "$W"
-COMMON="SNAP=$MODEL Q36_MAXT=8192 N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS=$THR"
+COMMON="SNAP=$MODEL Q36_MAXT=$MAXT N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS=$THR Q36_HOT_FRAC=$FRAC"
 ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 
 run_arm() {  # run_arm <name> <extra env...> -- prompt
@@ -29,10 +38,13 @@ run_arm() {  # run_arm <name> <extra env...> -- prompt
   /usr/bin/time -v env $COMMON "$@" timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > "$W/$name.out" 2> "$W/$name.err"
   echo $? > "$W/$name.rc"
 }
+grep -q '"mtp"' "$MODEL/qwen36_meta.json" 2>/dev/null && HAS_MTP=1 || HAS_MTP=0
+[ "$HAS_MTP" = 1 ] || echo "== arms E/F will skip: container carries no MTP head (scripts/gen_mtp_head_synth.py adds one)"
 run_arm A
 run_arm B KV8=1
 run_arm C KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=0
 run_arm D KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=1
+if [ "$HAS_MTP" = 1 ]; then
 run_arm E KV8=1 Q36_MTP=1 Q36_MTP_DRAFTS=2 COLI_SPEC_GATE=0 COLI_LOOKUP=0
 # F: bootstrap the oracle from arm A's id stream, then force-accept
 if [ -f "$W/A.ids" ] || DUMP_IDS="$W/A.ids" env $COMMON timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > /dev/null 2> "$W/A_ids.err"; then
@@ -46,6 +58,10 @@ PY
   run_arm F KV8=1 Q36_MTP=1 Q36_MTP_FORCE=accept COLI_SPEC_GATE=0 COLI_LOOKUP=0 Q36_MTP_DRAFTS=2
 else
   echo "!! could not bootstrap ref.json; skipping arm F"; echo 9 > "$W/F.rc"
+fi
+else
+  echo "== arm E: skipped (no MTP head)"; echo 0 > "$W/E.rc"; echo "skipped: no mtp head" > "$W/E.err"
+  echo "== arm F: skipped (no MTP head)"; echo 0 > "$W/F.rc"; echo "skipped: no mtp head" > "$W/F.err"
 fi
 
 # window x GRIFFIN matrix (Phase 4b slice 3): read-bytes via /usr/bin/time -v
