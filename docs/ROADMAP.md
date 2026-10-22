@@ -117,7 +117,7 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       = settle row + prefill chunks (no spec snapshots needed). Gates on synthetic:
       scan-off id-identity PASS (kv8+tq4), two-run determinism PASS, machinery
       ceiling 3.2% rows -> 11.9x attention at 16k (EPS=1.0), EPS=0.05 engages at
-      54% rows / -14% attention; gate 2 (ngram self-check) = documented NEGATIVE
+      54% rows / -14% attention; gate 2 (ngram self-check) = documented NEGATIVE on synthetic, RECLASSIFIED 2026-10-22 as expected physics (no induction heads on random weights; decode salience reinforces the selected set by design) — moved to the Phase 5 arm bundle
       (random weights = pure causal-coverage gradient, zero content signal;
       needs real weights or a structured container); quality + real-speed gates
       pre-registered as Phase 5 arms. Knob Q36_SCAN default full.

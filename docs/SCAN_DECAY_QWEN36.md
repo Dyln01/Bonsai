@@ -64,8 +64,14 @@ Report line `[qwen36 scan] layer-avg scanned rows / total, mass kept`.
 1. **Mechanical (CI, synthetic):** `Q36_SCAN=full` id-identity with today's
    binary (already true — the flag must be a no-op path); two-tier runs
    rc=0 + deterministic (two runs identical `DUMP_IDS`).
-2. **Salience self-check (CI, synthetic):** on a repeated-ngram prompt, the
-   ngram's blocks rank in the scan set (the mechanism tracks mass it sees).
+2. **Salience self-check — RECLASSIFIED (2026-10-22):** the synthetic ngram gate
+   CANNOT pass by construction, and the original negative is expected physics,
+   not a defect: (a) decode-time salience only reinforces blocks already in the
+   scan set (`salrow[srows[i]>>7] += …`) — discovery is prefill-seeded by
+   design; (b) on random weights repeated ngrams attract no attention (no
+   induction heads), so prefill seeding never ranks them. On real weights
+   induction heads attend to repeated ngrams, so the self-check moves to the
+   Phase 5 arm bundle unchanged; synthetic keeps determinism + ceiling gates.
 3. **Quality (Phase 5 arm, real weights):** wikitext-2 ppl of arm G with
    `Q36_SCAN=two-tier` vs `full` ≤ **+0.5% rel** (protocol band style;
    pre-registered here, measured there).
