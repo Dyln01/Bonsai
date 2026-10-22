@@ -163,15 +163,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       **measurement pending on the HDD mini-PC** (one command). Launcher default for
       `Q36_WIN_MB` stays 0 until then — sim budget floor: the window only beats static
       at cap ≥ ~2K neurons (≈2.1 GB on dense 27B frac 0.25), infeasible in 8 GB.
-- [~] **Phase 4c — cross-engine KV8/TQ ports:** contract pinned
-      (`docs/CROSS_ENGINE_KVQ.md`: qwen38 first, glm53 MLA latents second; per-engine
-      patchers + separate manifest section; bf24429 anchor-drift policy via CI build
-      proof). **Slices 1-2 shipped (2026-10-22):** build proof green; `patch_kv8_q38.py`
-      (KV8 tier for qwen38: byte-wide pools + scales, quantize-on-write, dequant-once-
-      per-selected-row in the QSA gather, prefix/serve refusals) with a CI compile
-      gate. Behavioral gates wait on slice 2a: the in-repo qwen38 generator emits the
-      qwen3_5 dialect, pinned qwen38 requires qwen4_exp_text + PLE/QSA config surface.
-      Slices 2a/2b/3 shipped (KV8 + KV_TQ/absorb ports, all gates green); slice 4 (glm53) open.
+- [x] **Phase 4c — cross-engine KV8/TQ ports CLOSED (2026-10-22).** qwen38: KV8 +
+      KV_TQ/absorb ports, gates green on a CI-sized qwen4_exp_text container (slices
+      1-3). glm53: dialect appendix B, synthetic container the stock engine runs first
+      try, latent-TQ port (`patch_kvq_glm53.py`) with TF-id gates: tq-off == stock,
+      tq-on self-deterministic, absorb 0v1 78/78 (slice 4). Three engines now share the
+      tier ladder; per-engine patchers + own backups; qwen36 chain untouched throughout.
+- [x] **Phase 4 CLOSED** — 4a predictor (negative, diagnosis corrected), 4b windowing
+      (cache + sim merged; slice-3 verdict awaits the HDD battery), 4c ports (qwen38 +
+      glm53). Tag `phase-4`.
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
