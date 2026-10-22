@@ -137,3 +137,50 @@ ple_dim/ngram_heads].
 
 **Optional:** vision only if
 `Q38_VISION=1` (set 0 in CI); MTP head only if the container carries it.
+
+## Appendix B — glm53 container spec (extracted from colibri bf24429 `glm53.c`)
+
+Checklist for slice 4 (generator + latent-TQ port). MLA engine: the KV cache
+holds **latent rows** (`kv_lora_rank` + `qk_rope_head_dim` floats), `kv_b_proj`
+is absorbed at load (`absorb_kvb`), so the TQ port target is the latent row —
+codec-on-latent is absorption-native by construction.
+
+**config.json (text_config or root), required:** `hidden_size`,
+`num_hidden_layers`, `vocab_size`, `intermediate_size`, `num_attention_heads`,
+`q_lora_rank`, `kv_lora_rank`, `qk_nope_head_dim`, `qk_rope_head_dim`,
+`v_head_dim`, `n_routed_experts`, `num_experts_per_tok`,
+`moe_intermediate_size`, `n_shared_experts`, `routed_scaling_factor`,
+`rms_norm_eps`, `swiglu_limit`, `num_nextn_predict_layers` (0 = no MTP block),
+`hc_mult`, `hc_sinkhorn_iters`, `hc_eps`, plus `linear_attn_config{}` with
+`num_heads`, `head_dim`, `short_conv_kernel_size`, `gate_lower_bound`,
+`index_topk`, `index_n_heads`, `index_head_dim`, `index_kpool`,
+`index_kpool_always_select_tail`; `layer_types` (per layer, contains
+"linear" or "attention"/"full"), `mlp_layer_types`, `first_k_dense_replace`,
+`sparse`. Vision: `vision_config` ABSENT = no vision tensors.
+
+**Prefix:** `model.language_model.` else `model.` (probed via embed name).
+**Head is TIED to the embedding** ("the embedding (and a head tied to it)") —
+no `lm_head` tensor. `enorm/eh_proj/e_proj`-style MTP tensors only when
+`num_nextn_predict_layers > 0`.
+
+**Every text layer:** `input_layernorm.weight`, `post_attention_layernorm.weight`,
+hyper-connection triplets `hc_attn_{base,fn,scale}` and `hc_ffn_{base,fn,scale}`
+(shapes from `hc_mult`; finalize at generator time), then per kind:
+- **MLA (full) layer:** `self_attn.{q_a_proj,q_b_proj}.weight`,
+  `self_attn.q_a_layernorm.weight`, `self_attn.kv_a_proj_with_mqa.weight`,
+  `self_attn.kv_a_layernorm.weight`, `self_attn.kv_b_proj.weight`,
+  `self_attn.o_proj.weight`, indexer: `self_attn.indexer.{wq_b,wk,weights_proj}.weight`,
+  `self_attn.indexer.k_norm.{weight,bias}`
+- **linear layer:** `self_attn.{f_a_proj,f_b_proj,b_proj}.weight`,
+  `self_attn.{A_log,dt_bias}` (conv naming finalize at generator time)
+- **MoE MLP:** `mlp.gate.weight`, `mlp.gate.e_score_correction_bias`,
+  `mlp.experts.<e>.{gate,up,down}_proj.weight` (int4-gs64 sidecar `.qs`
+  accepted), `mlp.shared_experts.{gate,up,down}_proj.weight` (plural)
+- **dense MLP (i < first_k_dense_replace):** `mlp.{gate,up,down}_proj.weight`
+
+**Slice-4 port target:** quantize the latent KV row (`kv_lora_rank +
+qk_rope_head_dim` floats, written post `kv_a_layernorm` + rope-split) with
+`coli_kvq_*`; MLA decode already dots queries against latents through the
+absorbed `kv_b` weights, so TQ-on-latent needs no query rotation — the
+absorb is the architecture. Gates mirror slice 3 (off-identity,
+self-determinism, prefill noise band) on a SYNTH_-sized glm53 container.
