@@ -163,6 +163,10 @@ jobs:
           make -C "$HOME/colibri/c" qwen38 glm53 -j"$(nproc)"
           ls -la "$HOME/colibri/c/qwen38" "$HOME/colibri/c/glm53"
           echo "sibling engines build with Bonsai headers overlaid (4c slice 1)"
+          cp "$HOME/colibri/c/qwen38" /tmp/qwen38.stock
+          python3 tools/patch_kv8_q38.py "$HOME/colibri/c"
+          make -C "$HOME/colibri/c" qwen38 -j"$(nproc)"
+          echo "patched qwen38 (KV8 tier) compiles clean (4c slice 2 compile gate)"
 
       - name: qwen38 small synth container (parameterized generator)
         run: |

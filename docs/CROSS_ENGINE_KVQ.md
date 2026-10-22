@@ -58,7 +58,19 @@ siblings get batteries only if their ports pass synthetic gates).
 
 ## Slices
 
-- [x] 1 — build proof + parameterized qwen38 generator (CI green, this commit)
-- [ ] 2 — `patch_kv8_q38.py` + gates
+- [x] 1 — build proof + parameterized qwen38 generator (CI green)
+- [x] 2 — `tools/patch_kv8_q38.py` (12 anchored edits over qwen38.c +
+      qwen38_core.h: knob, byte-wide pools + scales, quantize-on-write,
+      dequant-once-per-selected-row in the QSA gather, prefix/serve refusals)
+      + CI **compile gate** (stock build, patch, rebuild). Behavioral gates
+      blocked on 2a: the in-repo qwen38 generator emits the qwen3_5 dialect while
+      pinned qwen38 requires `qwen4_exp_text` (+ PLE/QSA config surface).
+- [ ] 2a — qwen38-dialect synthetic container: reverse-engineer the
+      qwen38_core.h parser (config: model_type/hidden_act/output_gate_type/
+      attention_bias/tie_word_embeddings/rope_parameters + PLE & QSA indexer
+      numerics + tensor naming incl. ple_* weights) and fix
+      `gen_qwen38_27b_f16.py` (SYNTH_-parameterized already).
+- [ ] 2b — behavioral gates: stock vs patched-KV8=0 `DUMP_IDS` identity;
+      KV8=1 vs 0 last-logit cosine ≥ 0.999; RSS delta = row-width math.
 - [ ] 3 — `patch_tq_q38.py` + absorb + gates
 - [ ] 4 — glm53 latent TQ + generator + gates
