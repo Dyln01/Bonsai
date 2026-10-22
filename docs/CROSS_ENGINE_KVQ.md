@@ -95,7 +95,7 @@ Checklist for slice 2a-2 (generator rewrite). `<P>` = `model` or
 `linear_value_head_dim`, `linear_conv_kernel_dim`,
 `ple_embed_dim` (def hidden), `ple_conv_kernel_size` (def 4), `ngram_size` (def 3),
 `heads_per_ngram` (def 8), `split_ngram_parts` (def 1),
-`ple_layer_ids` (ABSENT = no PLE tensors needed), `layer_types` (REQUIRED,
+`ple_layer_ids` (REQUIRED by the pinned engine: exactly one layer), `layer_types` (REQUIRED,
 one per layer: `full_attention`|`qwen_sparse_attention`|`linear_attention`).
 
 **Boundaries:** `<P>.embed_tokens.weight` [V,H] · `lm_head.weight` [V,H]
@@ -119,5 +119,13 @@ v_proj [KVH*HD,H], o_proj [H,QH*HD]}` · `self_attn.{q_norm,k_norm}.weight` [HD]
 in_proj_b [vh,H], in_proj_a [vh,H], conv1d.weight [conv_dim*convk], dt_bias [vh],
 A_log [vh], norm.weight [vdim], out_proj.weight [H,vd]}`.
 
-**Optional:** PLE tensors only if `ple_layer_ids` set; vision only if
+**PLE layer (the one named in `ple_layer_ids`):** `ple.key_proj.weight`
+[hc_width, ple_dim], `ple.value_proj.weight` [hidden, ple_dim],
+`ple.{norm_key,norm_query,norm_conv}.weight` [hc_width], `ple.conv1d.weight`
+[hc_width, ple_conv_kernel_size], `ple.ple_embedding.layer_multipliers` (I64,
+ngram_size), `ple.ple_embedding.ngram_heads_vocab_sizes` / `..._offsets` (I64,
+ngram_heads), `ple.ple_embedding.ngram_embedding.weight` [rows >= max(off+vocab),
+ple_dim/ngram_heads].
+
+**Optional:** vision only if
 `Q38_VISION=1` (set 0 in CI); MTP head only if the container carries it.

@@ -166,6 +166,7 @@ jobs:
           cp "$HOME/colibri/c/qwen38" /tmp/qwen38.stock
           python3 tools/patch_kv8_q38.py "$HOME/colibri/c"
           make -C "$HOME/colibri/c" qwen38 -j"$(nproc)"
+          cp "$HOME/colibri/c/qwen38" /tmp/qwen38.kv8
           echo "patched qwen38 (KV8 tier) compiles clean (4c slice 2 compile gate)"
 
       - name: qwen38 small synth container (parameterized generator)
@@ -175,6 +176,22 @@ jobs:
           SYNTH_V=4096 SYNTH_QH=4 SYNTH_KVH=2 SYNTH_HD=64 \
           python3 scripts/gen_qwen38_27b_f16.py
           du -sh "$HOME/synth_models/synth_q38_ci"
+          python3 scripts/make_tokenizer.py "$HOME/synth_models/synth_q38_ci/tokenizer.json" 4095
+
+      - name: qwen38 gates (2a-2 load smoke + 2b KV8 identity/cosine)
+        run: |
+          set -e
+          S="$HOME/synth_models/synth_q38_ci"
+          SNAP="$S" Q38_VISION=0 N_NEW=10 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 \
+            DUMP_IDS=/tmp/ids_q38_stock.txt timeout 600 /tmp/qwen38.stock 8 2 /tmp/p.txt > /dev/null 2> /tmp/q38_stock.err || { tail -15 /tmp/q38_stock.err; exit 1; }
+          echo "stock qwen38 loads + runs the qwen4_exp_text synth container"
+          SNAP="$S" Q38_VISION=0 N_NEW=10 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 \
+            DUMP_IDS=/tmp/ids_q38_kv0.txt DUMP=/tmp/l_q38_kv0.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
+          SNAP="$S" Q38_VISION=0 N_NEW=10 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 KV8=1 \
+            DUMP_IDS=/tmp/ids_q38_kv1.txt DUMP=/tmp/l_q38_kv1.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
+          cmp /tmp/ids_q38_stock.txt /tmp/ids_q38_kv0.txt
+          echo "KV8=0 patched qwen38 == stock qwen38 (byte-inert knob)"
+          python3 -c "import numpy as np; a=np.fromfile('/tmp/l_q38_kv0.bin',np.float32); b=np.fromfile('/tmp/l_q38_kv1.bin',np.float32); c=float(a@b/(np.linalg.norm(a)*np.linalg.norm(b))); print('qwen38 KV8-on cosine', round(c,6)); assert c>0.999"
 
       - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
         run: |
