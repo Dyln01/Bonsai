@@ -4193,7 +4193,108 @@ static void q36_down_prefix(const QW *dw, float *dst, const float *g, int D, int
     }
 }
 
-static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
+/* ---- Phase 4b: resident neuron-row window (byte-identical packed copies) ---- */
+typedef struct Q36Win {
+    int cap, tab, head, n;             /* FIFO slots, open-address table (pow2), fill */
+    int *idx;                          /* slot -> neuron index (-1 empty) */
+    int *slot_of;                      /* table: neuron -> slot (-1 empty) */
+    uint8_t **grow, **urow, **dcol;    /* slot -> packed bytes (gate row, up row, down col) */
+    float *gsc, *usc;                  /* slot -> row scale copies */
+    int64_t rowb, dcolb;               /* packed bytes per gate/up row and per down column */
+} Q36Win;
+
+static int q36_win_tab_find(const Q36Win *w, int o) {
+    unsigned h = (unsigned)o * 2654435761u;
+    int i = (int)(h & (unsigned)(w->tab - 1));
+    for (int probe = 0; probe < w->tab; probe++) {
+        int s = w->slot_of[i];
+        if (s < 0) return -1;
+        if (w->idx[s] == o) return s;
+        i = (i + 1) & (w->tab - 1);
+    }
+    return -1;
+}
+
+static void q36_win_tab_put(Q36Win *w, int o, int slot) {
+    unsigned h = (unsigned)o * 2654435761u;
+    int i = (int)(h & (unsigned)(w->tab - 1));
+    for (int probe = 0; probe < w->tab; probe++) {
+        int s = w->slot_of[i];
+        if (s < 0 || w->idx[s] == o) { w->slot_of[i] = slot; return; }
+        i = (i + 1) & (w->tab - 1);
+    }
+}
+
+static void q36_win_ensure(Model *m, Layer *l, int D, int I) {
+    if (l->win || g_q36_win_mb <= 0) return;
+    if (!l->sh_g.map || l->sh_g.map_len != (int64_t)D * I / 2) return;   /* int4-mapped dialect only */
+    if (!l->sh_d.map || l->sh_d.map_len != (int64_t)D * I / 2) return;
+    int n_mlp = 0;
+    for (int i = 0; i < m->c.n_layers; i++)
+        if (m->L[i].sh_g.map && m->L[i].sh_g.map_len == (int64_t)D * I / 2) n_mlp++;
+    if (n_mlp < 1) return;
+    int64_t per = (int64_t)(D / 2) * 2 + (int64_t)(D / 2);                /* gate+up rows + down col */
+    int64_t cap = ((int64_t)g_q36_win_mb * 1024 * 1024 / n_mlp) / (per + 16);
+    if (cap < 64) return;
+    Q36Win *w = calloc(1, sizeof *w);
+    int tab = 64; while (tab < cap * 2) tab <<= 1;
+    w->cap = (int)cap; w->tab = tab; w->rowb = D / 2; w->dcolb = D / 2;
+    w->idx = malloc((size_t)cap * sizeof(int));
+    w->slot_of = malloc((size_t)tab * sizeof(int));
+    w->grow = calloc((size_t)cap, sizeof(uint8_t *));
+    w->urow = calloc((size_t)cap, sizeof(uint8_t *));
+    w->dcol = calloc((size_t)cap, sizeof(uint8_t *));
+    w->gsc = malloc((size_t)cap * sizeof(float));
+    w->usc = malloc((size_t)cap * sizeof(float));
+    if (!w->idx || !w->slot_of || !w->grow || !w->urow || !w->dcol || !w->gsc || !w->usc) { free(w); return; }
+    for (int i = 0; i < cap; i++) w->idx[i] = -1;
+    for (int i = 0; i < tab; i++) w->slot_of[i] = -1;
+    for (int i = 0; i < cap; i++) {
+        w->grow[i] = malloc((size_t)(D / 2)); w->urow[i] = malloc((size_t)(D / 2)); w->dcol[i] = malloc((size_t)(D / 2));
+        if (!w->grow[i] || !w->urow[i] || !w->dcol[i]) { free(w); l->win = NULL; return; }
+    }
+    l->win = w;
+}
+
+static int q36_win_lookup(Model *m, Layer *l, int o) {
+    if (!l->win) return -1;
+    int s = q36_win_tab_find(l->win, o);
+    if (s >= 0) g_win_hit++; else g_win_miss++;
+    return s;
+}
+
+static void q36_win_insert(Model *m, Layer *l, int o, int D, int I) {
+    Q36Win *w = l->win;
+    if (!w || q36_win_tab_find(w, o) >= 0) return;
+    int s = w->head; w->head = (w->head + 1) % w->cap;
+    if (w->idx[s] >= 0) {   /* evict: drop its table entry */
+        unsigned h = (unsigned)w->idx[s] * 2654435761u;
+        int i = (int)(h & (unsigned)(w->tab - 1));
+        for (int probe = 0; probe < w->tab; probe++) {
+            if (w->slot_of[i] == s) { w->slot_of[i] = -1; break; }
+            i = (i + 1) & (w->tab - 1);
+        }
+    }
+    const uint8_t *gm = (const uint8_t *)l->sh_g.map, *um = (const uint8_t *)l->sh_u.map, *dm = (const uint8_t *)l->sh_d.map;
+    memcpy(w->grow[s], gm + (int64_t)o * w->rowb, (size_t)w->rowb);
+    memcpy(w->urow[s], um + (int64_t)o * w->rowb, (size_t)w->rowb);
+    for (int d = 0; d < D; d += 2) {   /* down column o: nibbles (d,o) for all d, packed pair-wise */
+        w->dcol[s][d / 2] = 0;         /* filled below, nibble at a time */
+    }
+    for (int d = 0; d < D; d++) {
+        uint8_t b = dm[(int64_t)d * (I / 2) + (o >> 1)];
+        int nib = (o & 1) ? (b >> 4) & 0xF : b & 0xF;
+        if (d & 1) w->dcol[s][d / 2] |= (uint8_t)(nib << 4);
+        else       w->dcol[s][d / 2] |= (uint8_t)nib;
+    }
+    w->gsc[s] = l->sh_g.sc ? l->sh_g.sc[o] : 1.0f;
+    w->usc[s] = l->sh_u.sc ? l->sh_u.sc[o] : 1.0f;
+    w->idx[s] = o;
+    q36_win_tab_put(w, o, s);
+    if (w->n < w->cap) w->n++;
+}
+
+static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
                                     float *out, float *g, float *u, float *hh) {
     Cfg *c=&m->c; int D=c->hidden, I=c->shared_inter;
     if (I <= 0) return;   /* no shared expert (qwen3_moe) */
@@ -4211,7 +4312,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
     if (gs && gs->k > 0 && gs->k < I && S == 1) {
         /* gather-selected neurons: compute gate/up rows gs->idx[0..k), combine,
          * then down over the same original indices. */
-        q36_win_ensure(m, l, layer, D, I);
+        q36_win_ensure(m, l, D, I);
         int K = gs->k;
         const int *ix = gs->idx;
         float *gg = g, *uu = u;
@@ -4681,107 +4782,6 @@ static void moe_vk_run(Model *m, Layer *l, int layer, const float *x, int S, flo
  * so `out` gets the routed experts' rank-order sum alone (the Vulkan dense chain runs
  * the router and the shared expert on the device and adds them there). moe() is
  * moe_ex(..., NULL, 0): the same operations in the same order as before. */
-/* ---- Phase 4b: resident neuron-row window (byte-identical packed copies) ---- */
-typedef struct Q36Win {
-    int cap, tab, head, n;             /* FIFO slots, open-address table (pow2), fill */
-    int *idx;                          /* slot -> neuron index (-1 empty) */
-    int *slot_of;                      /* table: neuron -> slot (-1 empty) */
-    uint8_t **grow, **urow, **dcol;    /* slot -> packed bytes (gate row, up row, down col) */
-    float *gsc, *usc;                  /* slot -> row scale copies */
-    int64_t rowb, dcolb;               /* packed bytes per gate/up row and per down column */
-} Q36Win;
-
-static int q36_win_tab_find(const Q36Win *w, int o) {
-    unsigned h = (unsigned)o * 2654435761u;
-    int i = (int)(h & (unsigned)(w->tab - 1));
-    for (int probe = 0; probe < w->tab; probe++) {
-        int s = w->slot_of[i];
-        if (s < 0) return -1;
-        if (w->idx[s] == o) return s;
-        i = (i + 1) & (w->tab - 1);
-    }
-    return -1;
-}
-
-static void q36_win_tab_put(Q36Win *w, int o, int slot) {
-    unsigned h = (unsigned)o * 2654435761u;
-    int i = (int)(h & (unsigned)(w->tab - 1));
-    for (int probe = 0; probe < w->tab; probe++) {
-        int s = w->slot_of[i];
-        if (s < 0 || w->idx[s] == o) { w->slot_of[i] = slot; return; }
-        i = (i + 1) & (w->tab - 1);
-    }
-}
-
-static void q36_win_ensure(Model *m, Layer *l, int layer, int D, int I) {
-    if (l->win || g_q36_win_mb <= 0) return;
-    if (!l->sh_g.map || l->sh_g.map_len != (int64_t)D * I / 2) return;   /* int4-mapped dialect only */
-    if (!l->sh_d.map || l->sh_d.map_len != (int64_t)D * I / 2) return;
-    int n_mlp = 0;
-    for (int i = 0; i < m->c.n_layers; i++)
-        if (m->L[i].sh_g.map && m->L[i].sh_g.map_len == (int64_t)D * I / 2) n_mlp++;
-    if (n_mlp < 1) return;
-    int64_t per = (int64_t)(D / 2) * 2 + (int64_t)(D / 2);                /* gate+up rows + down col */
-    int64_t cap = ((int64_t)g_q36_win_mb * 1024 * 1024 / n_mlp) / (per + 16);
-    if (cap < 64) return;
-    Q36Win *w = calloc(1, sizeof *w);
-    int tab = 64; while (tab < cap * 2) tab <<= 1;
-    w->cap = (int)cap; w->tab = tab; w->rowb = D / 2; w->dcolb = D / 2;
-    w->idx = malloc((size_t)cap * sizeof(int));
-    w->slot_of = malloc((size_t)tab * sizeof(int));
-    w->grow = calloc((size_t)cap, sizeof(uint8_t *));
-    w->urow = calloc((size_t)cap, sizeof(uint8_t *));
-    w->dcol = calloc((size_t)cap, sizeof(uint8_t *));
-    w->gsc = malloc((size_t)cap * sizeof(float));
-    w->usc = malloc((size_t)cap * sizeof(float));
-    if (!w->idx || !w->slot_of || !w->grow || !w->urow || !w->dcol || !w->gsc || !w->usc) { free(w); return; }
-    for (int i = 0; i < cap; i++) w->idx[i] = -1;
-    for (int i = 0; i < tab; i++) w->slot_of[i] = -1;
-    for (int i = 0; i < cap; i++) {
-        w->grow[i] = malloc((size_t)(D / 2)); w->urow[i] = malloc((size_t)(D / 2)); w->dcol[i] = malloc((size_t)(D / 2));
-        if (!w->grow[i] || !w->urow[i] || !w->dcol[i]) { free(w); l->win = NULL; return; }
-    }
-    l->win = w;
-}
-
-static int q36_win_lookup(Model *m, Layer *l, int o) {
-    if (!l->win) return -1;
-    int s = q36_win_tab_find(l->win, o);
-    if (s >= 0) g_win_hit++; else g_win_miss++;
-    return s;
-}
-
-static void q36_win_insert(Model *m, Layer *l, int o, int D, int I) {
-    Q36Win *w = l->win;
-    if (!w || q36_win_tab_find(w, o) >= 0) return;
-    int s = w->head; w->head = (w->head + 1) % w->cap;
-    if (w->idx[s] >= 0) {   /* evict: drop its table entry */
-        unsigned h = (unsigned)w->idx[s] * 2654435761u;
-        int i = (int)(h & (unsigned)(w->tab - 1));
-        for (int probe = 0; probe < w->tab; probe++) {
-            if (w->slot_of[i] == s) { w->slot_of[i] = -1; break; }
-            i = (i + 1) & (w->tab - 1);
-        }
-    }
-    const uint8_t *gm = (const uint8_t *)l->sh_g.map, *um = (const uint8_t *)l->sh_u.map, *dm = (const uint8_t *)l->sh_d.map;
-    memcpy(w->grow[s], gm + (int64_t)o * w->rowb, (size_t)w->rowb);
-    memcpy(w->urow[s], um + (int64_t)o * w->rowb, (size_t)w->rowb);
-    for (int d = 0; d < D; d += 2) {   /* down column o: nibbles (d,o) for all d, packed pair-wise */
-        w->dcol[s][d / 2] = 0;         /* filled below, nibble at a time */
-    }
-    for (int d = 0; d < D; d++) {
-        uint8_t b = dm[(int64_t)d * (I / 2) + (o >> 1)];
-        int nib = (o & 1) ? (b >> 4) & 0xF : b & 0xF;
-        if (d & 1) w->dcol[s][d / 2] |= (uint8_t)(nib << 4);
-        else       w->dcol[s][d / 2] |= (uint8_t)nib;
-    }
-    w->gsc[s] = l->sh_g.sc ? l->sh_g.sc[o] : 1.0f;
-    w->usc[s] = l->sh_u.sc ? l->sh_u.sc[o] : 1.0f;
-    w->idx[s] = o;
-    q36_win_tab_put(w, o, s);
-    if (w->n < w->cap) w->n++;
-}
-
 static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
                    const float *logits_in, int routed_only) {
     Cfg *c = &m->c; int D = c->hidden, E = c->n_experts, K = c->topk, I = c->inter;

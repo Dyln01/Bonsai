@@ -49,7 +49,7 @@ edit("""    { const char *tv = getenv("Q36_TRUNK_STREAM"); if (tv && *tv) g_q36_
 """)
 
 # 2. window machinery, before moe_ex
-edit("""static void moe_ex(Model *m, Layer *l, int layer, float *x, int S, float *out,
+edit("""static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
 """,
      """/* ---- Phase 4b: resident neuron-row window (byte-identical packed copies) ---- */
 typedef struct Q36Win {
@@ -83,7 +83,7 @@ static void q36_win_tab_put(Q36Win *w, int o, int slot) {
     }
 }
 
-static void q36_win_ensure(Model *m, Layer *l, int layer, int D, int I) {
+static void q36_win_ensure(Model *m, Layer *l, int D, int I) {
     if (l->win || g_q36_win_mb <= 0) return;
     if (!l->sh_g.map || l->sh_g.map_len != (int64_t)D * I / 2) return;   /* int4-mapped dialect only */
     if (!l->sh_d.map || l->sh_d.map_len != (int64_t)D * I / 2) return;
@@ -211,7 +211,7 @@ edit("""        /* gather-selected neurons: compute gate/up rows gs->idx[0..k), 
 """,
      """        /* gather-selected neurons: compute gate/up rows gs->idx[0..k), combine,
          * then down over the same original indices. */
-        q36_win_ensure(m, l, layer, D, I);
+        q36_win_ensure(m, l, D, I);
         int K = gs->k;
 """)
 
