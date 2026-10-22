@@ -278,7 +278,18 @@ edit("""                        if (e & 8) e -= 16;
             } else if (dw->map) {
 """)
 
-# 5. report line at end of generate
+# 5. dense Griffin observe (GRIFFIN on dense containers was inert: observe only
+#    ran in the MoE expert path, so gs was never built and the gather/window
+#    unreachable on dense — this also reopens 4a's constant-set negative)
+edit("""            if(!qtd(l->qth_shg,g,xs,D,I)) matmul_d(g,xs,&l->sh_g,1,D,I);
+            if(!qtd(l->qth_shu,u,xs,D,I)) matmul_d(u,xs,&l->sh_u,1,D,I);
+""",
+     """            if(!qtd(l->qth_shg,g,xs,D,I)) matmul_d(g,xs,&l->sh_g,1,D,I);
+            if(!qtd(l->qth_shu,u,xs,D,I)) matmul_d(u,xs,&l->sh_u,1,D,I);
+            if (S > 1) q36_griff_observe((int)(l - m->L), g, 1, I, I);   /* Phase 4b: dense GRIFFIN */
+""")
+
+# 6. report line at end of generate
 edit("""    q36_spec_end(m, sp);
 """,
      """    if (g_q36_win_mb > 0)

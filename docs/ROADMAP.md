@@ -140,8 +140,17 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       pre-registered gates (offline sim on 4a dumps → CI id-identity → /proc/io
       read-bytes cut on the mini-PC → Phase 5 ppl neutrality), three implementation
       slices scoped.
-- [ ] **Phase 4b implementation:** slices 1-3 per the contract (engine patch
-      `patch_window.py` + sim script + I/O gate/battery arms).
+- [x] **Phase 4b slice 1 (2026-10-22, `win`):** `patch_window.py` window cache +
+      **dense GRIFFIN observe fix** found while gating it: `q36_griff_observe` ran only in
+      the MoE expert path, so on dense containers GRIFFIN never built a set, `gs` stayed
+      NULL, and the gather path (hence the window) was unreachable — the README's
+      "GRIFFIN adapts per-prompt on unmodified containers" was silently a static-prefix
+      fallback on dense. Observe now runs on the dense gate activations (prefill rows).
+- [ ] **Phase 4a RE-RUN:** the "per-token top-K constant" negative was measured with
+      inert dense GRIFFIN — after the observe fix the sets may vary; rerun
+      `scripts/exp_predictor_q36.py` + the window sim on fresh dumps before trusting 4a's
+      conclusion or the window's synthetic hit-rate curves.
+- [ ] **Phase 4b implementation:** slices 2-3 per the contract (sim script + I/O gate/battery arms).
 - [ ] **Phase 4c:** cross-engine KV8/TQ ports (GLM/qwen38) with
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on

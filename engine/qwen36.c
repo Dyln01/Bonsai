@@ -4478,6 +4478,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
             const float *xs=x+(int64_t)s*D;
             if(!qtd(l->qth_shg,g,xs,D,I)) matmul_d(g,xs,&l->sh_g,1,D,I);
             if(!qtd(l->qth_shu,u,xs,D,I)) matmul_d(u,xs,&l->sh_u,1,D,I);
+            if (S > 1) q36_griff_observe((int)(l - m->L), g, 1, I, I);   /* Phase 4b: dense GRIFFIN */
             for(int i=0;i<I;i++){float sv=g[i];g[i]=(sv/(1.f+expf(-sv)))*u[i];}
             { int _li = (int)(l - m->L); q36_hot_acc_add(_li, g, u, I); }
             { int _li2 = (int)(l - m->L); q36_tok_dump(_li2, xs, g, D, I); }
