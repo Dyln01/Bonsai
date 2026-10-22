@@ -38,7 +38,8 @@ and pins move only by explicit commit.
 1. **Slice 1 (this commit):** `make qwen38 glm53` green in CI with Bonsai
    headers overlaid; `gen_qwen38_27b_f16.py` SYNTH_-parameterized small
    container generated in CI. No tier code yet.
-2. **Slice 2 (qwen38 KV8):** codec parity unchanged; kv8-off last-logits
+2. **Slice 3 (qwen38 KV_TQ + absorb): shipped, gates as above.**
+- **Slice 2 (qwen38 KV8):** codec parity unchanged; kv8-off last-logits
    byte-identical to stock qwen38; kv8-on self-deterministic across runs;
    kv8-on vs off **prefill-only** cosine ≥ 0.95 (e4m3 noise band on synthetic
    random nets — a first 0.999 attempt was a gate-design error: decode on a
@@ -76,7 +77,10 @@ siblings get batteries only if their ports pass synthetic gates).
       `gen_qwen38_27b_f16.py` (SYNTH_-parameterized already).
 - [ ] 2b — behavioral gates: stock vs patched-KV8=0 `DUMP_IDS` identity;
       KV8=1 vs 0 last-logit cosine ≥ 0.999; RSS delta = row-width math.
-- [ ] 3 — `patch_tq_q38.py` + absorb + gates
+- [x] 3 — `patch_tq_q38.py` (KV_TQ tiers + absorbed rotation on qwen38):
+      CI gates green — absorb 0-vs-1 cosine **1.0** (prefill and full), absorb1
+      self-deterministic byte-identical, tq-on-vs-off prefill cosine 0.91 inside the
+      Lloyd-Max band (>=0.85 pre-registered). Serve/mux refused under KV_TQ as under KV8.
 - [ ] 4 — glm53 latent TQ + generator + gates
 
 ## Appendix A — qwen38 container spec (extracted from colibri bf24429 `qwen38_core.h`)

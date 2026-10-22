@@ -171,7 +171,7 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       per-selected-row in the QSA gather, prefix/serve refusals) with a CI compile
       gate. Behavioral gates wait on slice 2a: the in-repo qwen38 generator emits the
       qwen3_5 dialect, pinned qwen38 requires qwen4_exp_text + PLE/QSA config surface.
-      Slices 2a/2b/3/4 open.
+      Slices 2a/2b/3 shipped (KV8 + KV_TQ/absorb ports, all gates green); slice 4 (glm53) open.
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
