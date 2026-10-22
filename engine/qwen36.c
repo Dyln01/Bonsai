@@ -6770,6 +6770,7 @@ static void generate(Model *m, const int *prompt, int np, int n_new, int *out) {
     m->kv_len = 0;
     for (int i = 0; i < np; i++) out[i] = prompt[i];
     float *logit = step(m, prompt, np, 0);
+    q36_griff_finalize_all(q36_hot_frac());   /* Phase 4b: per-prompt sets before decode */
     qt_stats_mark();   /* [qtier] stats also report the hit rate from here on */
     int len = np;
     Q36Spec *sp = &g_q36_run_spec;

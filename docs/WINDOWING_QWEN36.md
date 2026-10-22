@@ -1,6 +1,10 @@
 # Neuron window cache (Phase 4b) — design contract
 
-**Date:** 2026-10-20 · status: **slice 1 shipped (2026-10-22, `main`)** — slices 2-3 open
+**Date:** 2026-10-20 · status: **slice 1 on `win`, gating** — slices 2-3 open.
+**Finding (slice 1):** GRIFFIN was dead code engine-wide — `q36_griff_finalize_all`
+ran only after generation ended, so no decode or serve turn ever consumed a
+Griffin set (this is why Phase 4a measured GRIFFIN == static coverage). Slice 1
+finalizes at prefill end; 4a's constant-set negative must be re-run afterwards.
 **Predecessor:** Phase 4a (`docs/PREDICTOR_QWEN36.md`) measured the per-token
 top-K neuron sets on synthetic weights and found them **constant** (norm-driven,
 content-independent): the Deja-Vu predictor premise is absent there by

@@ -325,7 +325,17 @@ edit("""                matmul_d(bg, x + (int64_t)base*D, &ng, rows, D, Ik);
                 if (S > 1) q36_griff_observe_w((int)(l - m->L), bg, rows, Ik, Ik, I);   /* Phase 4b: dense GRIFFIN */
 """)
 
-# 8. report line at end of generate
+# 8. GRIFFIN was dead code engine-wide: finalize_all ran only at the END of
+#    main (after generation), so no decode/serve turn ever saw a Griffin set.
+#    Finalize at prefill end instead — per-prompt sets become real, and the
+#    gather path (hence the window) finally runs.
+edit("""    float *logit = step(m, prompt, np, 0);
+""",
+     """    float *logit = step(m, prompt, np, 0);
+    q36_griff_finalize_all(q36_hot_frac());   /* Phase 4b: per-prompt sets before decode */
+""")
+
+# 9. report line at end of generate
 edit("""    q36_spec_end(m, sp);
 """,
      """    if (g_q36_win_mb > 0)
