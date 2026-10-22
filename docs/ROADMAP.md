@@ -156,9 +156,11 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       `results/results_window_sim_q36.json`; CI replays it per push. Side finding:
       per-token sets DO vary on synthetic once GRIFFIN is alive (jacc 0.17) — 4a's
       constant-set negative was an inert-GRIFFIN artifact; predictor re-run queued.
-- [ ] **Phase 4b slice 3:** `/proc/io` read-bytes gate + window×GRIFFIN battery arms
-      on the HDD mini-PC (the value case), then launcher default policy for
-      Q36_WIN_MB on rotational media.
+- [~] **Phase 4b slice 3:** battery arms W0/W256/W1G (GRIFFIN × window) + per-arm
+      `File system inputs` read-byte accounting shipped in `run_battery.sh`;
+      **measurement pending on the HDD mini-PC** (one command). Launcher default for
+      `Q36_WIN_MB` stays 0 until then — sim budget floor: the window only beats static
+      at cap ≥ ~2K neurons (≈2.1 GB on dense 27B frac 0.25), infeasible in 8 GB.
 - [ ] **Phase 4c:** cross-engine KV8/TQ ports (GLM/qwen38) with
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
