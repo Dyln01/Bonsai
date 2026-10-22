@@ -170,6 +170,33 @@ static void q36_tok_dump(int layer, const float *x, const float *en, int D, int 
     fwrite(ci, sizeof(uint32_t), (size_t)K, tf[layer]);
     fwrite(ce, sizeof(float), (size_t)K, tf[layer]);
 }
+/* Phase 4b slice 2: same record format, energies over the hot prefix only
+ * (width < I); prefix indices are original indices, so downstream sim/predictor
+ * scripts need no changes. Separate FILE* table: both writers append. */
+static void q36_tok_dump_w(int layer, const float *x, const float *en, int width, int I, int D) {
+    static FILE *tfw[512];
+    static float cew[Q36_TOK_MAXI]; static uint32_t ciw[Q36_TOK_MAXI];
+    if (!g_tok_dump_path[0]) return;
+    if (layer < 0 || layer >= 512 || I <= 0 || width <= 0 || width > Q36_TOK_MAXI) return;
+    int K = g_tok_dump_k < width ? g_tok_dump_k : width;
+    int n = 0;
+    for (int i = 0; i < width; i++) {
+        float e = en[i];
+        if (n < K || e > cew[K-1]) {
+            int j = n < K ? n++ : K-1;
+            while (j > 0 && cew[j-1] < e) { cew[j] = cew[j-1]; ciw[j] = ciw[j-1]; j--; }
+            cew[j] = e; ciw[j] = (uint32_t)i;
+        }
+    }
+    if (!tfw[layer]) {
+        char pth[1200]; snprintf(pth, sizeof pth, "%s_L%d.bin", g_tok_dump_path, layer);
+        tfw[layer] = fopen(pth, "ab");
+        if (!tfw[layer]) { fprintf(stderr, "[tok-dump] cannot open: %s", pth); g_tok_dump_path[0] = 0; return; }
+    }
+    fwrite(x, sizeof(float), (size_t)D, tfw[layer]);
+    fwrite(ciw, sizeof(uint32_t), (size_t)K, tfw[layer]);
+    fwrite(cew, sizeof(float), (size_t)K, tfw[layer]);
+}
 static void q36_hot_acc_add(int layer, const float *g, const float *u, int n) {
     if (!g_hot_profile_path[0]) return;
     if (layer >= g_hot_acc_n) {
@@ -4474,6 +4501,8 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
                 matmul_d(bg, x + (int64_t)base*D, &ng, rows, D, Ik);
                 matmul_d(bu, x + (int64_t)base*D, &nu, rows, D, Ik);
                 if (S > 1) q36_griff_observe_w((int)(l - m->L), bg, rows, Ik, Ik, I);   /* Phase 4b: dense GRIFFIN */
+                if (S > 1) for (int s2 = 0; s2 < rows; s2++)
+                    q36_tok_dump_w((int)(l - m->L), x + (int64_t)(base + s2) * D, bg + (int64_t)s2 * Ik, Ik, I, D);
                 for (int64_t q = 0; q < (int64_t)rows*Ik; q++) {
                     float sv = bg[q]; bg[q] = (sv/(1.f+expf(-sv)))*bu[q];
                 }

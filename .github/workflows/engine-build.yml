@@ -157,6 +157,24 @@ jobs:
           cmp /tmp/ids_win.txt /tmp/ids_nowin.txt
           echo "window on/off: id sequences identical (byte-identical copies by construction)"
 
+      - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
+        run: |
+          set -e
+          rm -f /tmp/tokd_stud_L*.bin
+          SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=8 \
+          COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+          HOT_FRAC=0.5 GRIFFIN=1 Q36_PROFILE_TOK=/tmp/tokd_stud Q36_PROFILE_TOK_K=64 \
+          timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2>&1
+          python3 scripts/exp_window_sim.py "$HOME/synth_models/student_1b_i4" /tmp/tokd_stud /tmp/win_sim_ci.json --caps=432,864,1728
+          python3 - <<'PY'
+          import json
+          d = json.load(open("/tmp/win_sim_ci.json"))
+          m = d["mean_hitrate_by_cap"]
+          k = str(max(int(x) for x in m))
+          assert m[k]["fifo"] >= 0.8, m
+          print("sim gate OK at cap", k, ":", m[k])
+          PY
+
       - name: trunk-stream mode identity (HOT_PROFILE auto-on, DONTNEED streaming)
         run: |
           set -e

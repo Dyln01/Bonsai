@@ -150,7 +150,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       inert dense GRIFFIN — after the observe fix the sets may vary; rerun
       `scripts/exp_predictor_q36.py` + the window sim on fresh dumps before trusting 4a's
       conclusion or the window's synthetic hit-rate curves.
-- [ ] **Phase 4b implementation:** slices 2-3 per the contract (sim script + I/O gate/battery arms).
+- [x] **Phase 4b slice 2 (sim):** `scripts/exp_window_sim.py` + `patch_tokdump_w.py`
+      (dumps went silent once gather went live — the writer only sat in the per-row
+      fallback; narrowed-width writer keeps record format). Synthetic curve in
+      `results/results_window_sim_q36.json`; CI replays it per push. Side finding:
+      per-token sets DO vary on synthetic once GRIFFIN is alive (jacc 0.17) — 4a's
+      constant-set negative was an inert-GRIFFIN artifact; predictor re-run queued.
+- [ ] **Phase 4b slice 3:** `/proc/io` read-bytes gate + window×GRIFFIN battery arms
+      on the HDD mini-PC (the value case), then launcher default policy for
+      Q36_WIN_MB on rotational media.
 - [ ] **Phase 4c:** cross-engine KV8/TQ ports (GLM/qwen38) with
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on

@@ -53,7 +53,7 @@ makes *active* rows resident (no reads at all). They compose: sorted container
    measured per-token sets. On synthetic this validates bookkeeping only
    (constant sets ⇒ 100% after warm) — the curve that matters runs on real
    weights in Phase 5 with the same script.
-2. **CI mechanical:** `Q36_WIN_MB=256` vs `0` on student + synth_qwen27:
+2. **CI mechanical (PASSING on `sim` branch):** `Q36_WIN_MB=64` vs `0` on student:
    `DUMP_IDS` identical; `[win]` line present with sane counters.
 3. **I/O evidence (mini-PC, HDD):** `exp_window_q36.py` reads
    `/proc/<pid>/io` read-bytes and decode ms/tok for GRIFFIN on/off × window
