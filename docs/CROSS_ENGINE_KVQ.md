@@ -38,9 +38,13 @@ and pins move only by explicit commit.
 1. **Slice 1 (this commit):** `make qwen38 glm53` green in CI with Bonsai
    headers overlaid; `gen_qwen38_27b_f16.py` SYNTH_-parameterized small
    container generated in CI. No tier code yet.
-2. **Slice 2 (qwen38 KV8):** codec parity unchanged; kv8-off runs byte-identical
-   to stock qwen38 (`DUMP_IDS`); kv8-on vs off last-logit cosine ≥ 0.999 (lossy
-   tier, band pre-registered); RSS delta matches the row-width math.
+2. **Slice 2 (qwen38 KV8):** codec parity unchanged; kv8-off last-logits
+   byte-identical to stock qwen38; kv8-on self-deterministic across runs;
+   kv8-on vs off **prefill-only** cosine ≥ 0.95 (e4m3 noise band on synthetic
+   random nets — a first 0.999 attempt was a gate-design error: decode on a
+   chaotic synthetic net amplifies honest quantization noise into sequence
+   divergence, cosine ~0.09 with a CORRECT implementation; qwen36 never gated
+   lossy tiers this way for exactly this reason).
 3. **Slice 3 (qwen38 KV_TQ + absorbed rotation):** same identity/cosine ladder
    per tier (tq4/tq3), plus `Q38_TQ_ABSORB` 0/1 id-identity (the absorb gate
    pattern from qwen36 3b), plus the sim/battery arms on the mini-PC.

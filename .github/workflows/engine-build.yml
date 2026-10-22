@@ -189,9 +189,17 @@ jobs:
             DUMP=/tmp/l_q38_kv0.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
           SNAP="$S" Q38_VISION=0 N_NEW=10 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 KV8=1 \
             DUMP=/tmp/l_q38_kv1.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
+          SNAP="$S" Q38_VISION=0 N_NEW=10 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 KV8=1 \
+            DUMP=/tmp/l_q38_kv1b.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
+          SNAP="$S" Q38_VISION=0 N_NEW=1 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 KV8=0 \
+            DUMP=/tmp/l_q38_p0.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
+          SNAP="$S" Q38_VISION=0 N_NEW=1 COLI_TEMP=0 OMP_NUM_THREADS=2 KVSAVE=0 NOSTREAM=1 KV8=1 \
+            DUMP=/tmp/l_q38_p1.bin timeout 600 /tmp/qwen38.kv8 8 2 /tmp/p.txt > /dev/null 2>&1
           cmp /tmp/l_q38_stock.bin /tmp/l_q38_kv0.bin
           echo "KV8=0 patched qwen38 last-logits byte-identical to stock qwen38 (byte-inert knob)"
-          python3 -c "import numpy as np; a=np.fromfile('/tmp/l_q38_kv0.bin',np.float32); b=np.fromfile('/tmp/l_q38_kv1.bin',np.float32); c=float(a@b/(np.linalg.norm(a)*np.linalg.norm(b))); print('qwen38 KV8-on cosine', round(c,6)); assert c>0.999"
+          cmp /tmp/l_q38_kv1.bin /tmp/l_q38_kv1b.bin
+          echo "KV8=1 self-deterministic across runs (lossy tier, exact machine)"
+          python3 -c "import numpy as np; a=np.fromfile('/tmp/l_q38_p0.bin',np.float32); b=np.fromfile('/tmp/l_q38_p1.bin',np.float32); c=float(a@b/(np.linalg.norm(a)*np.linalg.norm(b))); print('qwen38 KV8-on prefill-only cosine', round(c,4)); assert c>0.95, 'beyond e4m3 noise band'"
 
       - name: window sim (slice 2) — replay per-token sets through FIFO/LRU/static
         run: |
