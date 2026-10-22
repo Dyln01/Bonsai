@@ -89,6 +89,25 @@ static void q36_griff_observe(int layer, const float *g, int rows, int stride, i
         for (int i = 0; i < I; i++) acc[i] += fabs((double)row[i]);
     }
 }
+/* Phase 4b: observe with width < I — the dense PAGEBATCH path only computes
+ * narrowed (hot-prefix) gate activations; prefix indices are original indices,
+ * so the Griffin set lands inside the hot prefix and the decode gather runs. */
+static void q36_griff_observe_w(int layer, const float *g, int rows, int stride, int width, int I) {
+    if (!q36_griffin_on()) return;
+    if (layer >= g_griff_n) {
+        int old = g_griff_n; g_griff_n = layer + 1;
+        for (int i = old; i < g_griff_n; i++) { g_griff[i] = (GriffSet){NULL,0,0}; q36_griff_acc_dyn[i] = NULL; q36_griff_acc_n[i] = 0; }
+    }
+    if (!q36_griff_acc_dyn[layer]) {
+        q36_griff_acc_dyn[layer] = calloc((size_t)I, sizeof(double));
+        q36_griff_acc_n[layer] = I;
+    }
+    double *acc = q36_griff_acc_dyn[layer];
+    for (int r = 0; r < rows; r++) {
+        const float *row = g + (int64_t)r * stride;
+        for (int i = 0; i < width; i++) acc[i] += fabs((double)row[i]);
+    }
+}
 static void q36_griff_finalize(int layer, double frac, int I) {
     if (!q36_griffin_on()) return;
     if (layer >= g_griff_n || !q36_griff_acc_dyn[layer]) return;
@@ -4454,6 +4473,7 @@ static void qwen_shared_experts_cpu(Model *m, Layer *l, const float *x, int S,
                 int rows = S - base < B ? S - base : B;
                 matmul_d(bg, x + (int64_t)base*D, &ng, rows, D, Ik);
                 matmul_d(bu, x + (int64_t)base*D, &nu, rows, D, Ik);
+                if (S > 1) q36_griff_observe_w((int)(l - m->L), bg, rows, Ik, Ik, I);   /* Phase 4b: dense GRIFFIN */
                 for (int64_t q = 0; q < (int64_t)rows*Ik; q++) {
                     float sv = bg[q]; bg[q] = (sv/(1.f+expf(-sv)))*bu[q];
                 }

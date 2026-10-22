@@ -289,7 +289,43 @@ edit("""            if(!qtd(l->qth_shg,g,xs,D,I)) matmul_d(g,xs,&l->sh_g,1,D,I);
             if (S > 1) q36_griff_observe((int)(l - m->L), g, 1, I, I);   /* Phase 4b: dense GRIFFIN */
 """)
 
-# 6. report line at end of generate
+# 6. width-parameter observer (dense prefix path only has narrowed gate rows)
+edit("""}
+static void q36_griff_finalize(int layer, double frac, int I) {
+""",
+     """}
+/* Phase 4b: observe with width < I — the dense PAGEBATCH path only computes
+ * narrowed (hot-prefix) gate activations; prefix indices are original indices,
+ * so the Griffin set lands inside the hot prefix and the decode gather runs. */
+static void q36_griff_observe_w(int layer, const float *g, int rows, int stride, int width, int I) {
+    if (!q36_griffin_on()) return;
+    if (layer >= g_griff_n) {
+        int old = g_griff_n; g_griff_n = layer + 1;
+        for (int i = old; i < g_griff_n; i++) { g_griff[i] = (GriffSet){NULL,0,0}; q36_griff_acc_dyn[i] = NULL; q36_griff_acc_n[i] = 0; }
+    }
+    if (!q36_griff_acc_dyn[layer]) {
+        q36_griff_acc_dyn[layer] = calloc((size_t)I, sizeof(double));
+        q36_griff_acc_n[layer] = I;
+    }
+    double *acc = q36_griff_acc_dyn[layer];
+    for (int r = 0; r < rows; r++) {
+        const float *row = g + (int64_t)r * stride;
+        for (int i = 0; i < width; i++) acc[i] += fabs((double)row[i]);
+    }
+}
+static void q36_griff_finalize(int layer, double frac, int I) {
+""")
+
+# 7. observe between the narrowed gate matmul and the in-place silu combine
+edit("""                matmul_d(bg, x + (int64_t)base*D, &ng, rows, D, Ik);
+                matmul_d(bu, x + (int64_t)base*D, &nu, rows, D, Ik);
+""",
+     """                matmul_d(bg, x + (int64_t)base*D, &ng, rows, D, Ik);
+                matmul_d(bu, x + (int64_t)base*D, &nu, rows, D, Ik);
+                if (S > 1) q36_griff_observe_w((int)(l - m->L), bg, rows, Ik, Ik, I);   /* Phase 4b: dense GRIFFIN */
+""")
+
+# 8. report line at end of generate
 edit("""    q36_spec_end(m, sp);
 """,
      """    if (g_q36_win_mb > 0)
