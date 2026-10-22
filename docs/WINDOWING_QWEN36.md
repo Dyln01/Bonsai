@@ -55,10 +55,15 @@ makes *active* rows resident (no reads at all). They compose: sorted container
    weights in Phase 5 with the same script.
 2. **CI mechanical (PASSING on `sim` branch):** `Q36_WIN_MB=64` vs `0` on student:
    `DUMP_IDS` identical; `[win]` line present with sane counters.
-3. **I/O evidence (mini-PC, HDD):** `exp_window_q36.py` reads
-   `/proc/<pid>/io` read-bytes and decode ms/tok for GRIFFIN on/off × window
-   on/off at frac 0.25: window-on must cut read bytes ≥ 50% at equal-or-better
-   decode vs window-off GRIFFIN, else the knob defaults off and the doc says why.
+3. **I/O evidence (mini-PC, HDD):** `tools/run_battery.sh` arms W0/W256/W1G
+   (GRIFFIN=1, frac 0.25, window 0/256/1024 MB) record `File system inputs`
+   read-bytes + decode ms/tok: window-on must cut read bytes ≥ 50% at
+   equal-or-better decode vs W0, else the knob stays default-off and the doc
+   says why. **Budget reality from the slice-2 sim:** the window only beats
+   static at cap ≥ ~2K neurons; on dense 27B frac 0.25 (K≈4352, ≈3.8 KB/neuron,
+   64 layers) that is ≈2.1 GB — infeasible inside the 8 GB envelope, so the
+   launcher default stays 0 until the battery says otherwise; the plausible win
+   zone is MoE shared experts / smaller-I containers / bigger-RAM boxes.
 4. **Phase 5 arm:** hit-rate + ppl neutrality (values identical by
    construction, so the ppl band is a machinery check, not a quality bet).
 

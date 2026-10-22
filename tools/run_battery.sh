@@ -18,7 +18,7 @@ PF="${2:?usage: run_battery.sh <model_dir> <prompt_file> [out_json]}"
 TS=$(date +%Y%m%d-%H%M%S)
 OUT="${3:-results/battery_$(hostname -s)_$TS.json}"
 THR="${BATTERY_THREADS:-4}"; NNEW="${BATTERY_NNEW:-64}"; CAP="${BATTERY_CAP:-8}"
-ARMS="${BATTERY_ARMS:-A B C D E F}"
+ARMS="${BATTERY_ARMS:-A B C D E F W0 W256 W1G}"
 W=/tmp/battery_$TS; mkdir -p "$W"
 COMMON="SNAP=$MODEL Q36_MAXT=8192 N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS=$THR"
 ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
@@ -26,7 +26,7 @@ ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 run_arm() {  # run_arm <name> <extra env...> -- prompt
   local name=$1; shift
   echo "== arm $name: $*"
-  env $COMMON "$@" timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > "$W/$name.out" 2> "$W/$name.err"
+  /usr/bin/time -v env $COMMON "$@" timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > "$W/$name.out" 2> "$W/$name.err"
   echo $? > "$W/$name.rc"
 }
 run_arm A
@@ -47,6 +47,11 @@ PY
 else
   echo "!! could not bootstrap ref.json; skipping arm F"; echo 9 > "$W/F.rc"
 fi
+
+# window x GRIFFIN matrix (Phase 4b slice 3): read-bytes via /usr/bin/time -v
+run_arm W0   HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=0
+run_arm W256 HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=256
+run_arm W1G  HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=1024
 
 python3 - "$W" "$OUT" "$MODEL" "$PF" "$THR" "$NNEW" "$ARMS" <<'PY'
 import json, os, re, sys, time
@@ -69,11 +74,13 @@ for a in ARMS.split():
     else:
         arms_tmp = float(ttft.group(1))
     rss = re.search(r"PEAK RSS:\s*([\d.]+) GB", err)
+    fsb = re.search(r"File system inputs:\s*(\d+)", err)
     mtp = [l for l in err.splitlines() if "[qwen36 MTP] run:" in l]
     arms[a] = {"rc": int(rc or -1),
                "decode_ms_per_tok": float(tot.group(1)) if tot else None,
                "ttft_s": arms_tmp,
                "peak_rss_gb": float(rss.group(1)) if rss else None,
+               "fs_read_gb": round(int(fsb.group(1)) * 512 / 1e9, 3) if fsb else None,
                "mtp_report": mtp[-1] if mtp else None}
 doc = {"host": os.uname().nodename, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
        "model": MODEL, "prompt": PF, "threads": int(THR), "n_new": int(NNEW),
@@ -82,10 +89,10 @@ doc = {"host": os.uname().nodename, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
 os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
 json.dump(doc, open(OUT, "w"), indent=1)
 print("\n== battery summary (%s)" % OUT)
-print("arm  rc  decode ms/tok   ttft s   RSS GB   mtp")
+print("arm   rc  decode ms/tok  ttft s  RSS GB  fsRead GB  mtp/win")
 for a, d in arms.items():
-    print("%-4s %-3s %-13s %-8s %-8s %s" % (
-        a, d["rc"], d["decode_ms_per_tok"], d["ttft_s"], d["peak_rss_gb"],
-        (d["mtp_report"] or "")[:60]))
+    print("%-5s %-3s %-14s %-7s %-7s %-10s %s" % (
+        a, d["rc"], d["decode_ms_per_tok"], d["ttft_s"], d["peak_rss_gb"], d["fs_read_gb"],
+        (d["mtp_report"] or "")[:48]))
 PY
 echo "[battery] raw stderr/stdout per arm in $W — commit $OUT + paste the summary"
