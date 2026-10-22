@@ -29,8 +29,10 @@ colibri's own converter; keep the converter command line in the manifest.
 
 ## 2. Evaluation data (public, small, license-clean)
 
-- **wikitest-raw:** wikitext-2 `wiki.test.raw` (~2 MB, CC-BY-SA): the perplexity
-  corpus. Encoded with the container's real tokenizer into `ref.json`
+- **wikitest-raw:** wikitext-2 raw test split (CC-BY-SA), fetched with
+  `scripts/fetch_wikitest2_raw.py ~/eval/wiki.test.raw` (the historical metamind
+  S3 URL is dead — the script uses the `datasets` lib or the converted-parquet
+  branch, and refuses to write suspicious payloads). Encoded with the container's real tokenizer into `ref.json`
   (`prompt_ids` + `full_ids`) so the engine's own `PPL=1` tf-nll path scores it.
 - **agent-20:** 20 real multi-turn agent transcripts supplied by the user
   (privacy: stay on the mini-PC; only aggregate reuse % leaves the machine).
