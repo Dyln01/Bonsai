@@ -146,10 +146,12 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       NULL, and the gather path (hence the window) was unreachable — the README's
       "GRIFFIN adapts per-prompt on unmodified containers" was silently a static-prefix
       fallback on dense. Observe now runs on the dense gate activations (prefill rows).
-- [ ] **Phase 4a RE-RUN:** the "per-token top-K constant" negative was measured with
-      inert dense GRIFFIN — after the observe fix the sets may vary; rerun
-      `scripts/exp_predictor_q36.py` + the window sim on fresh dumps before trusting 4a's
-      conclusion or the window's synthetic hit-rate curves.
+- [x] **Phase 4a RE-RUN (2026-10-22):** done with live GRIFFIN — verdict FAIL again
+      (+0.00 vs both baselines) but diagnosis revised: coverage SATURATES at 1.0 for every
+      selector on synthetic (norm-dominant energy mass), while sets DO vary (jacc 0.17).
+      4a's original constant-set claim was twice an artifact (inert GRIFFIN, then metric
+      saturation). G2 discriminates only on real weights — Phase 5 arm unchanged.
+      `results/results_predictor_rerun_q36.json` + PREDICTOR doc addendum.
 - [x] **Phase 4b slice 2 (sim):** `scripts/exp_window_sim.py` + `patch_tokdump_w.py`
       (dumps went silent once gather went live — the writer only sat in the per-row
       fallback; narrowed-width writer keeps record format). Synthetic curve in

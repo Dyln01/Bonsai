@@ -121,3 +121,15 @@ perfect four-way 0.039 "tie" that was pure loader artifact. A structured
 dtype (`x f32×D | idx u32×K | en f32×K`) is mandatory. A gate
 that returns identical values for every arm is a loader bug until proven
 otherwise.
+
+
+## Re-run with live GRIFFIN (2026-10-22, `results/results_predictor_rerun_q36.json`)
+
+After Phase 4b slice 1 revived dense GRIFFIN (finalize at prefill end), G2 was
+re-run on disjoint synthetic corpora: **all four selectors score 1.0000** — the
+decision rule FAILs again, but the diagnosis changes: coverage *saturates* on
+synthetic weights (energy mass concentrates in a few norm-dominant rows), while
+per-token sets demonstrably vary (window sim: jaccard(t,t-1)=0.17). The original
+"sets are constant" finding was thus twice an artifact: inert GRIFFIN first,
+metric saturation second. G2 can only discriminate on real weights; the Phase 5
+arm stands as designed. Predictor remains offline-only.

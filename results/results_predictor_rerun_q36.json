@@ -1,0 +1,14 @@
+{
+ "experiment": "Phase 4a predictor gate G2 \u2014 RE-RUN with live GRIFFIN (post slice-1 finalize fix)",
+ "date": "2026-10-22",
+ "operating_point": "mini dense container (H=256, L=4, I=512), HOT_FRAC=0.5, GRIFFIN=1, Q36_PROFILE_TOK_K=64, disjoint corpora A/B (~250 tokens each + 64 new), greedy",
+ "results": {
+  "static-A": 1.0,
+  "static-B": 1.0,
+  "griffin-j": 1.0,
+  "predictor": 1.0
+ },
+ "decision": "FAIL \u2014 predictor +0.0000 vs both baselines (rule: >= +0.05); runtime work NOT unlocked",
+ "diagnosis": "coverage saturates at 1.0 for EVERY selector on synthetic weights: per-neuron energy mass concentrates in a few norm-dominant rows, so any top-K that includes them covers ~all energy. This supersedes 4a's original 'sets are constant' diagnosis: sets DO vary per token (window sim: jaccard(t,t-1)=0.17, 99% differ from token 0), but the coverage metric is insensitive on synthetic data. The discriminator only bites on real weights, where energy mass spreads over content-dependent sets.",
+ "consequence": "predictor stays offline-only; the Phase 5 real-weights arm is unchanged and is the only place G2 can pass. Window cache value is likewise a Phase-5/battery question, not a synthetic one."
+}
