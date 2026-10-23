@@ -17,7 +17,7 @@ estimated.
 |---|---|---|---|
 | **A. student_1b_i4** (synthetic) | 1.4 GB | none | the full dense machinery in minutes — same kernels, small geometry. Start here, always. |
 | **B. synth_qwen38_27b_f16** (synthetic, full 27B shape) | 46 GB | none | exact Qwen3.8-27B geometry (64L: 16 GQA + 48 DeltaNet, hidden 5120, MLP 17408, vocab 248320), random weights. RAM envelope + speed of the real shape. |
-| **C. real Qwen/Qwen3.8-27B** (converted) | 56 GB bf16 → **20 GB int4** | yes (~56 GB) | the true end-to-end number incl. weight quality. Everything below applies unchanged. |
+| **C. real Qwen/Qwen3.8-27B** (converted) | 56 GB bf16 → **~50 GB F16** (the pinned converter quantizes routed experts only; a dense 27B has none, so its MLP stays F16 — the int4-trunk figures elsewhere are the engine's load/map-time dialect, not this on-disk container) | yes (~56 GB) | the true end-to-end number incl. weight quality. Everything below applies unchanged. |
 
 Quality note: A and B have random weights — they measure the **machinery**
 (RAM, TTFT, ms/token) exactly, but not model quality. Every published Bonsai
@@ -66,7 +66,9 @@ python3 ~/bonsai/scripts/gen_qwen38_27b_f16.py         # takes a while; never ws
 Container C (real model) instead of B:
 
 ```bash
-# convert a local HF download of Qwen/Qwen3.8-27B (56 GB) to a 20 GB int4 container:
+# convert a local HF download of Qwen/Qwen3.8-27B (56 GB) to a ~50 GB F16 container
+# (budget the disk: the converter quantizes ROUTED experts only — a dense 27B has none,
+#  so its MLP stays F16 on disk; the engine's int4 trunk is a load/map-time dialect):
 python3 ~/colibri/c/tools/convert_qwen36.py --model <Qwen3.8-27B download> --out ~/Models/q27_i4
 # (the converter also takes --repo Qwen/Qwen3.8-27B to download in-stream;
 #  --ebits/--gs tune expert quantization — dense 27B uses none of that, the MLP is the "shared expert")

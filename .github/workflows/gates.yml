@@ -34,6 +34,11 @@ jobs:
       - name: python syntax (tools + scripts)
         run: python3 -m py_compile tools/*.py scripts/*.py
 
+      - name: hot_sort / st_dump container gates (fixtures)
+        run: |
+          python3 -m pip install --quiet numpy
+          python3 scripts/test_hot_sort.py
+
       - name: make_synthetic_model self-check
         run: |
           python3 -m pip install --quiet numpy

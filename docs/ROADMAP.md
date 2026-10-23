@@ -227,6 +227,32 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       CI: stream-mode id-identity gate. NVMe boxes unchanged (knob 0, default off
       outside calibrate).
 
+- [x] **E10 — hot_sort v2 reader bug, found by its first production run (CLOSED
+      2026-10-23).** Field report: `q36-minipc sort ~/Models/q27_i4` died with
+      `cannot reshape array of size 178263040 into shape (17408,5120)`. Cause
+      (proven by miniature repro — v2 on the fixture reproduces the exact
+      signature): v2's `read_st` unpacked safetensors `data_offsets` as
+      (offset, LENGTH); the format stores (begin, END). Every tensor not at data
+      offset 0 was over-read by its own `begin`: the real shard's F16 gate_proj
+      sits at begin=178,268,160 B (one (I,H) F16 matrix + one (H,) F16 vector
+      ahead of it), so v2 got (begin+span)/2 = (2·17408+1)·5120 = 178,263,040
+      elements — the reported number exactly. Container and engine innocent:
+      st_init enforces span==numel·esz for float dtypes and load_t_n enforces
+      numel==shared_inter·hidden, so the shard the engine loaded on Oct 22 is
+      provably self-consistent; v2 only ever "worked" on fixtures whose permute
+      target was the file's first tensor. Fix: hot_sort v2.1 — (begin,END)
+      semantics, st.h-style checks at read time, st_init's duplicate-name rule
+      (index.json resolves, else refusal), geometry pre-checks with fused-layout
+      hints, BF16/U32/I64/F8 passthrough, `__metadata__` preserved, loud no-op
+      warning (a silent no-op sort invalidates arm E). New `tools/st_dump.py`:
+      read-only shard-header probe mirroring st.h's view (span checks, dup/index
+      resolution, dir listing with sizes+mtimes) — the paste-back artifact for
+      container mysteries. Gate: `scripts/test_hot_sort.py` (26 mechanical checks
+      incl. the q27-layout regression) wired into `gates.yml`. Also corrected
+      docs/BENCH_DENSE27B.md's "20 GB int4 container" claim — the pinned
+      converter quantizes routed experts only; a dense 27B converts to ~50 GB
+      F16 (the int4-trunk figures are the engine's load/map-time dialect).
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).
