@@ -88,6 +88,12 @@ M=~/synth_models/synth_qwen38_27b_f16     # or ~/Models/q27_i4 for the real one
 q36-minipc doctor $M
 SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.txt
 #   on an 8 GB box: killed, rc=137. On a 16 GB box: boots but slow (full 46 GB f16 sweep/token).
+#   E11 (2026-10-23): this arm is EXACTLY what tools/run_battery.sh launched on the
+#   mini-PC until now — no TRUNK_MAP=1 and the inert Q36_HOT_FRAC alias. The field JSONs
+#   results/battery_llm-030_* (rc=137, identical ~5.1 GB fs-read watermark) are arm-1
+#   re-proofs, NOT Bonsai-profile numbers. The runner now ships the dense dialect,
+#   records the operating point in its JSON, and scripts/check_runner_env.py guards the
+#   env names in CI. Re-run: BATTERY_FRAC=0.25 BATTERY_MAXT=8192 tools/run_battery.sh ...
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M

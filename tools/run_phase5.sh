@@ -18,6 +18,12 @@
 #
 # Env: PHASE5_LEN (default 2048 scored tokens — mini-PC budget; bands unchanged),
 #      PHASE5_CTX (512), PHASE5_THREADS (4), PHASE5_CAP (8), PHASE5_FORCE, PHASE5_M3.
+#
+# E11: arms must use ENGINE-NATIVE env names (HOT_FRAC, GRIFFIN — not the
+# launcher's Q36_* aliases, which the binary never reads; scripts/
+# check_runner_env.py enforces this in CI). Pre-E11 sessions that ran arms
+# with the alias names measured frac 1.0/griffin 0 on EVERY arm: rerun them
+# with PHASE5_FORCE=1 (the resume cache will otherwise skip the tainted .err).
 set -uo pipefail
 CONT="${1:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
 WIKI="${2:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
@@ -48,27 +54,27 @@ arm() {  # arm <name> <extra env...>
   echo "rc=$?" >> "$SES/arms/$name.err"
   echo "== arm $name: done $(date +%H:%M:%S)"
 }
-arm A Q36_HOT_FRAC=1.0 Q36_GRIFFIN=0
-arm B Q36_HOT_FRAC=0.5 Q36_GRIFFIN=0
-arm C Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0
-arm D Q36_HOT_FRAC=0.25 Q36_GRIFFIN=1
+arm A HOT_FRAC=1.0 GRIFFIN=0
+arm B HOT_FRAC=0.5 GRIFFIN=0
+arm C HOT_FRAC=0.25 GRIFFIN=0
+arm D HOT_FRAC=0.25 GRIFFIN=1
 if [ "${PHASE5_M3:-0}" = 1 ] && [ ! -d "$CONT-sorted" ]; then
   echo "== M3: calibrate (bounded) + sort"
   Q36_CORPUS="${PHASE5_CORPUS:-$CONT/calib_prompt.txt}" q36-minipc calibrate "$CONT" || echo "!! calibrate failed; arm E will skip"
   q36-minipc sort "$CONT" || echo "!! sort failed; arm E will skip"
 fi
-if [ -d "$CONT-sorted" ]; then arm E SNAP="$CONT-sorted" Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0; else echo "== arm E: skipped (no $CONT-sorted; rerun with PHASE5_M3=1)"; fi
-arm F Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0 KV8=1
-arm G Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0 KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=1
-arm H Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0 Q36_FAST_SOFTMAX=1
+if [ -d "$CONT-sorted" ]; then arm E SNAP="$CONT-sorted" HOT_FRAC=0.25 GRIFFIN=0; else echo "== arm E: skipped (no $CONT-sorted; rerun with PHASE5_M3=1)"; fi
+arm F HOT_FRAC=0.25 GRIFFIN=0 KV8=1
+arm G HOT_FRAC=0.25 GRIFFIN=0 KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=1
+arm H HOT_FRAC=0.25 GRIFFIN=0 Q36_FAST_SOFTMAX=1
 if grep -q '"mtp"' "$CONT/qwen36_meta.json" 2>/dev/null; then
-  arm I Q36_HOT_FRAC=0.25 Q36_GRIFFIN=0 Q36_MTP=1 Q36_MTP_DRAFTS=2
+  arm I HOT_FRAC=0.25 GRIFFIN=0 Q36_MTP=1 Q36_MTP_DRAFTS=2
 else
   echo "== arm I: skipped (container carries no MTP head; W2 + gen_mtp_head_synth.py to enable)"
 fi
 echo "== M1: determinism (arm A rerun with DUMP_IDS vs first-pass ids)"
-DUMP_IDS="$SES/arms/A.ids" env $COMMON Q36_HOT_FRAC=1.0 Q36_GRIFFIN=0 "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det.err" || true
-DUMP_IDS="$SES/arms/A2.ids" env $COMMON Q36_HOT_FRAC=1.0 Q36_GRIFFIN=0 "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det2.err" || true
+DUMP_IDS="$SES/arms/A.ids" env $COMMON HOT_FRAC=1.0 GRIFFIN=0 "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det.err" || true
+DUMP_IDS="$SES/arms/A2.ids" env $COMMON HOT_FRAC=1.0 GRIFFIN=0 "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det2.err" || true
 cmp -s "$SES/arms/A.ids" "$SES/arms/A2.ids" && echo "M1 PASS: identical id streams" || echo "M1 FAIL: id streams differ"
 
 python3 - "$SES" "$CONT" <<'PY'

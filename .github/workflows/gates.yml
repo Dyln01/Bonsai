@@ -34,6 +34,9 @@ jobs:
       - name: python syntax (tools + scripts)
         run: python3 -m py_compile tools/*.py scripts/*.py
 
+      - name: runner env-name oracle (E11 — decoy alias / missing TRUNK_MAP detection)
+        run: python3 scripts/check_runner_env.py
+
       - name: hot_sort / st_dump container gates (fixtures)
         run: |
           python3 -m pip install --quiet numpy

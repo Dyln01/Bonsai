@@ -18,6 +18,9 @@ jobs:
           git -C "$HOME/colibri" checkout -q bf24429
           git -C "$HOME/colibri" log --oneline -1
 
+      - name: runner env-name oracle (strict — vs pristine pinned colibri)
+        run: python3 scripts/check_runner_env.py --colibri "$HOME/colibri"
+
       - name: overlay Bonsai engine snapshot
         run: |
           cp engine/qwen36.c   "$HOME/colibri/c/"

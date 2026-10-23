@@ -1,8 +1,9 @@
 # results/ — measured JSON manifest
 
 Every number quoted in `docs/` traces to one of these files (honesty chain:
-**doc table → driver script → JSON here → commit**). All runs are synthetic
-same-geometry containers; no real weights. Parsed by CI on every push.
+**doc table → driver script → JSON here → commit**). Synthetic arms use
+same-geometry containers; the field-run section below carries the real-weights
+llm-030 sessions. Parsed by CI on every push.
 
 | JSON | Driver | Report | Notes |
 |---|---|---|---|
@@ -20,3 +21,16 @@ same-geometry containers; no real weights. Parsed by CI on every push.
 Convention: decode tok/s only from the engine's `[timers] TOTAL ms/token` line;
 `Speed:` lines include prefill and are never quoted as decode. New batteries
 append here + cite the JSON in the doc that uses them.
+
+## Field runs (real weights — llm-030, 8 GB RAM / HDD mini-PC)
+
+| File | Runner | Verdict |
+|---|---|---|
+| `battery_llm-030_20261022-192421.json` | run_battery.sh pre-`8149f4a` | INVALID — runner hardcoded MAXT 8192 vs a 15,960-token prompt; all arms rc=1. Kept as a negative result. |
+| `battery_llm-030_20261022-193000.json` | run_battery.sh pre-`8149f4a` | INVALID — frac 1.0 + f32 KV at 16k exceeds the 8 GB envelope by arithmetic; all arms rc=137. |
+| `battery_llm-030_20261023-222216.json` | run_battery.sh pre-E11 | INVALID — runner launched the STOCK dialect (no `TRUNK_MAP=1`; `Q36_HOT_FRAC` alias inert): seven arms rc=137 at an identical ~5.10 GB fs-read watermark = arm 1 of `docs/BENCH_DENSE27B.md` re-proved nine times (ROADMAP E11). E/F skipped cleanly. |
+| `realweights_20261022-2011/manifest.txt` | run_phase5.sh preflight | VALID — 66 shard sha256s of `/root/Models/q27_i4` (conversion provenance). Only the preflight manifest was committed; any pre-E11 arm `.err` on the box is tainted (decoy `Q36_*` aliases → every arm ran frac 1.0/griffin 0) — re-run with `PHASE5_FORCE=1`. |
+
+Kept per house rules: negative results documented, not buried. No field number
+is quoted anywhere in `docs/` yet; the first valid post-E11 battery / phase-5
+summary appends here.

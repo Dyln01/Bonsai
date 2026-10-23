@@ -160,7 +160,9 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       constant-set negative was an inert-GRIFFIN artifact; predictor re-run queued.
 - [~] **Phase 4b slice 3:** battery arms W0/W256/W1G (GRIFFIN × window) + per-arm
       `File system inputs` read-byte accounting shipped in `run_battery.sh`;
-      **measurement pending on the HDD mini-PC** (one command). Launcher default for
+      **measurement pending on the HDD mini-PC** (one command). The 2026-10-22/23
+      field attempts were invalid — runner bugs, see E11; post-E11 the W arms run
+      cold-cache (BATTERY_WARM=0) so fs_read_gb is comparable. Launcher default for
       `Q36_WIN_MB` stays 0 until then — sim budget floor: the window only beats static
       at cap ≥ ~2K neurons (≈2.1 GB on dense 27B frac 0.25), infeasible in 8 GB.
 - [x] **Phase 4c — cross-engine KV8/TQ ports CLOSED (2026-10-22).** qwen38: KV8 +
@@ -209,12 +211,17 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       hot-neuron energy ranking were computed on scale-less weights — re-measure in the 2b-4
       battery. Serve-mux on packed containers also needs TRUNK_MAP=1 (launcher always set it;
       the prefix driver now does too).
-- [ ] **E4 — launcher `doctor` upgrades.** Report `Q36_FAST_SOFTMAX` engagement (AVX2 build?),
-      `Q36_KVQ` tier, `Q36_SLOTS`, and `meta.mtp` presence in the container.
-- [ ] **E5 — prefix-reuse regression gate.** Promote `scripts/exp_prefix_q36.py` to a
-      fixed-seed gate with expected reuse % once CI can run the engine.
-- [ ] **E6 — flash-site fast-exp retry.** The online-softmax negative result gets one retry
-      with the block-rescaled form before it is considered closed (`engine/softmaxbench_q36.c`).
+- [x] **E4 — launcher `doctor` upgrades (2026-10-19, `b5ca30d`).** doctor reports
+      `Q36_FAST_SOFTMAX` engagement, `Q36_KVQ` tier, `Q36_SLOTS`, `meta.mtp` presence,
+      plus frac/griffin/cal state.
+- [x] **E5 — prefix-reuse regression gate (2026-10-19, `b5ca30d`).** `exp_prefix_q36.py`
+      parameterized (PREFIX_*) and gated in engine-build CI: mux_on reuses ≥80% at
+      turns≥2, mux_off never.
+- [x] **E6 — flash-site fast-exp retry (2026-10-19, `d948558`; measured negative).**
+      The block-rescaled retry ran as a gated microbench (`[online-softmax E6]` line,
+      f64 error gate hard): fast-exp+exact-rescale = **0.86x** of stock expf on the
+      online 16k loop (rescale/memory-bound, as predicted) — not adopted; the
+      flash-site negative result is closed with numbers.
 
 - [x] **E9 — HDD/small-RAM streaming mode (2026-10-20).** Field report: calibrate
       "frozen at layer 48 for 2 h" on an 8 GB mini-PC with a **rotating disk**. Cause:
@@ -252,6 +259,38 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       docs/BENCH_DENSE27B.md's "20 GB int4 container" claim — the pinned
       converter quantizes routed experts only; a dense 27B converts to ~50 GB
       F16 (the int4-trunk figures are the engine's load/map-time dialect).
+
+- [x] **E11 — battery runner ran the STOCK dialect: every field arm OOM'd
+      (CLOSED 2026-10-23).** Field report #3
+      (`results/battery_llm-030_20261023-222216.json`, 7k prompt, MAXT guard
+      passed): all seven compute arms rc=137 at an IDENTICAL ~5.10 GB
+      fs-read watermark; E/F skipped cleanly (8149f4a's fix held). Cause —
+      the runner invokes the binary directly but composed the launcher's
+      dialect: no `TRUNK_MAP=1`, so the stock loader pulled the ~50 GB F16
+      trunk into anon RAM and the 8 GB box killed it at its watermark (the
+      nine arms re-proved BENCH_DENSE27B arm 1, "the stock attempt proves the
+      OOM"), and `Q36_HOT_FRAC` is a launcher alias the binary never reads —
+      engine takes `HOT_FRAC` (default 1.0). Same decoy in `run_phase5.sh`:
+      every arm set `Q36_HOT_FRAC`/`Q36_GRIFFIN`, so the frac ladder A/B/C and
+      the GRIFFIN A/B (D vs C) would have run vacuous — all arms frac 1.0,
+      griffin off. No published phase-5 numbers tainted (only the manifest was
+      committed; arms re-run with PHASE5_FORCE=1 after the fix — the resume
+      cache would otherwise skip tainted .err files). Fix: both runners speak
+      engine-native env (battery COMMON now mandates TRUNK_MAP=1 + HOT_FRAC +
+      RAM_GB; new BATTERY_WARM — default 0/cold, the W read-matrix wants cold —
+      and BATTERY_STREAM for E9 rotational-disk thrash; BATTERY_ARMS now
+      actually selects arms instead of only filtering the summary); the battery
+      JSON records the full operating point (engine path, frac, maxt, warm,
+      stream, ram, model GB, meminfo) and per-arm RSS-at-kill + termination
+      signal from /usr/bin/time -v, so rc=137 is self-diagnosing. Gate:
+      `scripts/check_runner_env.py` — mechanical env-name oracle (every NAME=
+      on an engine line of the runners must be getenv'd by engine/qwen36.c or
+      the pinned colibri; ALLOW upstream claims re-verified; dense COMMON must
+      carry TRUNK_MAP=1; decoys get an actionable message; negative test
+      proves it catches the pre-fix lines). Loose mode in gates.yml; strict
+      mode (`--colibri`, also scans q36-minipc.sh — its MoE CAP_RAISE/PIN/
+      USAGE_SAVE verified colibri-core at bf24429) in engine-build.yml. The
+      launcher itself was innocent: q36-minipc always mapped the aliases.
 
 ## Rules that stay
 
