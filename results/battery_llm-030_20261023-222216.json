@@ -1,0 +1,83 @@
+{
+ "host": "llm-030",
+ "ts": "2026-10-23T22:45:05",
+ "model": "/root/Models/q27_i4",
+ "prompt": "/root/eval/prompt_7k.txt",
+ "threads": 4,
+ "n_new": 64,
+ "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted)",
+ "arms": {
+  "A": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.103,
+   "mtp_report": null
+  },
+  "B": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.105,
+   "mtp_report": null
+  },
+  "C": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.104,
+   "mtp_report": null
+  },
+  "D": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.104,
+   "mtp_report": null
+  },
+  "E": {
+   "rc": 0,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": null,
+   "mtp_report": null
+  },
+  "F": {
+   "rc": 0,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": null,
+   "mtp_report": null
+  },
+  "W0": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.105,
+   "mtp_report": null
+  },
+  "W256": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.105,
+   "mtp_report": null
+  },
+  "W1G": {
+   "rc": 137,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "fs_read_gb": 5.105,
+   "mtp_report": null
+  }
+ }
+}
