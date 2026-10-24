@@ -1,0 +1,33 @@
+{
+ "host": "llm-030",
+ "ts": "2026-10-24T12:48:22",
+ "model": "/root/Models/q27_i4",
+ "prompt": "/root/eval/prompt_7k.txt",
+ "threads": 4,
+ "n_new": 8,
+ "operating_point": {
+  "engine": "/root/colibri/c/qwen36",
+  "hot_frac": 0.25,
+  "maxt": 8192,
+  "trunk_map": 1,
+  "trunk_warm": 0,
+  "trunk_stream": 1,
+  "ram_gb": 8,
+  "model_gb": 54.7,
+  "mem_total_gb": 7.62,
+  "mem_available_gb_at_end": 6.85
+ },
+ "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted); rc=137 + terminated_by_signal=9 = OOM kill (peak_rss_gb then from /usr/bin/time -v)",
+ "arms": {
+  "A": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.997,
+   "rss_source": "time_v",
+   "fs_read_gb": 39.536,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  }
+ }
+}

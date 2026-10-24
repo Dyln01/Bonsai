@@ -1,0 +1,113 @@
+{
+ "host": "llm-030",
+ "ts": "2026-10-24T20:31:21",
+ "model": "/root/Models/q27_i4",
+ "prompt": "/root/eval/prompt_7k.txt",
+ "threads": 4,
+ "n_new": 16,
+ "operating_point": {
+  "engine": "/root/colibri/c/qwen36",
+  "hot_frac": 0.25,
+  "maxt": 8192,
+  "trunk_map": 1,
+  "trunk_warm": 0,
+  "trunk_stream": 1,
+  "ram_gb": 8,
+  "model_gb": 54.7,
+  "mem_total_gb": 7.62,
+  "mem_available_gb_at_end": 6.9
+ },
+ "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted); rc=137 + terminated_by_signal=9 = OOM kill (peak_rss_gb then from /usr/bin/time -v)",
+ "arms": {
+  "A": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.951,
+   "rss_source": "time_v",
+   "fs_read_gb": 37.089,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "B": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.973,
+   "rss_source": "time_v",
+   "fs_read_gb": 39.649,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "C": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.985,
+   "rss_source": "time_v",
+   "fs_read_gb": 38.109,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "D": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.979,
+   "rss_source": "time_v",
+   "fs_read_gb": 38.549,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "E": {
+   "rc": 0,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "rss_source": null,
+   "fs_read_gb": null,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "F": {
+   "rc": 0,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": null,
+   "rss_source": null,
+   "fs_read_gb": null,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "W0": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.981,
+   "rss_source": "time_v",
+   "fs_read_gb": 39.685,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "W256": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.972,
+   "rss_source": "time_v",
+   "fs_read_gb": 41.505,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  },
+  "W1G": {
+   "rc": 124,
+   "decode_ms_per_tok": null,
+   "ttft_s": null,
+   "peak_rss_gb": 6.972,
+   "rss_source": "time_v",
+   "fs_read_gb": 41.857,
+   "terminated_by_signal": null,
+   "mtp_report": null
+  }
+ }
+}
