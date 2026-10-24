@@ -94,6 +94,12 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   re-proofs, NOT Bonsai-profile numbers. The runner now ships the dense dialect,
 #   records the operating point in its JSON, and scripts/check_runner_env.py guards the
 #   env names in CI. Re-run: BATTERY_FRAC=0.25 BATTERY_MAXT=8192 tools/run_battery.sh ...
+#   E12 (2026-10-24): the re-run PROVED that fix (no OOM; peak RSS ~7.0/7.62 GB; no
+#   signal-9) and then died at the runner's old hardcoded `timeout 3600` — one cold
+#   prefill pass at frac 0.25 (~41 GB) takes ~60-90 min at the field-measured
+#   10-12 MB/s, so no arm finished. BATTERY_TIMEOUT is now a knob (0 = unlimited);
+#   on a rotating disk probe ONE arm first:
+#   BATTERY_ARMS="A" BATTERY_NNEW=2 BATTERY_TIMEOUT=0 BATTERY_FRAC=0.25 BATTERY_STREAM=1 ...
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M

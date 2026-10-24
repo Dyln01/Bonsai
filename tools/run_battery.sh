@@ -9,7 +9,8 @@
 # Per arm: decode ms/token ([timers] TOTAL), TTFT s, PEAK RSS GB, rc, and the
 # [qwen36 MTP] report line where present. Writes results/battery_<host>_<ts>.json
 # (or $3) and prints a summary table. Env: BATTERY_THREADS (default 4),
-# BATTERY_NNEW (default 64), BATTERY_CAP (default 8), BATTERY_ARMS="A B C..." subset.
+# BATTERY_NNEW (default 64), BATTERY_CAP (default 8), BATTERY_ARMS="A B C..."
+# subset, BATTERY_TIMEOUT (per-arm wall seconds, default 3600, 0 = unlimited).
 #
 # No engine changes; runs the built binary directly. Cost = one prompt run per
 # requested arm (9 in the default set; BATTERY_ARMS="A B" runs only those).
@@ -28,6 +29,19 @@
 # (TRUNK_WARM, default 0 = cold honest numbers; the W read-matrix wants cold),
 # BATTERY_STREAM (Q36_TRUNK_STREAM=1 on rotating disks — E9 thrash control,
 # bit-identical ids per its CI gate).
+#
+# E12 (2026-10-24): the first post-E11 field runs PROVED the OOM fix (no
+# rc=137; peak RSS ~7.0 GB of 7.62; trunk-stream effective 10-12 MB/s) and
+# then every compute arm died rc=124 at this runner's hardcoded
+# `timeout 3600`: fs_read 37-42 GB/arm ≈ exactly one cold prefill pass
+# (0.75 × 54.7 GB at frac 0.25), so no arm ever finished prefill — the old
+# "~3-5 h overnight" guidance was ~10x off (prefill floor alone is ~60-90
+# min/arm on a rotating disk, and frac-0.25 decode re-reads GBs per token).
+# BATTERY_TIMEOUT is now a knob (0 = unlimited), per-arm logs persist beside
+# the JSON (${OUT%.json}_logs/) instead of dying in /tmp, and the runner
+# prints an I/O-budget preflight. HDD plan: probe ONE arm to completion
+# first — BATTERY_ARMS="A" BATTERY_NNEW=2 BATTERY_TIMEOUT=0 — read its real
+# TTFT + ms/token from the JSON, then budget the matrix (ROADMAP E12).
 set -uo pipefail
 MODEL="${1:?usage: run_battery.sh <model_dir> <prompt_file> [out_json]}"
 PF="${2:?usage: run_battery.sh <model_dir> <prompt_file> [out_json]}"
@@ -37,6 +51,9 @@ THR="${BATTERY_THREADS:-4}"; NNEW="${BATTERY_NNEW:-64}"; CAP="${BATTERY_CAP:-8}"
 ARMS="${BATTERY_ARMS:-A B C D E F W0 W256 W1G}"
 FRAC="${BATTERY_FRAC:-1.0}"; MAXT="${BATTERY_MAXT:-16384}"
 WARM="${BATTERY_WARM:-0}"; STREAM="${BATTERY_STREAM:-0}"
+TMO="${BATTERY_TIMEOUT:-3600}"
+case "$TMO" in ''|*[!0-9]*) echo "run_battery: BATTERY_TIMEOUT must be a non-negative integer (seconds; 0 = unlimited), got '$TMO'" >&2; exit 2 ;; esac
+if [ "$TMO" != 0 ]; then TMO_CMD="timeout $TMO"; else TMO_CMD=""; fi
 RAMGB="${BATTERY_RAM_GB:-$(awk '/MemTotal/ {printf "%d", $2/1048576+0.5}' /proc/meminfo 2>/dev/null || echo 8)}"
 PB=$(wc -c < "$PF")
 if [ "$PB" -gt "$MAXT" ]; then
@@ -54,11 +71,19 @@ COMMON="SNAP=$MODEL Q36_MAXT=$MAXT N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 COLI_NO
 ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 echo "[battery] engine=$ENGINE frac=$FRAC maxt=$MAXT warm=$WARM stream=$STREAM ram_gb=$RAMGB threads=$THR n_new=$NNEW"
 echo "[battery] TRUNK_MAP=1: trunk stays mmap'd on disk (page cache + kernel eviction, no OOM)."
+# E12 I/O-budget preflight: cold bytes per full pass vs the measured field rate.
+MODEL_MB=$(du -sm "$MODEL" 2>/dev/null | cut -f1); MODEL_MB=${MODEL_MB:-0}
+if [ "$MODEL_MB" -gt 0 ]; then
+  COLD_MB=$(awk -v m="$MODEL_MB" -v f="$FRAC" 'BEGIN{printf "%d", m*(1-f)}')
+  echo "[battery] E12 budget: model ${MODEL_MB} MB, frac ${FRAC} -> ~${COLD_MB} MB cold reads per full pass;"
+  echo "[battery]   at the llm-030 measured 10-12 MB/s that is a ~$((COLD_MB/12/60+1))-$((COLD_MB/10/60+1)) min prefill floor PER ARM before token 1."
+  echo "[battery]   BATTERY_TIMEOUT=${TMO}s per arm (0 = unlimited). rc=124 in the JSON = killed at this wall, not an engine fault."
+fi
 
 run_arm() {  # run_arm <name> <extra env...> -- prompt
   local name=$1; shift
   echo "== arm $name: $*"
-  /usr/bin/time -v env $COMMON "$@" timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > "$W/$name.out" 2> "$W/$name.err"
+  /usr/bin/time -v env $COMMON "$@" $TMO_CMD "$ENGINE" "$CAP" "$THR" "$PF" > "$W/$name.out" 2> "$W/$name.err"
   echo $? > "$W/$name.rc"
 }
 want() { case " $ARMS " in *" $1 "*) return 0 ;; *) echo "== arm $1: not in BATTERY_ARMS, skipped" ; return 1 ;; esac; }
@@ -72,7 +97,7 @@ if [ "$HAS_MTP" = 1 ]; then
 want E && run_arm E KV8=1 Q36_MTP=1 Q36_MTP_DRAFTS=2 COLI_SPEC_GATE=0 COLI_LOOKUP=0
 # F: bootstrap the oracle from arm A's id stream, then force-accept
 if want F; then
-if [ -f "$W/A.ids" ] || DUMP_IDS="$W/A.ids" env $COMMON timeout 3600 "$ENGINE" "$CAP" "$THR" "$PF" > /dev/null 2> "$W/A_ids.err"; then
+if [ -f "$W/A.ids" ] || DUMP_IDS="$W/A.ids" env $COMMON $TMO_CMD "$ENGINE" "$CAP" "$THR" "$PF" > /dev/null 2> "$W/A_ids.err"; then
   python3 - "$W/A.ids" "$W/ref.json" "$NNEW" <<'PY'
 import json, sys
 ids = [int(l) for l in open(sys.argv[1])]
@@ -97,11 +122,17 @@ want W0 && run_arm W0   HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=0
 want W256 && run_arm W256 HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=256
 want W1G && run_arm W1G  HOT_FRAC=0.25 GRIFFIN=1 Q36_WIN_MB=1024
 
-python3 - "$W" "$OUT" "$MODEL" "$PF" "$THR" "$NNEW" "$ARMS" "$FRAC" "$MAXT" "$WARM" "$STREAM" "$RAMGB" "$ENGINE" <<'PY'
+# E12: persist the per-arm forensics beside the JSON — /tmp dies on reboot and
+# the 2026-10-24 runs' progress lines (how far each arm got) were lost that way.
+LOGD="${OUT%.json}_logs"; mkdir -p "$LOGD"
+for f in "$W"/*.err "$W"/*.out "$W"/*.rc; do [ -e "$f" ] && cp "$f" "$LOGD/"; done
+
+python3 - "$W" "$OUT" "$MODEL" "$PF" "$THR" "$NNEW" "$ARMS" "$FRAC" "$MAXT" "$WARM" "$STREAM" "$RAMGB" "$ENGINE" "$TMO" <<'PY'
 import json, os, re, sys, time
 W, OUT, MODEL, PF, THR, NNEW, ARMS = sys.argv[1:8]
-FRAC, MAXT, WARM, STREAM, RAMGB, ENGINE = (float(sys.argv[8]), int(sys.argv[9]), int(sys.argv[10]),
-                                           int(sys.argv[11]), int(sys.argv[12]), sys.argv[13])
+FRAC, MAXT, WARM, STREAM, RAMGB, ENGINE, TMO = (float(sys.argv[8]), int(sys.argv[9]), int(sys.argv[10]),
+                                                int(sys.argv[11]), int(sys.argv[12]), sys.argv[13],
+                                                int(sys.argv[14]))
 def rd(n):
     p = os.path.join(W, n)
     return open(p, errors="replace").read() if os.path.exists(p) else ""
@@ -148,10 +179,11 @@ doc = {"host": os.uname().nodename, "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
        "model": MODEL, "prompt": PF, "threads": int(THR), "n_new": int(NNEW),
        "operating_point": {"engine": ENGINE, "hot_frac": FRAC, "maxt": MAXT,
                            "trunk_map": 1, "trunk_warm": WARM, "trunk_stream": STREAM,
+                           "timeout_s": TMO or None,
                            "ram_gb": RAMGB, "model_gb": round(model_bytes / 1e9, 1),
                            "mem_total_gb": meminfo_gb("MemTotal"),
                            "mem_available_gb_at_end": meminfo_gb("MemAvailable")},
-       "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted); rc=137 + terminated_by_signal=9 = OOM kill (peak_rss_gb then from /usr/bin/time -v)",
+       "note": "greedy COLI_TEMP=0; decode = [timers] TOTAL ms/token (Speed: line includes prefill, never quoted); rc=137 + terminated_by_signal=9 = OOM kill (peak_rss_gb then from /usr/bin/time -v); rc=124 = killed at the BATTERY_TIMEOUT wall mid-run — null metrics mean 'never finished', not 'engine fault' (E12)",
        "arms": arms}
 os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
 json.dump(doc, open(OUT, "w"), indent=1)
@@ -162,4 +194,4 @@ for a, d in arms.items():
         a, d["rc"], d["decode_ms_per_tok"], d["ttft_s"], d["peak_rss_gb"], d["fs_read_gb"],
         (d["mtp_report"] or "")[:48]))
 PY
-echo "[battery] raw stderr/stdout per arm in $W — commit $OUT + paste the summary"
+echo "[battery] wrote $OUT + per-arm logs in $LOGD — commit BOTH, paste the summary"

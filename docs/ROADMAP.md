@@ -292,6 +292,37 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       USAGE_SAVE verified colibri-core at bf24429) in engine-build.yml. The
       launcher itself was innocent: q36-minipc always mapped the aliases.
 
+- [x] **E12 — the 3600-second wall: the post-E11 field battery proved the OOM
+      fix and then every arm died at the runner's hardcoded timeout (runner
+      fix CLOSED 2026-10-24; a valid field battery is still unmeasured).**
+      Field runs #4/#5 (`results/battery_llm-030_20261024-114815.json` smoke
+      arm A, `results/battery_llm-030_20261024-133054.json` full 9-arm,
+      n_new=16; 13:30:54→20:31:21 ≈ 7 h ≈ 7 compute arms × 3600 s): E11's
+      fix HELD — no rc=137 anywhere, peak RSS 6.95-7.0 GB under the 7.62 GB
+      total, mem_available ~6.9 GB at end, no termination signals, operating
+      point self-recorded (trunk_map=1, stream=1, frac 0.25). But every
+      compute arm exited rc=124 at the runner's hardcoded `timeout 3600`
+      with decode/ttft null: fs_read 37.1-41.9 GB/arm ≈ 0.75 × 54.7 GB =
+      exactly one cold prefill pass at frac 0.25, i.e. an effective
+      10.3-11.6 MB/s trunk-stream rate on the rotating disk — the arms were
+      killed at the moment prefill was about to finish. The "~3-5 h
+      overnight" guidance given with the E11 fix was ~10x off: the prefill
+      floor alone is ~60-90 min/arm at this rate, and frac-0.25 decode
+      re-reads GBs per token (the hot 13.7 GB cannot stay resident in a
+      7.6 GB cache over a 54.7 GB model). Fix (mechanically tested with a
+      fake-engine harness: rc=124 path, unlimited path, integer guard):
+      `BATTERY_TIMEOUT` knob (per-arm seconds, default 3600, 0 = unlimited),
+      per-arm logs now persist beside the JSON in `${OUT%.json}_logs/`
+      instead of dying in /tmp (the 2026-10-24 progress lines — how far each
+      arm got — were lost that way), an E12 I/O-budget preflight echo
+      (cold-MB per pass → minutes at the measured rate), and the JSON
+      records `timeout_s` + a note decoding rc=124 as "killed at the wall,
+      not an engine fault". Docs: results/README field rows, BENCH_DENSE27B
+      arm-1 addendum. Plan forward: probe ONE arm to completion
+      (`BATTERY_ARMS="A" BATTERY_NNEW=2 BATTERY_TIMEOUT=0`), read its real
+      TTFT + ms/token, then budget the matrix across nights; the 4b-slice-3
+      window verdict stays blocked on completed W arms.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).
