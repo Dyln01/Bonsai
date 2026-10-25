@@ -1,0 +1,118 @@
+== qwen36 Phase-2 engine | cache=8/layer bits=4 ctx=8192 pilot=0 wide=1 hot=0 smooth=0.30 conf=0.92 ==
+[tok] loaded 248044 pieces (max id 248076) from /root/Models/q27_i4/tokenizer.json
+[enc] prompt tokens: 1524 | generating 2 new tokens
+[meta] loaded: q_heads=24 kv_heads=4 head_dim=256 q_head_dim=512 k_head_dim=256 v_head_dim=256 o_in=6144 rotary_dim=64 n_experts=0 topk=0 inter=0 shared_inter=17408 n_group=1 topk_group=1 attn_output_gate=1 n_active=16
+[meta] DeltaNet: vheads=48 kheads=16 kdim=128 vdim=128 convk=4 conv_dim=10240
+[qwen36] vision tower: 27 blocks, hidden 1152, 16 heads, patch 16, merge 2
+[dense-i8] 0 matrices quantized during load, 0.0 GB f32 freed
+[qwen36] KV_TQ=4 codec=1 (rot-int4): KV rows packed 128 B + f32 radius/row (vs fp8 256 B, f32 1024 B) (lossy, opt-in)
+resident weights loaded in 74.2s | RSS after load: 6.96 GB
+[qwen36] expert format on disk: none (dense model: every layer's MLP is resident)
+Generated (2 new tokens):
+Text : [prefill] p=1 layer=1/64 t=68 eta=4274 kind=dn dt=68
+[prefill] p=3 layer=2/64 t=124 eta=3833 kind=dn dt=56
+[prefill] p=4 layer=3/64 t=176 eta=3584 kind=dn dt=53
+[prefill] p=6 layer=4/64 t=227 eta=3399 kind=attn dt=50
+[prefill] p=7 layer=5/64 t=276 eta=3262 kind=dn dt=50
+[prefill] p=9 layer=6/64 t=326 eta=3150 kind=dn dt=49
+[prefill] p=10 layer=7/64 t=378 eta=3080 kind=dn dt=52
+[prefill] p=12 layer=8/64 t=428 eta=2999 kind=attn dt=50
+[prefill] p=14 layer=9/64 t=481 eta=2940 kind=dn dt=53
+[prefill] p=15 layer=10/64 t=533 eta=2877 kind=dn dt=52
+[prefill] p=17 layer=11/64 t=586 eta=2821 kind=dn dt=53
+[prefill] p=18 layer=12/64 t=637 eta=2761 kind=attn dt=52
+[prefill] p=20 layer=13/64 t=691 eta=2713 kind=dn dt=54
+[prefill] p=21 layer=14/64 t=743 eta=2655 kind=dn dt=52
+[prefill] p=23 layer=15/64 t=796 eta=2601 kind=dn dt=53
+[prefill] p=25 layer=16/64 t=845 eta=2536 kind=attn dt=49
+[prefill] p=26 layer=17/64 t=898 eta=2483 kind=dn dt=53
+[prefill] p=28 layer=18/64 t=950 eta=2429 kind=dn dt=52
+[prefill] p=29 layer=19/64 t=1003 eta=2376 kind=dn dt=53
+[prefill] p=31 layer=20/64 t=1053 eta=2316 kind=attn dt=50
+[prefill] p=32 layer=21/64 t=1105 eta=2263 kind=dn dt=52
+[prefill] p=34 layer=22/64 t=1158 eta=2211 kind=dn dt=53
+[prefill] p=35 layer=23/64 t=1210 eta=2158 kind=dn dt=52
+[prefill] p=37 layer=24/64 t=1259 eta=2098 kind=attn dt=48
+[prefill] p=39 layer=25/64 t=1312 eta=2047 kind=dn dt=53
+[prefill] p=40 layer=26/64 t=1366 eta=1997 kind=dn dt=54
+[prefill] p=42 layer=27/64 t=1420 eta=1945 kind=dn dt=53
+[prefill] p=43 layer=28/64 t=1469 eta=1889 kind=attn dt=49
+[prefill] p=45 layer=29/64 t=1522 eta=1837 kind=dn dt=53
+[prefill] p=46 layer=30/64 t=1578 eta=1788 kind=dn dt=55
+[prefill] p=48 layer=31/64 t=1632 eta=1737 kind=dn dt=54
+[prefill] p=50 layer=32/64 t=1682 eta=1682 kind=attn dt=50
+[prefill] p=51 layer=33/64 t=1733 eta=1628 kind=dn dt=52
+[prefill] p=53 layer=34/64 t=1785 eta=1575 kind=dn dt=52
+[prefill] p=54 layer=35/64 t=1837 eta=1522 kind=dn dt=52
+[prefill] p=56 layer=36/64 t=1886 eta=1467 kind=attn dt=49
+[prefill] p=57 layer=37/64 t=1938 eta=1414 kind=dn dt=52
+[prefill] p=59 layer=38/64 t=1989 eta=1361 kind=dn dt=51
+[prefill] p=60 layer=39/64 t=2040 eta=1308 kind=dn dt=51
+[prefill] p=62 layer=40/64 t=2088 eta=1253 kind=attn dt=48
+[prefill] p=64 layer=41/64 t=2140 eta=1201 kind=dn dt=52
+[prefill] p=65 layer=42/64 t=2192 eta=1148 kind=dn dt=52
+[prefill] p=67 layer=43/64 t=2244 eta=1096 kind=dn dt=52
+[prefill] p=68 layer=44/64 t=2292 eta=1042 kind=attn dt=48
+[prefill] p=70 layer=45/64 t=2344 eta=990 kind=dn dt=52
+[prefill] p=71 layer=46/64 t=2395 eta=937 kind=dn dt=51
+[prefill] p=73 layer=47/64 t=2447 eta=885 kind=dn dt=51
+[prefill] p=75 layer=48/64 t=2495 eta=832 kind=attn dt=48
+[prefill] p=76 layer=49/64 t=2547 eta=780 kind=dn dt=51
+[prefill] p=78 layer=50/64 t=2598 eta=727 kind=dn dt=51
+[prefill] p=79 layer=51/64 t=2649 eta=675 kind=dn dt=51
+[prefill] p=81 layer=52/64 t=2697 eta=622 kind=attn dt=48
+[prefill] p=82 layer=53/64 t=2749 eta=571 kind=dn dt=52
+[prefill] p=84 layer=54/64 t=2801 eta=519 kind=dn dt=52
+[prefill] p=85 layer=55/64 t=2854 eta=467 kind=dn dt=53
+[prefill] p=87 layer=56/64 t=2903 eta=415 kind=attn dt=49
+[prefill] p=89 layer=57/64 t=2955 eta=363 kind=dn dt=52
+[prefill] p=90 layer=58/64 t=3007 eta=311 kind=dn dt=52
+[prefill] p=92 layer=59/64 t=3060 eta=259 kind=dn dt=53
+[prefill] p=93 layer=60/64 t=3109 eta=207 kind=attn dt=49
+[prefill] p=95 layer=61/64 t=3162 eta=155 kind=dn dt=53
+[prefill] p=96 layer=62/64 t=3215 eta=104 kind=dn dt=53
+[prefill] p=98 layer=63/64 t=3268 eta=52 kind=dn dt=53
+[prefill] p=100 layer=64/64 t=3316 eta=0 kind=attn dt=49
+
+TTFT: 3406.83 s (time to first token)
+[qwen36 spec gate] run: T(1) 2276453.4 ms, rows, rho 0.50, acceptance by position 0.50 0.50 0.50 0.50 0.50
+[qwen36 lookup] run: 1.00 tokens/forward (1 forwards per 1 tokens) | acceptance 0.0% (0/0 drafts in 0 verifies) | gate on, 0 declined, 0 probes
+[timers] decode: 1 tokens  (shared/router are subsets of moe_total)
+[timers]   deltanet    416758.3 ms  416758.33 ms/token
+[timers]   attention   130033.4 ms  130033.44 ms/token
+[timers]   moe_total  1638111.5 ms  1638111.49 ms/token
+[timers]   (shared)         0.0 ms      0.00 ms/token
+[timers]   (router)         0.0 ms      0.00 ms/token
+[timers]   lm_head      90301.6 ms  90301.65 ms/token
+[timers]   TOTAL      2275204.9 ms  2275204.91 ms/token
+[timers]   step() total: 2276453.4 ms/token (outside the phases: 1248.5)
+[timers]   dn-sub: proj 303685.4 | conv 11.9 | l2n+rec 19.2 | norm+out 113041.5 ms/token
+[timers] attn split: proj 277079 ms | core 18153 ms | tail 114757 ms
+[timers] prefill: 1524 tokens  dn=1000558 attn=280223 moe=2031139(sh=0 rt=0) head=90297 ms
+
+PEAK RSS: 6.96 GB
+Expert cache hit rate: 0.0% (hit=0 miss=0)
+Speed: 0.00 tok/s (5683.3s for 2 tokens)
+	Command being timed: "env SNAP=/root/Models/q27_i4 Q36_MAXT=8192 N_NEW=2 COLI_TEMP=0 COLI_TIMERS=1 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS=4 TRUNK_MAP=1 TRUNK_WARM=0 HOT_FRAC=0.25 RAM_GB=8 Q36_TRUNK_STREAM=1 KV_TQ=4 KV_TQ_CODEC=1 Q36_TQ_ABSORB=0 /root/colibri/c/qwen36 8 4 /root/eval/prompt_7k.txt"
+	User time (seconds): 5949.10
+	System time (seconds): 121.95
+	Percent of CPU this job got: 105%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:36:02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 7296872
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 700369
+	Minor (reclaiming a frame) page faults: 4242688
+	Voluntary context switches: 601347
+	Involuntary context switches: 75217
+	Swaps: 0
+	File system inputs: 140462328
+	File system outputs: 560
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
