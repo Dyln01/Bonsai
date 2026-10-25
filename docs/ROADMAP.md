@@ -323,6 +323,64 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       TTFT + ms/token, then budget the matrix across nights; the 4b-slice-3
       window verdict stays blocked on completed W arms.
 
+- [x] **E13 — the probe landed: FIRST COMPLETED FIELD ARM IN PROJECT HISTORY
+      (rc=0). The daily point's measured floors: TTFT 61.3 min, decode
+      37.1 min/token — and the matrix re-budget those two numbers force
+      (field probe CLOSED 2026-10-25; the remaining arms are now SCHEDULED,
+      not blocked).**
+      The E12 probe ran exactly as prescribed (`BATTERY_ARMS="A"
+      BATTERY_NNEW=2 BATTERY_TIMEOUT=0`, frac 0.25, maxt 8192, stream 1 →
+      `results/battery_llm-030_20261025-101318.json` + its `_logs/`, the
+      first field logs ever persisted): rc=0, wall 1:40:06, zero swaps,
+      peak RSS 6.94 GB under the 7.62 GB total — E11's OOM fix holds on a
+      COMPLETED run and E12's log persistence + unlimited-timeout path
+      work end-to-end. The prompt is 1524 tokens ("7k" is characters):
+      TTFT = 3676.22 s, landing inside E12's predicted 60-90 min prefill
+      floor, at a steady ~50-53 s/layer (a 98-128 s disk transient at
+      layers 47-51 shows in the progress lines and recovers). Decode =
+      2,225,442 ms/token over the single independent decode step (N_NEW=2
+      → token #1 rides out of the prefill forward; `[timers] decode: 1
+      tokens`), and the phase split says where the 37 minutes go:
+      moe/dense-MLP trunk 1596.6 s (71.7%), deltanet 411.4 s (proj 299.2 +
+      norm/out 112.1; conv 9.7 MS, recurrence 18 MS), attention 127.4 s
+      (core 17.2 s), lm_head 90.0 s (the 2.5 GB F16 vocab sweep). The
+      compute cores are <1% of the token — decode at this operating point
+      is pure weight streaming: fs_read 71.72 GB splits as ~6-7 GB load
+      residency touch + ~41.0 GB prefill cold pass (0.75 × 54.7) + ~17-24
+      GB decode-step re-read at ~8-11 MB/s, the E12 stream rate, with the
+      ~6.9 GB resident window serving the rest of each 54.7 GB pass.
+      Measured cost model (fits the wall time EXACTLY: 105 + 3676 + 2225 =
+      6006 s): **T(arm) ≈ 105 s + 3676 s + (n_new−1) × 2225 s** → 1.7 h at
+      n=2, 2.9 h at n=4, 5.4 h at n=8, 10.4 h at n=16 — the pre-probe
+      default (9 arms × n=16) would have been ~4 days of continuous disk
+      spinning. The generated text (`чисwik`, 2 greedy tokens) is the
+      DOCUMENTED unsorted-container behavior — frac<1.0 on an unsorted
+      container prunes arbitrary neurons, "mechanics valid, quality
+      meaningless until hot_sort" (run_battery.sh header) — not a
+      loader-fault signal; quality claims stay deferred to hot_sort
+      (disk-space blocked) + phase-5 PPL. The spec-gate/lookup lines are
+      degenerate (0/0 drafts, rho default) — one decode step leaves
+      nothing to draft; cosmetic, not a fault. E/F skipped cleanly in the
+      field for the first time ("skipped: no mtp head", rc=0).
+      Re-budget: the remaining compute arms B/C/D + W0/W256/W1G at n_new=2
+      cost 6 × ~1.7 h ≈ 10 h = ONE overnight run under BATTERY_TIMEOUT=0,
+      and it completes the 4b-slice-3 window verdict (the W read-matrix
+      wants exactly this: cold, frac 0.25, fs_read_gb per arm) plus field
+      parity for the KV arms. Honest expectation for that night, stated up
+      front: the trunk MLP stream (71.7% of every token) is arm-invariant,
+      and at a 1524-token context the KV/window arms move at most the
+      attention slice (~2.4 min of a 37-min token) — so this matrix
+      measures MECHANICS and the W read-matrix on this host, not speed
+      wins; the numbers will say so and that is a valid result, not a
+      failed one. The only structural lever on the 37-min/token floor is
+      trunk bytes per token: the container is NAMED q27_i4 but its dense
+      trunk is F16 (the pinned converter quantizes routed experts only;
+      the dense 27B has none), so a truly quantized trunk (i8 → 27.4 GB,
+      i4 → 13.7 GB) would roughly halve/quarter the decode floor. That is
+      offline tooling of the hot_sort class and blocked on the same
+      disk-space wall (~42 GB free vs 50+ GB output) — recorded as the
+      structural follow-up, deliberately NOT started in this slice.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

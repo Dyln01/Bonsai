@@ -31,8 +31,12 @@ append here + cite the JSON in the doc that uses them.
 | `battery_llm-030_20261023-222216.json` | run_battery.sh pre-E11 | INVALID — runner launched the STOCK dialect (no `TRUNK_MAP=1`; `Q36_HOT_FRAC` alias inert): seven arms rc=137 at an identical ~5.10 GB fs-read watermark = arm 1 of `docs/BENCH_DENSE27B.md` re-proved nine times (ROADMAP E11). E/F skipped cleanly. |
 | `battery_llm-030_20261024-114815.json` | run_battery.sh post-E11 | INVALID for numbers — smoke arm A died rc=124 at the hardcoded 3600 s wall mid-prefill (ROADMAP E12). VALID as the E11 field proof: `TRUNK_MAP=1`+stream, peak RSS 7.0 GB < 7.62 GB total, no signal-9 kill. |
 | `battery_llm-030_20261024-133054.json` | run_battery.sh post-E11 | INVALID for numbers — 7 compute arms each ran the full 3600 s and were killed (fs_read 37-42 GB ≈ one cold pass at frac 0.25 → 10.3-11.6 MB/s effective); E/F skipped cleanly. The measured HDD budget is now in the runner (`BATTERY_TIMEOUT`, budget echo, `_logs/` persistence). |
+| `battery_llm-030_20261025-101318.json` | run_battery.sh post-E12 | **VALID — the first completed field arm in project history** (E12 probe, arm A, n_new=2, frac 0.25, maxt 8192, stream 1, timeout unlimited): rc=0, wall 1:40:06, zero swaps, peak RSS 6.94/7.62 GB, TTFT 3676.22 s (1524-token prompt), decode 2,225,442 ms/token (`[timers] TOTAL`, one decode step; MLP trunk = 71.7%, attention core 17.2 s), fs_read 71.72 GB. Generated `чисwik` = documented unsorted-container pruning (quality deferred to hot_sort + phase-5 PPL), not a fault. E/F clean field skips. Cost model: T(arm) ≈ 105 s + 3676 s + (n_new−1)×2225 s (ROADMAP E13). |
 | `realweights_20261022-2011/manifest.txt` | run_phase5.sh preflight | VALID — 66 shard sha256s of `/root/Models/q27_i4` (conversion provenance). Only the preflight manifest was committed; any pre-E11 arm `.err` on the box is tainted (decoy `Q36_*` aliases → every arm ran frac 1.0/griffin 0) — re-run with `PHASE5_FORCE=1`. |
 
-Kept per house rules: negative results documented, not buried. No field number
-is quoted anywhere in `docs/` yet; the first valid battery (post-E12) /
-phase-5 summary appends here.
+Kept per house rules: negative results documented, not buried. As of
+2026-10-25 the first VALID field numbers exist (the E12 probe row above —
+quoted in ROADMAP E13 and the `docs/BENCH_DENSE27B.md` arm-1 addendum, both
+citing that JSON). The re-budgeted 6-arm matrix (B/C/D + the W read-matrix,
+~10 h overnight at n_new=2) and the phase-5 summary append here when they
+land.

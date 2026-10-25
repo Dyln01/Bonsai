@@ -100,6 +100,20 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   10-12 MB/s, so no arm finished. BATTERY_TIMEOUT is now a knob (0 = unlimited);
 #   on a rotating disk probe ONE arm first:
 #   BATTERY_ARMS="A" BATTERY_NNEW=2 BATTERY_TIMEOUT=0 BATTERY_FRAC=0.25 BATTERY_STREAM=1 ...
+#   E13 (2026-10-25): the probe LANDED — first completed field arm (rc=0, wall 1:40:06,
+#   zero swaps, peak RSS 6.94/7.62 GB). 1524-token prompt → TTFT 3676.22 s; decode
+#   2,225,442 ms/token (one decode step; MLP trunk streaming = 71.7% of it, attention
+#   core 17.2 s — compute cores are <1%). fs_read 71.72 GB ≈ load touch + one cold
+#   prefill pass + ~17-24 GB decode re-read. Measured cost model (fits the wall exactly):
+#   T(arm) ≈ 105 s + 3676 s + (n_new−1) × 2225 s → 1.7 h @ n=2, 10.4 h @ n=16.
+#   Numbers: results/battery_llm-030_20261025-101318.json (+ _logs/A.err phase splits);
+#   analysis: ROADMAP E13. Remaining matrix ≈ one 10-h overnight run at n_new=2
+#   (append A for a same-night drift control, +1.7 h):
+#   BATTERY_ARMS="B C D W0 W256 W1G" BATTERY_NNEW=2 BATTERY_TIMEOUT=0 \
+#   BATTERY_FRAC=0.25 BATTERY_MAXT=8192 BATTERY_STREAM=1 tools/run_battery.sh ...
+#   Expectation, honest: the trunk stream is arm-invariant and the KV/window arms move
+#   ≤ ~2.4 min of a 37-min token at this context — this matrix measures mechanics and
+#   the W read-matrix, not speed wins.
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M
