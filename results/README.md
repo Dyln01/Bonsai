@@ -32,11 +32,13 @@ append here + cite the JSON in the doc that uses them.
 | `battery_llm-030_20261024-114815.json` | run_battery.sh post-E11 | INVALID for numbers — smoke arm A died rc=124 at the hardcoded 3600 s wall mid-prefill (ROADMAP E12). VALID as the E11 field proof: `TRUNK_MAP=1`+stream, peak RSS 7.0 GB < 7.62 GB total, no signal-9 kill. |
 | `battery_llm-030_20261024-133054.json` | run_battery.sh post-E11 | INVALID for numbers — 7 compute arms each ran the full 3600 s and were killed (fs_read 37-42 GB ≈ one cold pass at frac 0.25 → 10.3-11.6 MB/s effective); E/F skipped cleanly. The measured HDD budget is now in the runner (`BATTERY_TIMEOUT`, budget echo, `_logs/` persistence). |
 | `battery_llm-030_20261025-101318.json` | run_battery.sh post-E12 | **VALID — the first completed field arm in project history** (E12 probe, arm A, n_new=2, frac 0.25, maxt 8192, stream 1, timeout unlimited): rc=0, wall 1:40:06, zero swaps, peak RSS 6.94/7.62 GB, TTFT 3676.22 s (1524-token prompt), decode 2,225,442 ms/token (`[timers] TOTAL`, one decode step; MLP trunk = 71.7%, attention core 17.2 s), fs_read 71.72 GB. Generated `чисwik` = documented unsorted-container pruning (quality deferred to hot_sort + phase-5 PPL), not a fault. E/F clean field skips. Cost model: T(arm) ≈ 105 s + 3676 s + (n_new−1)×2225 s (ROADMAP E13). |
+| `battery_llm-030_20261025-133007.json` | run_battery.sh post-E12 | **VALID — the first COMPLETE field matrix** (E13-prescribed overnight: B/C/D + W0/W256/W1G, n_new=2, frac 0.25, maxt 8192, stream 1, timeout unlimited; 13:30:07→23:11:05 = 9 h 41 m unsupervised): 6/6 rc=0, zero swaps, peak RSS 6.94–6.96/7.62 GB, E/F clean skips. Decode 2,234,889–2,357,981 ms/tok and TTFT 3287.6–3660.9 s — with the probe, all seven arms inside a ±6% HDD noise band, no arm separation (E13's pre-registered honest expectation). fs_read 71.760–71.929 GB on every arm (seven-arm spread 0.21 GB = 0.3%): the trunk stream is arm-invariant — KV codecs (f32/KV8/TQ4±absorb) and GRIFFIN/window move no bytes at 1524-token context. Cost model validated: 10 h 01 m predicted vs 9 h 41 m measured (−3.3%). **4b-slice-3 gate-3 verdict: FAIL, documented negative** — window never allocated (int4-only guard vs the F16 trunk; `hits 0 misses 0` on W256/W1G is that signature), `Q36_WIN_MB` stays 0; all seven arms emit the same first greedy token (lossy-KV argmax parity; quality still deferred). ROADMAP E14, WINDOWING §Gates. |
 | `realweights_20261022-2011/manifest.txt` | run_phase5.sh preflight | VALID — 66 shard sha256s of `/root/Models/q27_i4` (conversion provenance). Only the preflight manifest was committed; any pre-E11 arm `.err` on the box is tainted (decoy `Q36_*` aliases → every arm ran frac 1.0/griffin 0) — re-run with `PHASE5_FORCE=1`. |
 
 Kept per house rules: negative results documented, not buried. As of
-2026-10-25 the first VALID field numbers exist (the E12 probe row above —
-quoted in ROADMAP E13 and the `docs/BENCH_DENSE27B.md` arm-1 addendum, both
-citing that JSON). The re-budgeted 6-arm matrix (B/C/D + the W read-matrix,
-~10 h overnight at n_new=2) and the phase-5 summary append here when they
-land.
+2026-10-25 the field battery is COMPLETE and valid (probe + the 6-arm
+overnight matrix above — quoted in ROADMAP E13/E14, the
+`docs/BENCH_DENSE27B.md` arm-1 addendum, and the `docs/WINDOWING_QWEN36.md`
+gate-3 verdict, all citing those two JSONs). Phase 4b is closed by it. The
+phase-5 summary (`PHASE5_FORCE=1` re-run, now budgetable from the validated
+cost model) is the remaining field artifact; it appends here when it lands.

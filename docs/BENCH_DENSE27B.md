@@ -114,6 +114,20 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   Expectation, honest: the trunk stream is arm-invariant and the KV/window arms move
 #   ≤ ~2.4 min of a 37-min token at this context — this matrix measures mechanics and
 #   the W read-matrix, not speed wins.
+#   E14 (2026-10-25): the overnight matrix LANDED — 6/6 arms rc=0 (B/C/D + W0/W256/W1G,
+#   n_new=2), 9 h 41 m unsupervised vs the cost model's 10 h 01 m (−3.3%: the model is
+#   validated and usable for phase-5 budgeting). Zero swaps, peak RSS 6.94–6.96/7.62 GB.
+#   Decode 2234.9–2358.0 s/tok, TTFT 3287.6–3660.9 s: with the probe, all seven arms sit
+#   inside a ±6% HDD noise band — no arm separation, exactly as pre-registered. fs_read
+#   71.76–71.93 GB on EVERY arm (0.3% spread): KV codecs and GRIFFIN/window move no
+#   bytes at 1524 ctx; decode is pure trunk streaming. 4b-slice-3 gate-3 window verdict:
+#   FAIL, documented negative — W256/W1G cut reads 0.047%/0.018% vs the ≥50% bar, and
+#   the window never allocated at all (int4-only guard vs the F16 trunk; `hits 0 misses 0`
+#   is that signature). Q36_WIN_MB stays 0. All seven arms emit the same first greedy
+#   token (lossy-KV argmax parity; quality deferred to hot_sort + phase-5).
+#   Numbers: results/battery_llm-030_20261025-133007.json (+ _logs/, incl. the
+#   [qwen36 win] lines); analysis: ROADMAP E14, WINDOWING doc §Gates. The field battery
+#   is COMPLETE; next field step = phase 5 (PHASE5_FORCE=1 tools/run_phase5.sh ...).
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M

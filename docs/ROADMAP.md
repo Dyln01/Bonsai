@@ -158,13 +158,23 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       `results/results_window_sim_q36.json`; CI replays it per push. Side finding:
       per-token sets DO vary on synthetic once GRIFFIN is alive (jacc 0.17) — 4a's
       constant-set negative was an inert-GRIFFIN artifact; predictor re-run queued.
-- [~] **Phase 4b slice 3:** battery arms W0/W256/W1G (GRIFFIN × window) + per-arm
-      `File system inputs` read-byte accounting shipped in `run_battery.sh`;
-      **measurement pending on the HDD mini-PC** (one command). The 2026-10-22/23
-      field attempts were invalid — runner bugs, see E11; post-E11 the W arms run
-      cold-cache (BATTERY_WARM=0) so fs_read_gb is comparable. Launcher default for
-      `Q36_WIN_MB` stays 0 until then — sim budget floor: the window only beats static
-      at cap ≥ ~2K neurons (≈2.1 GB on dense 27B frac 0.25), infeasible in 8 GB.
+- [x] **Phase 4b slice 3 (field verdict 2026-10-25, E14):** battery arms
+      W0/W256/W1G (GRIFFIN × window) + per-arm `File system inputs` read-byte
+      accounting shipped in `run_battery.sh`; measured cold-cache (BATTERY_WARM=0)
+      on the HDD mini-PC in the 2026-10-25 overnight matrix
+      (`results/battery_llm-030_20261025-133007.json`). **Gate 3: FAIL —
+      documented negative.** W256/W1G cut fs_read 0.047%/0.018% vs W0
+      (71.791/71.812 vs 71.825 GB) against the pre-registered ≥50% bar. The
+      reason is mechanical, not statistical: the window CANNOT ALLOCATE on
+      q27_i4 — `q36_win_ensure` requires int4-packed MLP maps
+      (`map_len == D*I/2`) and the dense trunk is F16 (E13); `hits 0 misses 0`
+      on both window arms is that signature (lookup returns before counting
+      when `win == NULL`). W0≡W256≡W1G were one configuration thrice. And at
+      the field-forced n_new=2 (ONE decode step) the ≥50% bar was
+      arithmetically unreachable anyway: decode re-read is ≤33% of total
+      bytes and steady-state hits need ≥2 steps. `Q36_WIN_MB` stays
+      default-off (engine default 0; the launcher's rotational auto-256 never
+      shipped and now must not). Re-gate conditions in `docs/WINDOWING_QWEN36.md`.
 - [x] **Phase 4c — cross-engine KV8/TQ ports CLOSED (2026-10-22).** qwen38: KV8 +
       KV_TQ/absorb ports, gates green on a CI-sized qwen4_exp_text container (slices
       1-3). glm53: dialect appendix B, synthetic container the stock engine runs first
@@ -172,8 +182,9 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       tq-on self-deterministic, absorb 0v1 78/78 (slice 4). Three engines now share the
       tier ladder; per-engine patchers + own backups; qwen36 chain untouched throughout.
 - [x] **Phase 4 CLOSED** — 4a predictor (negative, diagnosis corrected), 4b windowing
-      (cache + sim merged; slice-3 verdict awaits the HDD battery), 4c ports (qwen38 +
-      glm53). Tag `phase-4`.
+      (cache + sim merged; slice-3 field verdict landed 2026-10-25: read-matrix flat,
+      window unallocatable on the F16 trunk, knob stays default-off — E14), 4c ports
+      (qwen38 + glm53). Tag `phase-4`.
 - [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
@@ -380,6 +391,99 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       offline tooling of the hot_sort class and blocked on the same
       disk-space wall (~42 GB free vs 50+ GB output) — recorded as the
       structural follow-up, deliberately NOT started in this slice.
+- [x] **E14 — the overnight matrix landed: FIRST COMPLETE FIELD BATTERY
+      (6/6 arms rc=0, 9 h 41 m unsupervised), the E13 cost model validated
+      at −3.3%, fs_read proven arm-invariant across all seven completed
+      arms, and the 4b-slice-3 window verdict: documented NEGATIVE — the
+      window never allocated on the F16 trunk (field verdict CLOSED
+      2026-10-25; Phase 4b fully closed with it).**
+      The E13-prescribed overnight ran exactly as budgeted
+      (`BATTERY_ARMS="B C D W0 W256 W1G" BATTERY_NNEW=2 BATTERY_TIMEOUT=0
+      BATTERY_FRAC=0.25 BATTERY_MAXT=8192 BATTERY_STREAM=1` →
+      `results/battery_llm-030_20261025-133007.json` + `_logs/`, 13:30:07 →
+      23:11:05): every arm rc=0, zero swaps, engine PEAK RSS 6.94–6.96 GB
+      under the 7.62 GB total — E11's OOM fix now holds on 7/7 completed
+      field arms and E12's knobs (unlimited timeout + log persistence)
+      survived their first unsupervised night. Wall per arm 5685–6067 s vs
+      the E13 model's 6006 s: 10 h 00 m 36 s predicted vs 9 h 40 m 58 s
+      measured, −3.3%, the residual being TTFT drift (arm mean 3431.5 s vs
+      the probe's 3676.2 s — the probe had caught a 98–128 s disk transient
+      at layers 47–51). The cost model is now field-validated and usable
+      for phase-5 budgeting. Decode (`[timers] TOTAL`, one step each):
+      2,234,889 / 2,275,205 / 2,264,507 / 2,357,981 / 2,322,810 /
+      2,317,530 ms/tok for B/C/D/W0/W256/W1G, vs the probe's 2,225,442 →
+      full seven-arm range 2225–2358 s = −2.6%/+3.2% about the 2285 s mean;
+      TTFT 3287.6–3676.2 s across the seven = ±6% about 3466 s. No arm
+      separates from any other beyond that
+      noise band — exactly the honest expectation E13 pre-registered.
+      fs_read 71.760–71.929 GB across the six (+ probe 71.72): a 0.21 GB
+      (0.3%) total spread proves the trunk stream arm-invariant — KV codec
+      (f32 → fp8-e4m3 → rot-int4 ±absorb) and the GRIFFIN/window knobs do
+      not move read bytes at a 1524-token context; decode at the daily
+      point is pure weight streaming, n=7. The three W arms agreeing to
+      34 MB (0.05%) doubles as the repeatability floor of the /proc/io
+      read accounting itself. B/C/D are the first COMPLETED lossy-KV field
+      arms: banners verified engaged in-log (KV8 fp8-e4m3 + per-row scale;
+      KV_TQ=4 codec=1 rot-int4 128 B/row, absorb 0 and 1), and all seven
+      arms emitted the SAME first greedy token (`чисwik` — the documented
+      unsorted-container pruning garbage; the argmax survives all three KV
+      codecs, consistent with the cosine-band gates, quality still deferred
+      to hot_sort + phase-5 PPL). RSS is codec-flat because KV at 1524
+      tokens is ~100 MB-class against a ~7 GB working set: the KV tiers are
+      long-context RAM-ceiling levers, not this host's trunk-bound decode
+      levers — the field says what the synthetic batteries said.
+      **The 4b-slice-3 gate-3 verdict (pre-registered: window-on must cut
+      read bytes ≥50% at equal-or-better decode, else the knob stays
+      default-off): FAIL, documented negative.** Measured cuts: W256
+      −0.047%, W1G −0.018% vs W0. Two independent reasons, both recorded:
+      (1) MECHANICAL — the window cannot allocate on q27_i4 at all:
+      `q36_win_ensure` requires int4-packed MLP maps (`map_len == D*I/2`)
+      and the dense trunk is F16 (`map_len == D*I*2`; every arm log re-proves
+      it with `[dense-i8] 0 matrices quantized during load`), so `l->win`
+      stays NULL and `q36_win_lookup` returns before touching the counters —
+      the field signature `[qwen36 win] hits 0 misses 0 (0.0% hit-rate),
+      budget 256/1024 MB` on both window arms. W0≡W256≡W1G were the same
+      configuration three times; the flat matrix is an identity, not a
+      window measurement. (2) ARITHMETIC — at the field-forced n_new=2
+      there is ONE decode step: steady-state hits need ≥2 steps, and the
+      decode re-read is 17–24 GB of the ~71.8 GB total (≤33%), so even a
+      perfect window could not reach a ≥50% total cut. The threshold was
+      written for multi-token decode before E12/E13 exposed the 37-min/token
+      floor; calibration lesson recorded — future pre-registered gates must
+      state their n_new. The knob-off verdict stands under either reading.
+      First field positives on the way: the GRIFFIN=1 decode gather path
+      ran to completion on the real container (3/3 rc=0, byte-identical
+      greedy token, identical fs_read vs the non-GRIFFIN arms) — the
+      slice-1 finalize fix works in the field. On the UNSORTED container at
+      frac 0.25 the griffin set degenerates to the static hot prefix by
+      construction (observe only sees the narrowed Ik = I·frac = 4352
+      prefix neurons; top-k with k = I·frac can only re-select that same
+      prefix), so the gather loop reads the identical contiguous rows
+      per-row instead of batched — decode moe_total +5.0% on the W arms
+      (1689–1717 s vs 1597–1638 s) is plausibly that per-row overhead, but
+      at one decode step against a ±6% TTFT noise band it stays INCONCLUSIVE,
+      recorded not claimed. A non-degenerate griffin set needs a sorted
+      container (or frac 1.0) — the same disk-space wall as everything
+      else quality-shaped. Phase 4b closes here: slice 1 mechanism +
+      dense-observe fix, slice 2 synthetic sim curve
+      (`results/results_window_sim_q36.json`), slice 3 field read-matrix
+      negative. Window re-gate conditions (WINDOWING doc §Gates): a true
+      int4-trunk container (E13's structural follow-up — also the ONLY lever
+      on the 37-min/token floor, so the two waits are one wait), n_new ≥ ~8
+      for steady-state hits, sorted container for non-degenerate sets; or
+      the slice-2 plausible zone (MoE shared experts / smaller-I containers
+      / bigger-RAM boxes). Next field step: phase 5 with `PHASE5_FORCE=1`,
+      now budgetable from the validated cost model. This slice is
+      docs-only (ROADMAP E14 + slice-3/CLOSED lines, results/README VALID
+      matrix row, WINDOWING gate-3 verdict + slices, BENCH_DENSE27B arm-1
+      addendum); no engine or runner change — the `hits 0 misses 0` line
+      alone is ambiguous ("window unallocatable" vs "gather never ran"),
+      but the code path resolves it: with GRIFFIN=1, dense observe +
+      finalize-at-prefill-end build sets unconditionally (k = I·frac =
+      4352 < I), so the gather DID run and the zero counters are the
+      NULL-win short-circuit; had the trunk been int4, the same n_new=2
+      run would have logged misses ≈ 4352×64 ≈ 278k and hits 0 — which is
+      why the re-gate needs n_new ≥ ~8, not just a quantized trunk.
 
 ## Rules that stay
 
