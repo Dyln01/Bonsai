@@ -64,6 +64,38 @@ jobs:
           echo "logits run1=$a run2=$b"
           [ "$a" = "$b" ]
 
+      - name: E16 gate — chunked tf-nll parity (Q36_TF_CHUNK=1 vs 8 vs 32)
+        run: |
+          set -e
+          python3 - <<'PY'
+          import json
+          ids = [int(l) for l in open("/tmp/ids.txt")]
+          assert len(ids) > 12
+          json.dump({"prompt_ids": ids[:-12], "full_ids": ids}, open("/tmp/ref_tf.json", "w"))
+          print("ref_tf.json:", len(ids) - 12, "prompt /", len(ids), "full (12 scored)")
+          PY
+          for CH in 1 8 32; do
+            SNAP="$HOME/synth_models/student_1b_i4" TRUNK_MAP=1 Q36_MAXT=512 PPL=1 Q36_TF_CHUNK=$CH \
+              COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+              timeout 900 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_tf.json > /tmp/tf_$CH.out 2> /tmp/tf_$CH.err
+            grep "ppl =" /tmp/tf_$CH.out
+          done
+          grep -q "\[tf\] chunk=8" /tmp/tf_8.err    # banners prove the knob engaged
+          grep -q "\[tf\] chunk=32" /tmp/tf_32.err  # (chunk=32 > 12 scored: one pass, S clamped)
+          python3 - <<'PY'
+          import re
+          def ppl(p):
+              m = re.search(r"ppl = ([\d.eE+-]+)", open(p).read())
+              assert m, "no ppl line in " + p
+              return float(m.group(1))
+          a, b, c = ppl("/tmp/tf_1.out"), ppl("/tmp/tf_8.out"), ppl("/tmp/tf_32.out")
+          print("ppl chunk1=%.6f chunk8=%.6f chunk32=%.6f" % (a, b, c))
+          assert a > 0
+          assert abs(b - a) / a < 1e-2, "chunk=8 drifted >1% from per-token"
+          assert abs(c - a) / a < 1e-2, "chunk=32 drifted >1% from per-token"
+          print("E16 gate OK: chunked tf-nll == per-token within 1% (field arms are paired same-chunk; the per-token path is 52 days/arm in the field)")
+          PY
+
       - name: MTP gate 1 — knob on, headless container must refuse
         run: |
           set -e

@@ -92,3 +92,37 @@ rerun: the knob's default stays off and the number goes in the report as-is.
 Scope recorded: **W1 (dense 27B) first**; W2 (MoE+MTP arms) on a follow-up
 session whenever wanted. Session runner: `tools/run_phase5.sh` (resumable,
 per-arm caching, bands mirrored from §3, summary JSON out).
+
+## 7. Addendum (2026-10-26, E15/E16) — field runnability of §3–§5 on llm-030
+
+The first field attempt (three manifest-only sessions,
+`results/realweights_20261026-*`, ROADMAP E15/E16) exposed two
+contract-level facts. The §3 bands are UNCHANGED; the mechanics are amended
+as follows, implemented in `tools/run_phase5.sh` + `tools/patch_tf_chunk.py`
+(CI parity gate in `engine-build.yml`):
+
+- §5.3 ref build: runs the engine in the streaming dialect (`TRUNK_MAP=1` +
+  `HOT_FRAC=${PHASE5_REF_FRAC:-0.25}`) over a right-sized wikitext slice
+  (~6 bytes/token for ctx+len). The ref ids are pure tokenizer output —
+  `generate()` copies the prompt ids verbatim before any forward — so the
+  prefill config cannot taint them; it only has to fit the box (E15).
+- §3 scoring: arms run `Q36_TF_CHUNK=${PHASE5_CHUNK:-64}` — chunked
+  teacher forcing on the speculative-verify multi-row kernel (already
+  CI-proven decode-exact). Per-token scoring is decode speed in the field:
+  2225 s/token (E13) ⇒ 2048 scored ≈ 52 days/arm; chunking amortizes the
+  trunk stream and leaves the lm_head pass (~90 s) as the per-scored-token
+  floor (E16). `PHASE5_LEN` default: 2048 → 64 scored tokens. Budget:
+  per arm ≈ prefill(CTX) + ceil(LEN/CHUNK) × trunk pass + LEN × 90 s ⇒
+  ~2.7 h/arm at frac 0.25, ~4.4 h at frac 1.0, full session ≈ 28–32 h.
+- Band power at LEN=64, pre-registered: B/C/F/G (1–5% bands) are paired
+  same-chunk deltas and stay meaningful; the ≤0.2% band (H) is
+  UNDERPOWERED — H reports its measured Δ flagged underpowered unless
+  `PHASE5_LEN` is raised (~+1.6 h per extra 64 scored on frac-0.25 arms).
+- Arm D note: the GRIFFIN gather engages only on S==1 steps, so chunked
+  scoring measures D as C-mechanics + finalize; on the unsorted field
+  container D≡C was already the E14 field finding (degenerate sets).
+  Recorded as-is, not a regression.
+- §4 M1: runs in GENERATE mode (`PPL=1` returns inside tf_nll before
+  `generate()` — `DUMP_IDS` would never land, E15b): prefill +
+  `PHASE5_M1NEW` (default 1) greedy tokens, bitwise, at the arm-A config,
+  twice; cached like the arms (`PHASE5_FORCE=1` reruns).

@@ -34,11 +34,18 @@ append here + cite the JSON in the doc that uses them.
 | `battery_llm-030_20261025-101318.json` | run_battery.sh post-E12 | **VALID — the first completed field arm in project history** (E12 probe, arm A, n_new=2, frac 0.25, maxt 8192, stream 1, timeout unlimited): rc=0, wall 1:40:06, zero swaps, peak RSS 6.94/7.62 GB, TTFT 3676.22 s (1524-token prompt), decode 2,225,442 ms/token (`[timers] TOTAL`, one decode step; MLP trunk = 71.7%, attention core 17.2 s), fs_read 71.72 GB. Generated `чисwik` = documented unsorted-container pruning (quality deferred to hot_sort + phase-5 PPL), not a fault. E/F clean field skips. Cost model: T(arm) ≈ 105 s + 3676 s + (n_new−1)×2225 s (ROADMAP E13). |
 | `battery_llm-030_20261025-133007.json` | run_battery.sh post-E12 | **VALID — the first COMPLETE field matrix** (E13-prescribed overnight: B/C/D + W0/W256/W1G, n_new=2, frac 0.25, maxt 8192, stream 1, timeout unlimited; 13:30:07→23:11:05 = 9 h 41 m unsupervised): 6/6 rc=0, zero swaps, peak RSS 6.94–6.96/7.62 GB, E/F clean skips. Decode 2,234,889–2,357,981 ms/tok and TTFT 3287.6–3660.9 s — with the probe, all seven arms inside a ±6% HDD noise band, no arm separation (E13's pre-registered honest expectation). fs_read 71.760–71.929 GB on every arm (seven-arm spread 0.21 GB = 0.3%): the trunk stream is arm-invariant — KV codecs (f32/KV8/TQ4±absorb) and GRIFFIN/window move no bytes at 1524-token context. Cost model validated: 10 h 01 m predicted vs 9 h 41 m measured (−3.3%). **4b-slice-3 gate-3 verdict: FAIL, documented negative** — window never allocated (int4-only guard vs the F16 trunk; `hits 0 misses 0` on W256/W1G is that signature), `Q36_WIN_MB` stays 0; all seven arms emit the same first greedy token (lossy-KV argmax parity; quality still deferred). ROADMAP E14, WINDOWING §Gates. |
 | `realweights_20261022-2011/manifest.txt` | run_phase5.sh preflight | VALID — 66 shard sha256s of `/root/Models/q27_i4` (conversion provenance). Only the preflight manifest was committed; any pre-E11 arm `.err` on the box is tainted (decoy `Q36_*` aliases → every arm ran frac 1.0/griffin 0) — re-run with `PHASE5_FORCE=1`. |
+| `realweights_20261026-0919/manifest.txt` (+ `-0949/`, `-1014/`) | run_phase5.sh pre-E15 | INVALID — preflight tombstones ×3 (commit `cfc4e91`): the ref builder ran the engine WITHOUT `TRUNK_MAP=1`/`HOT_FRAC` — the stock loader mallocs the 54.7 GB F16 trunk and the 7.62 GB box kills it in seconds; no `ref.json`, no `arms/`, no `summary.json` (ROADMAP E15). The manifests themselves are VALID provenance — identical 66 sha256s ×3, a free three-way repeatability proof of the container. `-1014/` is the resume target of the fixed re-run (E15+E16 kit: streaming-dialect ref build, chunked tf-nll `Q36_TF_CHUNK`, LEN default 64, session budget ~28–32 h). |
 
 Kept per house rules: negative results documented, not buried. As of
 2026-10-25 the field battery is COMPLETE and valid (probe + the 6-arm
 overnight matrix above — quoted in ROADMAP E13/E14, the
 `docs/BENCH_DENSE27B.md` arm-1 addendum, and the `docs/WINDOWING_QWEN36.md`
-gate-3 verdict, all citing those two JSONs). Phase 4b is closed by it. The
-phase-5 summary (`PHASE5_FORCE=1` re-run, now budgetable from the validated
-cost model) is the remaining field artifact; it appends here when it lands.
+gate-3 verdict, all citing those two JSONs). Phase 4b is closed by it.
+2026-10-26: the first phase-5 attempt landed as three manifest-only
+tombstones (E15: stock-dialect ref build; E16: per-token tf-nll = ~52
+days/arm at LEN 2048). The kit was fixed and the scoring chunked
+(`Q36_TF_CHUNK`, CI-parity-gated) the same day; the re-run needs NO
+`PHASE5_FORCE` (no arm ever ran) and resumes
+`results/realweights_20261026-1014` on its cached manifest. Its
+`summary.json` is the remaining field artifact; it appends here when it
+lands.

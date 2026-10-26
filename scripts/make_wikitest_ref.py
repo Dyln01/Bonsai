@@ -11,7 +11,16 @@ then drop the single generated id — the rest is the pure wikitext encoding.
 
 Output ref.json = {"prompt_ids": first --ctx ids, "full_ids": first --len ids},
 the contract engine ref-mode/PPL=1 expects (tf_nll scores positions
-ctx..len-1). Prints the exact scoring command afterwards.
+ctx..len-1 — so --len must be ctx + the wanted SCORED count; run_phase5.sh
+passes --len=CTX+LEN). Prints the exact scoring command afterwards.
+
+The engine run is a full prefill of the slice (DUMP_IDS lands at the end of
+generate()); on a streaming host that costs a weight pass — size --bytes to
+just what --ctx/--len need (~6 bytes/token). The ids themselves are
+forward-pass independent: generate() copies the prompt ids verbatim before
+any step, so HOT_FRAC/pruning cannot taint ref.json — but the call must still
+FIT the box: E15, run it with TRUNK_MAP=1 + a fitting HOT_FRAC or the stock
+loader mallocs the whole dense trunk and an 8 GB host kills it in seconds.
 
 Env: Q36_ENGINE (default ~/colibri/c/qwen36), Q36_CAP (default 8),
 Q36_THREADS (default 4).
@@ -56,15 +65,21 @@ def main():
         r = subprocess.run([engine, cap, thr, pf], env=env,
                            capture_output=True, text=True)
         if r.returncode != 0:
-            sys.exit("engine rc=%d\n%s" % (r.returncode, r.stderr[-800:]))
+            sys.exit("engine rc=%d\n%s\n"
+                     "hint (E15): on small-RAM hosts this engine call needs the streaming "
+                     "dialect — TRUNK_MAP=1 plus a HOT_FRAC that fits (tools/run_phase5.sh "
+                     "sets both; without TRUNK_MAP the stock loader mallocs the whole "
+                     "dense trunk and the box kills it)."
+                     % (r.returncode, r.stderr[-800:]))
         if not os.path.exists(idf):
             sys.exit("no DUMP_IDS output — engine too old? need the DUMP_IDS hook")
         ids = [int(l) for l in open(idf) if l.strip()]
     if len(ids) < 2:
         sys.exit("engine returned %d ids" % len(ids))
     ids = ids[:-1]                      # drop the one generated token
-    if len(ids) < ctx + 64:
-        sys.exit("only %d wikitext tokens encoded; raise --bytes" % len(ids))
+    if len(ids) < length:
+        sys.exit("only %d wikitext tokens encoded, need %d (ctx %d + %d scored); "
+                 "raise --bytes (now %d)" % (len(ids), length, ctx, length - ctx, nbytes))
     full = ids[:length]
     ref = {"prompt_ids": full[:ctx], "full_ids": full}
     json.dump(ref, open(out, "w"))

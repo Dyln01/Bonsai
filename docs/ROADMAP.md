@@ -189,7 +189,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
       M5 via run_battery.sh when meta.mtp; manifest sha256s; summary JSON with the
-      §3 bands applied). Awaiting the mini-PC run + numbers; report doc
+      §3 bands applied). First field attempt 2026-10-26 (`cfc4e91`): three
+      manifest-only tombstone sessions — the ref builder ran the engine in the
+      stock dialect (E15) and the scripted per-token tf-nll would have cost
+      ~52 days/arm (E16). Kit fixed same day: streaming-dialect ref build +
+      WIKI fail-fast + cached manifest/M1 + `--len` math (E15), and
+      `Q36_TF_CHUNK` chunked scoring with a CI parity gate + `PHASE5_LEN`
+      default 64 (E16) — session budget now ~28–32 h. Re-armed: resume into
+      `results/realweights_20261026-1014` (manifest cached, no
+      `PHASE5_FORCE` needed — no arm ever ran). Report doc
       `docs/REALWEIGHTS_QWEN36.md` gets written from `summary.json`.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
@@ -484,6 +492,70 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       NULL-win short-circuit; had the trunk been int4, the same n_new=2
       run would have logged misses ≈ 4352×64 ≈ 278k and hits 0 — which is
       why the re-gate needs n_new ≥ ~8, not just a quantized trunk.
+- [x] **E15 — Phase 5's first field attempt: three sessions died right after
+      the manifest (`realweights_20261026-0919/0949/1014`, commit `cfc4e91` —
+      manifest-only tombstones). The ref builder ran the engine in the STOCK
+      dialect — the E11 failure mode, one level up.** `tools/run_phase5.sh`
+      passed its `COMMON` (with `TRUNK_MAP=1`) only to `arm()`; the
+      `make_wikitest_ref.py` call inherited none of it and the script's own
+      env sets only SNAP/N_NEW/DUMP_IDS-class names — so the tokenizer's
+      engine call hit `load_tq` without `TRUNK_MAP`: the stock path mallocs
+      the whole 54.7 GB F16 dense trunk → dead in seconds on the 7.62 GB box,
+      before any arm could start (no `arms/`, no `ref.json`, no `summary.json`
+      in any of the three sessions; each retry re-hashed all 66 shards first,
+      ~20 min per tombstone). `HOT_FRAC` unset would have defaulted to 1.0 on
+      top of it. Second latent driver bug found in the same audit (E15b):
+      M1 ran `PPL=1` + ref.json — the engine takes the tf_nll branch and
+      returns BEFORE `generate()`, so `DUMP_IDS` is never written and M1
+      could only ever print FAIL on missing files. Fixes this slice (all in
+      `tools/run_phase5.sh` + `scripts/make_wikitest_ref.py`): WIKI-file
+      fail-fast BEFORE the manifest hash; cached manifest on resume; ref
+      build wrapped in `env TRUNK_MAP=1 HOT_FRAC=${PHASE5_REF_FRAC:-0.25}`
+      with a right-sized slice (~6 bytes/token over ctx+len+128 — the ref ids
+      are pure tokenizer output, `generate()` copies them verbatim before any
+      forward, so the frac cannot taint ref.json, it only has to FIT);
+      `--len=$((CTX+LEN))` (the old `--len=$LEN` silently scored LEN−CTX
+      tokens against a "LEN scored" contract); `make_wikitest_ref.py`'s
+      short-encode guard tightened from `ctx+64` to the full `--len` with an
+      actionable message, plus a streaming-dialect hint on engine rc≠0; M1
+      switched to `COMMON_GEN` (COMMON minus PPL=1) +
+      `N_NEW=${PHASE5_M1NEW:-1}` = prefill + first-greedy-token bitwise
+      determinism at the arm-A config, cached like the arms. Verified:
+      run_phase5.sh end-to-end on a synthetic container (fresh + resume +
+      M1 cached, 7/7 arms rc=0, summary.json well-formed) in-sandbox.
+- [x] **E16 — Phase 5 was arithmetically unrunnable as scripted: `tf_nll`
+      scored every token with a single-token `step()` — DECODE speed — and
+      decode on llm-030 is 2225 s/token (E13, n=7). `PHASE5_LEN=2048` ⇒
+      2048 × 37 min ≈ 52 DAYS per arm; ~9 runs per session ⇒ never.** The
+      protocol's "2048 scored tokens — mini-PC budget" was priced at prefill
+      speed; the field battery proved this box has no such speed for
+      per-token forwards (every scored token re-streams the whole cold
+      trunk: MLP trunk = 71.7% of the 2225 s step, lm_head ~90 s). Fix:
+      `tools/patch_tf_chunk.py` → `Q36_TF_CHUNK=S` (S>1) scores S positions
+      per weight pass through `step_ex`'s `nlogits` rows — the exact
+      multi-row kernel speculative verify runs, whose decode-exactness the
+      CI MTP forced-accept gates already prove byte-for-byte; unset/1 keeps
+      the per-token path bit-identical (default preserved). Chain grows
+      `... pretdw -tokdump_w-> pretfc -tf_chunk-> qwen36.c`; new CI gate
+      (engine-build.yml) scores one ref at chunk 1/8/32, requires the
+      `[tf] chunk=` banner and ppl within 1% of per-token. Sandbox proof
+      this slice: patched engine vs pinned colibri bf24429, chunk 1/8/32 →
+      TF-NLL identical to 4 dp (8.3178 nats, drift 0.0) on a synthetic
+      container, banners + pass-counts correct (12 scored in 3 passes at
+      chunk 8, 2 at chunk 32). What chunking does NOT fix: one lm_head pass
+      per scored position (~90 s field) — the new per-token floor.
+      Re-budget (E13 constants): per arm ≈ prefill(CTX) +
+      ceil(LEN/CHUNK) × trunk pass + LEN × 90 s ⇒ defaults LEN=64 CHUNK=64
+      ≈ 2.7 h/arm at frac 0.25, ~4.4 h at frac 1.0; full session (ref build
+      + A B C D F G H + M1×2) ≈ 28–32 h continuous — a weekend, not 52
+      days. Band consequence, pre-registered: at LEN=64 the ≤0.2% band (H)
+      is UNDERPOWERED — paired same-chunk deltas keep B/C/F/G (1–5%)
+      meaningful; H reports its measured Δ flagged underpowered (raise
+      `PHASE5_LEN`, ~+1.6 h per extra 64 scored on frac-0.25 arms, if H
+      must decide). Arm D note: the GRIFFIN gather engages only on S==1
+      steps, so chunked scoring measures D as C-mechanics + finalize — on
+      the UNSORTED field container D≡C was already the E14 finding
+      (degenerate sets by construction); recorded, not a regression.
 
 ## Rules that stay
 
