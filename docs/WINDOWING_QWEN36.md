@@ -88,7 +88,13 @@ makes *active* rows resident (no reads at all). They compose: sorted container
    the real container (3/3 rc=0, identical fs_read and greedy token vs the
    non-GRIFFIN arms — on the UNSORTED container the griffin set degenerates
    to the static hot prefix by construction, since observe only sees the
-   narrowed Ik = I·frac prefix and top-k re-selects it). **Re-gate
+   narrowed Ik = I·frac prefix and top-k re-selects it. **E17 correction
+   2026-10-27:** the identical greedy tokens/fS_read across arms had a
+   simpler cause — the bias-less mapped-F16 converter made every arm's
+   forward numerically identical (trunk contributions ~1e-34); the
+   observe-narrowing argument above describes the mechanics but was never
+   field-tested against live numerics. The gate-3 FAIL itself is
+   structural (int4-only window guard vs the F16 trunk) and stands.) **Re-gate
    conditions:** (a) a true int4-trunk container (E13's structural
    follow-up — blocked on the same disk-space wall), (b) n_new ≥ ~8 so
    steady-state hits exist (expected int4 signature at n=2 would have been

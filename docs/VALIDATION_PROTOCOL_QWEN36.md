@@ -126,3 +126,14 @@ as follows, implemented in `tools/run_phase5.sh` + `tools/patch_tf_chunk.py`
   `generate()` — `DUMP_IDS` would never land, E15b): prefill +
   `PHASE5_M1NEW` (default 1) greedy tokens, bitwise, at the arm-A config,
   twice; cached like the arms (`PHASE5_FORCE=1` reruns).
+- E17 (2026-10-27) — numeric-validity precondition: every field run before
+  `patch_mapf16_bias.py` executed with a numerically dead mapped-F16 trunk
+  (weights read at 2⁻¹¹²; tf ppl == vocab_size exactly). §3 bands are only
+  meaningful on an engine at or after that patch; `run_phase5.sh` enforces
+  this with a tripwire that aborts any session whose arm reports
+  ppl == vocab_size (fresh or cached), and the E17 CI gate
+  (mapped-vs-resident tf-NLL parity ≤0.1% on a real-headed F16-dense
+  container) keeps the conversion honest going forward. The first field
+  arms A (complete) and B (interrupted) of `realweights_20261026-1014` are
+  VOID as measurements; `manifest.txt` and `ref.json` from that session are
+  engine-independent and remain valid.

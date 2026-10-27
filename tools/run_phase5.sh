@@ -44,6 +44,16 @@
 # (realweights_20261026-0919/0949/1014) are manifest-only tombstones of that.
 # E15b: M1 must run WITHOUT PPL=1 — the tf_nll branch returns before
 # generate(), so DUMP_IDS would never be written and M1 could only report FAIL.
+# E17: the first completed field arms (realweights_20261026-1014 A/B) ran on an
+# engine whose map_f16_one lacked the F16->F32 exponent-bias rebase: EVERY
+# mapped F16 weight read back 2^-112 of its true value, the trunk left the
+# computation entirely, and tf scored ppl == vocab_size EXACTLY (logits ~1e-33,
+# softmax uniform). Those arms/*.err are tombstones of that bug, not
+# measurements. Rebuild the engine (tools/patch_mapf16_bias.py is in the
+# chain), delete the session's arms/ (keep manifest.txt + ref.json — both
+# engine-independent), rerun. The tripwire below aborts any session started on
+# a pre-E17 engine right after its first arm instead of burning ~30 h of disk
+# on dead numbers.
 set -uo pipefail
 CONT="${1:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
 WIKI="${2:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
@@ -70,6 +80,8 @@ else
   find "$CONT" -name '*.safetensors' -exec sha256sum {} \; | tee "$SES/manifest.txt"
 fi
 echo "engine: $(md5sum "$ENGINE" | cut -d' ' -f1)  threads=$THR len=$LEN ctx=$CTX chunk=$CHUNK"
+VOCAB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("vocab_size",0))' "$CONT/config.json" 2>/dev/null || echo 0)
+echo "vocab: $VOCAB (E17 degenerate-logits tripwire reference)"
 
 if [ ! -f "$SES/ref.json" ]; then
   # E15: the ref builder spawns the engine (tokenize + DUMP_IDS). It must run
@@ -86,13 +98,41 @@ if [ ! -f "$SES/ref.json" ]; then
     --ctx=$CTX --len=$((CTX + LEN)) --bytes=$REF_BYTES || exit 2
 fi
 
+# E17 tripwire: ppl == vocab_size to within 1e-4 relative IS the map_f16_one
+# bias signature (mapped F16 weights at 2^-112 of true value -> logits ~1e-33
+# -> softmax uniform to the last float -> NLL == ln(V) exactly). Every arm on
+# such an engine measures a dead trunk; abort before the disk burns for hours.
+ppl_degenerate() {  # ppl_degenerate <arm> -> rc 0 when degenerate
+  local out="$SES/arms/$1.out" ppl
+  [ -s "$out" ] || return 1
+  [ "${VOCAB:-0}" -gt 0 ] 2>/dev/null || return 1
+  ppl=$(sed -n 's/.*ppl = \([0-9.eE+-]*\).*/\1/p' "$out" | head -1)
+  [ -n "$ppl" ] || return 1
+  python3 -c 'import sys; ppl, v = float(sys.argv[1]), float(sys.argv[2]); sys.exit(0 if abs(ppl - v) <= 1e-4 * v else 1)' "$ppl" "$VOCAB"
+}
+e17_abort() {
+  echo "!! arm $1: ppl == vocab_size ($VOCAB) — uniform logits, numerically dead trunk."
+  echo "!! This is the E17 signature: the engine predates tools/patch_mapf16_bias.py"
+  echo "!! (every mapped F16 weight reads 2^-112 of its true value; the whole trunk"
+  echo "!! leaves the computation; tf-NLL comes out exactly ln(V))."
+  echo "!! Fix, in the repo clone:  git pull"
+  echo "!!   cp engine/qwen36.c engine/*.h ~/colibri/c/ && make -C ~/colibri/c qwen36 -j4"
+  echo "!!   rm -f $SES/arms/*        # keep manifest.txt + ref.json (engine-independent)"
+  echo "!! then rerun this exact session command."
+  exit 3
+}
 arm() {  # arm <name> <extra env...>
   local name=$1; shift
-  if [ -f "$SES/arms/$name.err" ] && [ "${PHASE5_FORCE:-0}" != 1 ]; then echo "== arm $name: cached"; return; fi
+  if [ -f "$SES/arms/$name.err" ] && [ "${PHASE5_FORCE:-0}" != 1 ]; then
+    echo "== arm $name: cached"
+    ppl_degenerate "$name" && e17_abort "$name"
+    return
+  fi
   echo "== arm $name: $*  (started $(date +%H:%M:%S))"
   env $COMMON "$@" "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > "$SES/arms/$name.out" 2> "$SES/arms/$name.err"
   echo "rc=$?" >> "$SES/arms/$name.err"
   echo "== arm $name: done $(date +%H:%M:%S)"
+  ppl_degenerate "$name" && e17_abort "$name"
 }
 arm A HOT_FRAC=1.0 GRIFFIN=0
 arm B HOT_FRAC=0.5 GRIFFIN=0
@@ -137,7 +177,7 @@ for f in sorted(os.listdir(os.path.join(ses, "arms"))):
     for suf in (".out", ".err"):          # ppl/TF-NLL goes to stdout, timers/RSS to stderr
         if os.path.exists(base + suf):
             txt += open(base + suf, errors="replace").read()
-    ppl = re.search(r"ppl = ([\d.]+)", txt)
+    ppl = re.search(r"ppl = ([\d.eE+-]+)", txt)
     sc = re.search(r"over (\d+) tokens", txt)
     rss = re.search(r"PEAK RSS:\s*([\d.]+) GB", txt)
     rc = re.search(r"rc=(\d+)\s*$", txt)

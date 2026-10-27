@@ -128,6 +128,20 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   Numbers: results/battery_llm-030_20261025-133007.json (+ _logs/, incl. the
 #   [qwen36 win] lines); analysis: ROADMAP E14, WINDOWING doc §Gates. The field battery
 #   is COMPLETE; next field step = phase 5 (PHASE5_FORCE=1 tools/run_phase5.sh ...).
+#
+#   E17 (2026-10-27): the first completed phase-5 tf arm (frac 1.0) returned ppl ==
+#   vocab_size EXACTLY and exposed the reason the arms above all emitted the same
+#   greedy token: map_f16_one (MAPFAST v3.1) lacked the F16->F32 exponent-bias
+#   rebase, so EVERY mapped F16 weight in EVERY field run read 2^-112 of its true
+#   value — the trunk never participated in the numerics. The 'чисwik' garbage and
+#   the cross-arm output identity were that, not unsorted pruning or KV-argmax
+#   parity. What survives from arms 1/E13/E14: every TIMING and IO number (bytes
+#   streamed and FLOPs issued are unchanged by a conversion bug) — load 105 s,
+#   TTFT ~3300-3700 s, decode ~2225-2358 s/tok, fs_read ~71.8 GB/arm, RSS
+#   envelope, the cost model (−3.3%). What is void: every quality/logit-derived
+#   reading. Fixed via tools/patch_mapf16_bias.py + the E17 CI gate (mapped-vs-
+#   resident tf-NLL parity on a real-headed F16-dense container) + a runner
+#   tripwire (ppl == vocab_size aborts the session). Analysis: ROADMAP E17.
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M

@@ -195,10 +195,15 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       ~52 days/arm (E16). Kit fixed same day: streaming-dialect ref build +
       WIKI fail-fast + cached manifest/M1 + `--len` math (E15), and
       `Q36_TF_CHUNK` chunked scoring with a CI parity gate + `PHASE5_LEN`
-      default 64 (E16) — session budget now ~28–32 h. Re-armed: resume into
-      `results/realweights_20261026-1014` (manifest cached, no
-      `PHASE5_FORCE` needed — no arm ever ran). Report doc
-      `docs/REALWEIGHTS_QWEN36.md` gets written from `summary.json`.
+      default 64 (E16) — session budget now ~28–32 h. First arms landed
+      2026-10-27 (`3f41ca8`): ref.json + arm A complete, arm B interrupted
+      mid-run — and arm A's `ppl = 248320.00` (vocab_size exactly) exposed
+      E17: the mapped-F16 trunk had been numerically dead in EVERY field run
+      (bias-less `map_f16_one`, 2⁻¹¹²). A/B are void; engine fixed +
+      E17-gated + runner tripwired. Re-armed AGAIN: rebuild the engine,
+      `rm -f results/realweights_20261026-1014/arms/*` (keep manifest.txt +
+      ref.json), rerun the same command — budget unchanged ~28–32 h. Report
+      doc `docs/REALWEIGHTS_QWEN36.md` gets written from `summary.json`.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
       engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no
@@ -542,7 +547,11 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       this slice: patched engine vs pinned colibri bf24429, chunk 1/8/32 →
       TF-NLL identical to 4 dp (8.3178 nats, drift 0.0) on a synthetic
       container, banners + pass-counts correct (12 scored in 3 passes at
-      chunk 8, 2 at chunk 32). What chunking does NOT fix: one lm_head pass
+      chunk 8, 2 at chunk 32). (E17 CORRECTION: 8.3178 = ln(4096) exactly —
+      the synth container's constant head rows AND the bias-less mapped-F16
+      reads both force uniform logits, so that proof covered chunk PARITY
+      only; absolute tf numerics were unobservable there. The E17 gate now
+      observes them on a real-headed F16-dense container.) What chunking does NOT fix: one lm_head pass
       per scored position (~90 s field) — the new per-token floor.
       Re-budget (E13 constants): per arm ≈ prefill(CTX) +
       ceil(LEN/CHUNK) × trunk pass + LEN × 90 s ⇒ defaults LEN=64 CHUNK=64
@@ -556,6 +565,63 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       steps, so chunked scoring measures D as C-mechanics + finalize — on
       the UNSORTED field container D≡C was already the E14 finding
       (degenerate sets by construction); recorded, not a regression.
+
+- [x] **E17 — the mapped-F16 trunk was numerically DEAD in every field run:
+      `map_f16_one` (MAPFAST v3.1, `patch_hotstack_v1.py`) lacked the F16→F32
+      exponent-bias rebase — the raw 5-bit exponent (bias 15) went straight
+      into the 8-bit f32 field (bias 127), so every normal F16 weight read
+      back 2⁻¹¹² ≈ 1.9×10⁻³⁴ of its true value.** On the field's F16-dense
+      q27_i4 container under TRUNK_MAP, EVERY mapped GEMV (attn q/k/v/o,
+      DeltaNet projections, shared-MLP gate/up/down, lm_head) output ~1e-34
+      against the residual: layers contributed nothing, residuals froze at
+      the embedding row (DUMP_LAYERS: bit-identical rows every layer, zero
+      sublayer outputs), tf logits came out ~1e-33 → softmax uniform to the
+      last float → **tf-NLL exactly ln(V)**. Discovery: Phase-5 arm A
+      (frac 1.0, FIRST completed field tf arm) returned `ppl = 248320.00` =
+      vocab_size exactly; sandbox repro on a 25 MB F16-dense container with
+      NON-degenerate heads reproduced it in 0.1 s (8.3178 = ln 4096), and a
+      debug build caught the readout red-handed: |hidden row| = 39.6 (alive),
+      logits = 1.6e-33 (dead). Two sites carried the conversion: the
+      `map_f16_one` helper (matmul_map_f16, q36_down_prefix_batch, the
+      GRIFFIN gather) and a second inline copy in `q36_down_prefix`'s f16
+      branch. Why 24 CI gates never saw it: every synthetic container is
+      int4-packed (matmul_map_i4 reads int8 nibbles × f32 `.qs` scales — no
+      f16 conversion), resident paths use stock st.h's correct
+      `f16_to_f32_bulk` (exp+112), and the default synth heads are constant
+      rows (NLL = ln(V) BY DESIGN), so the only path that ever exercised
+      `map_f16_one` numerics was the field host. The E8 gate's "logits
+      underflow float32 norms (~1e-35)" comment was the same signature,
+      written off as synthetic weirdness — the sighting is now logged, not
+      dismissed. REINTERPRETATIONS (documented, not buried): E13's 'чисwik'
+      greedy garbage was NOT "unsorted-container pruning behavior" — it was
+      argmax of embed→lm_head alone (uniform 2⁻¹¹² scaling preserves logit
+      ORDER, so decode still emitted deterministic tokens); E14's
+      byte-identical outputs across all six arms ('arm-invariance') were the
+      trunk being absent from every arm, not a streaming property; the
+      GRIFFIN "degenerates to static hot prefix" reading observed 1e-34
+      activations. WHAT STAYS VALID: every timing/IO result — E13 cost model
+      (load 105 s, TTFT, 2225 s decode), E12/E14 fs_read matrix, RSS
+      envelopes, the E16 chunk-pass mechanics (banners, pass counts,
+      chunk-parity drift 0.0), M1-style determinism, and the window gate-3
+      NEGATIVE (structural: `q36_win_ensure` requires int4 maps — true
+      regardless of numerics). What is VOID: every quality/logit-derived
+      observation from field runs, and Phase-5 arms A (completed) + B
+      (interrupted mid-run at upload) of `realweights_20261026-1014`. Fix:
+      `tools/patch_mapf16_bias.py` (chain: `premapf16 -mapf16_bias->
+      qwen36.c`; snapshots + manifest + verify_engine.sh ALL PASS incl.
+      stock check). New CI gate (E17, engine-build.yml): miniature F16-DENSE
+      container (`scripts/gen_small_dense_f16.py`, real random heads) —
+      mapped-vs-resident-exact tf-NLL parity within 0.1% at frac 1.0 AND
+      0.25 (covers down_prefix paths), greedy ids identical, plus an
+      explicit |NLL − ln V| > 0.5 degeneracy tripwire; measured post-fix:
+      27.7006 vs 27.7004 (0.0007%) and 27.8661 vs 27.8712; the pre-fix
+      engine fails this gate at 8.3178 vs 27.7004 (verified). Runner
+      tripwire: `run_phase5.sh` now aborts (rc=3) with rebuild instructions
+      the moment any arm — fresh OR cached — reports ppl == vocab_size, so
+      a stale engine can never again burn a 30 h session on dead numbers.
+      Session re-arm: rebuild engine, `rm -f results/realweights_20261026-
+      1014/arms/*` (manifest.txt + ref.json are engine-independent and
+      stay), rerun — budget unchanged ~28–32 h.
 
 ## Rules that stay
 

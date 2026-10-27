@@ -96,6 +96,57 @@ jobs:
           print("E16 gate OK: chunked tf-nll == per-token within 1% (field arms are paired same-chunk; the per-token path is 52 days/arm in the field)")
           PY
 
+      - name: E17 gate — mapped-F16 numeric parity (map_f16_one bias; the silent 2^-112 trunk-killer)
+        run: |
+          set -e
+          SMALL="$HOME/synth_models/small_dense_f16"
+          python3 scripts/gen_small_dense_f16.py
+          python3 scripts/make_tokenizer.py "$SMALL/tokenizer.json" 4095
+          python3 - <<'PY'
+          import json
+          prompt = [72,101,108,108,111,32,119,111,114,108,100,46,32,84,104,105,115,32,105,115,32,97,32,116,101,115,116,32,112,114,111,109,112,116,46,32,67,111,117,110]
+          prompt += [1000, 2000, 3000, 4000] * 5
+          scored = [116,105,110,103,32,110,117,109,98,101,114,115]
+          json.dump({"prompt_ids": prompt, "full_ids": prompt + scored}, open("/tmp/ref_e17.json", "w"))
+          print("ref_e17.json:", len(prompt), "prompt /", len(prompt) + len(scored), "full (12 scored)")
+          PY
+          tf() {  # tf <outfile> <extra env...>
+            local out="$1"; shift
+            env SNAP="$SMALL" Q36_MAXT=512 PPL=1 Q36_TF_CHUNK=64 COLI_TEMP=0 \
+                OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 "$@" \
+                timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_e17.json > "$out" 2> /dev/null
+            grep "ppl =" "$out"
+          }
+          tf /tmp/e17_map.out    TRUNK_MAP=1
+          tf /tmp/e17_res.out    COLI_DENSE_I8=0
+          tf /tmp/e17_map25.out  TRUNK_MAP=1 HOT_FRAC=0.25
+          tf /tmp/e17_res25.out  COLI_DENSE_I8=0 HOT_FRAC=0.25
+          env SNAP="$SMALL" Q36_MAXT=512 N_NEW=6 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 \
+              KVSAVE=0 TRUNK_MAP=1 DUMP_IDS=/tmp/e17_ids_map.txt \
+              timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_e17.json > /dev/null 2>&1 || true
+          env SNAP="$SMALL" Q36_MAXT=512 N_NEW=6 COLI_TEMP=0 OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 \
+              KVSAVE=0 COLI_DENSE_I8=0 DUMP_IDS=/tmp/e17_ids_res.txt \
+              timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_e17.json > /dev/null 2>&1 || true
+          cmp <(tail -6 /tmp/e17_ids_map.txt) <(tail -6 /tmp/e17_ids_res.txt)
+          echo "E17: greedy ids identical (mapped F16 == resident f32)"
+          python3 - <<'PY'
+          import re, math
+          def nll(p):
+              m = re.search(r"TF-NLL: ([\d.eE+-]+) nats", open(p).read())
+              assert m, "no TF-NLL line in " + p
+              return float(m.group(1))
+          lnV = math.log(4096)
+          for name, mp, rp in [("frac1.0", "/tmp/e17_map.out", "/tmp/e17_res.out"),
+                               ("frac0.25", "/tmp/e17_map25.out", "/tmp/e17_res25.out")]:
+              a, b = nll(mp), nll(rp)
+              print("E17 %-8s mapped=%.4f resident=%.4f (ln V=%.4f)" % (name, a, b, lnV))
+              # degeneracy tripwire: pre-fix, the mapped side reads EXACTLY ln(V)
+              # (every mapped F16 weight came back 2^-112 -> logits ~1e-33 -> uniform softmax)
+              assert abs(a - lnV) > 0.5, name + ": tf-NLL == ln(V) — mapped-F16 reads numerically dead (E17 regression)"
+              assert abs(a - b) / abs(b) < 1e-3, name + ": mapped-vs-resident drift >0.1% — mapped-F16 GEMV numerics wrong"
+          print("E17 gate OK: mapped F16 == resident f32 within 0.1% and NOT uniform; frac0.25 covers q36_down_prefix/_batch")
+          PY
+
       - name: MTP gate 1 — knob on, headless container must refuse
         run: |
           set -e

@@ -1930,13 +1930,21 @@ static void matmul_h(float *y, const float *x, const uint16_t *W, int S, int I, 
 }
 
 /* MAPFAST v3.1: stage one output row's dequantized f32 per thread, then the
- * same fixed-lane dot the resident kernels use, over all S input rows. */
+ * same fixed-lane dot the resident kernels use, over all S input rows.
+ * E17: v3.1 shipped this WITHOUT the F16->F32 exponent-bias rebase — the raw
+ * 5-bit exponent (bias 15) went straight into the 8-bit field (bias 127), so
+ * every normal F16 read back 2^-112 of its true value and the whole mapped
+ * trunk was numerically zero (frozen-embed residuals, tf-NLL exactly ln V,
+ * greedy decode = argmax of embed->lm_head alone). Correct scalar form of
+ * stock st.h's f16_to_f32_bulk (exp + 112), inf/nan included. */
 static inline float map_f16_one(uint16_t h) {
     uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
-    uint32_t exp  = (uint32_t)((h >> 10) & 0x1Fu) << 23;
+    uint32_t exp  = (uint32_t)((h >> 10) & 0x1Fu);
     uint32_t man  = (uint32_t)(h & 0x3FFu) << 13;
-    uint32_t bits = sign | exp | man;
-    if (((h >> 10) & 0x1F) == 0) bits = sign;   /* subnormal -> +-0 */
+    uint32_t bits;
+    if (exp == 0)       bits = sign;                      /* subnormal -> +-0 */
+    else if (exp == 31) bits = sign | 0x7F800000u | man;  /* inf / nan */
+    else                bits = sign | ((exp + 112u) << 23) | man;  /* bias 15 -> 127 */
     float f; memcpy(&f, &bits, 4); return f;
 }
 
@@ -4218,13 +4226,8 @@ static void q36_down_prefix(const QW *dw, float *dst, const float *g, int D, int
         for (int d = 0; d < D; d++) {
             const uint16_t *row = mp + (int64_t)d * I;
             float acc = 0;
-            for (int i = 0; i < Ik; i++) {
-                uint16_t h = row[i];
-                uint32_t bits = ((uint32_t)(h & 0x8000u) << 16) | ((uint32_t)((h >> 10) & 0x1Fu) << 23) | ((uint32_t)(h & 0x3FFu) << 13);
-                if (((h >> 10) & 0x1F) == 0) bits = (uint32_t)(h & 0x8000u) << 16;
-                float wv; memcpy(&wv, &bits, 4);
-                acc += wv * g[i];
-            }
+            for (int i = 0; i < Ik; i++)
+                acc += map_f16_one(row[i]) * g[i];   /* E17: was a second inline copy of the bias-less conversion */
             dst[d] = acc;
         }
     } else if (dw->w) {
