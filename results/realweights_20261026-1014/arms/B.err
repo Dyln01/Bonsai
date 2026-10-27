@@ -1,0 +1,89 @@
+== qwen36 Phase-2 engine | cache=8/layer bits=4 ctx=8192 pilot=0 wide=1 hot=0 smooth=0.30 conf=0.92 ==
+[tok] loaded 248044 pieces (max id 248076) from /root/Models/q27_i4/tokenizer.json
+[meta] loaded: q_heads=24 kv_heads=4 head_dim=256 q_head_dim=512 k_head_dim=256 v_head_dim=256 o_in=6144 rotary_dim=64 n_experts=0 topk=0 inter=0 shared_inter=17408 n_group=1 topk_group=1 attn_output_gate=1 n_active=16
+[meta] DeltaNet: vheads=48 kheads=16 kdim=128 vdim=128 convk=4 conv_dim=10240
+[qwen36] vision tower: 27 blocks, hidden 1152, 16 heads, patch 16, merge 2
+[dense-i8] 0 matrices quantized during load, 0.0 GB f32 freed
+resident weights loaded in 108.1s | RSS after load: 6.91 GB
+[qwen36] expert format on disk: none (dense model: every layer's MLP is resident)
+[prefill] p=1 layer=1/64 t=44 eta=2753 kind=dn dt=44
+[prefill] p=3 layer=2/64 t=88 eta=2736 kind=dn dt=45
+[prefill] p=4 layer=3/64 t=128 eta=2598 kind=dn dt=39
+[prefill] p=6 layer=4/64 t=167 eta=2505 kind=attn dt=39
+[prefill] p=7 layer=5/64 t=204 eta=2405 kind=dn dt=37
+[prefill] p=9 layer=6/64 t=253 eta=2447 kind=dn dt=49
+[prefill] p=10 layer=7/64 t=309 eta=2513 kind=dn dt=55
+[prefill] p=12 layer=8/64 t=351 eta=2460 kind=attn dt=43
+[prefill] p=14 layer=9/64 t=393 eta=2403 kind=dn dt=42
+[prefill] p=15 layer=10/64 t=437 eta=2359 kind=dn dt=44
+[prefill] p=17 layer=11/64 t=479 eta=2308 kind=dn dt=42
+[prefill] p=18 layer=12/64 t=518 eta=2245 kind=attn dt=39
+[prefill] p=20 layer=13/64 t=559 eta=2194 kind=dn dt=41
+[prefill] p=21 layer=14/64 t=601 eta=2145 kind=dn dt=41
+[prefill] p=23 layer=15/64 t=643 eta=2099 kind=dn dt=42
+[prefill] p=25 layer=16/64 t=681 eta=2043 kind=attn dt=38
+[prefill] p=26 layer=17/64 t=722 eta=1997 kind=dn dt=41
+[prefill] p=28 layer=18/64 t=763 eta=1951 kind=dn dt=41
+[prefill] p=29 layer=19/64 t=806 eta=1909 kind=dn dt=42
+[prefill] p=31 layer=20/64 t=844 eta=1857 kind=attn dt=38
+[prefill] p=32 layer=21/64 t=888 eta=1818 kind=dn dt=44
+[prefill] p=34 layer=22/64 t=938 eta=1790 kind=dn dt=50
+[prefill] p=35 layer=23/64 t=991 eta=1767 kind=dn dt=53
+[prefill] p=37 layer=24/64 t=1037 eta=1728 kind=attn dt=45
+[prefill] p=39 layer=25/64 t=1085 eta=1693 kind=dn dt=49
+[prefill] p=40 layer=26/64 t=1136 eta=1660 kind=dn dt=51
+[prefill] p=42 layer=27/64 t=1186 eta=1625 kind=dn dt=50
+[prefill] p=43 layer=28/64 t=1237 eta=1590 kind=attn dt=51
+[prefill] p=45 layer=29/64 t=1287 eta=1554 kind=dn dt=51
+[prefill] p=46 layer=30/64 t=1338 eta=1516 kind=dn dt=50
+[prefill] p=48 layer=31/64 t=1387 eta=1476 kind=dn dt=49
+[prefill] p=50 layer=32/64 t=1431 eta=1431 kind=attn dt=44
+[prefill] p=51 layer=33/64 t=1472 eta=1383 kind=dn dt=41
+[prefill] p=53 layer=34/64 t=1515 eta=1337 kind=dn dt=43
+[prefill] p=54 layer=35/64 t=1557 eta=1290 kind=dn dt=42
+[prefill] p=56 layer=36/64 t=1596 eta=1241 kind=attn dt=39
+[prefill] p=57 layer=37/64 t=1637 eta=1195 kind=dn dt=41
+[prefill] p=59 layer=38/64 t=1677 eta=1147 kind=dn dt=40
+[prefill] p=60 layer=39/64 t=1715 eta=1100 kind=dn dt=38
+[prefill] p=62 layer=40/64 t=1753 eta=1052 kind=attn dt=37
+[prefill] p=64 layer=41/64 t=1793 eta=1006 kind=dn dt=41
+[prefill] p=65 layer=42/64 t=1834 eta=961 kind=dn dt=41
+[prefill] p=67 layer=43/64 t=1875 eta=916 kind=dn dt=40
+[prefill] p=68 layer=44/64 t=1913 eta=869 kind=attn dt=38
+[prefill] p=70 layer=45/64 t=1953 eta=824 kind=dn dt=40
+[prefill] p=71 layer=46/64 t=1992 eta=780 kind=dn dt=40
+[prefill] p=73 layer=47/64 t=2033 eta=735 kind=dn dt=40
+[prefill] p=75 layer=48/64 t=2071 eta=690 kind=attn dt=38
+[prefill] p=76 layer=49/64 t=2111 eta=646 kind=dn dt=40
+[prefill] p=78 layer=50/64 t=2151 eta=602 kind=dn dt=40
+[prefill] p=79 layer=51/64 t=2191 eta=558 kind=dn dt=40
+[prefill] p=81 layer=52/64 t=2229 eta=514 kind=attn dt=38
+[prefill] p=82 layer=53/64 t=2270 eta=471 kind=dn dt=41
+[prefill] p=84 layer=54/64 t=2311 eta=428 kind=dn dt=41
+[prefill] p=85 layer=55/64 t=2354 eta=385 kind=dn dt=43
+[prefill] p=87 layer=56/64 t=2393 eta=342 kind=attn dt=39
+[prefill] p=89 layer=57/64 t=2434 eta=299 kind=dn dt=41
+[prefill] p=90 layer=58/64 t=2475 eta=256 kind=dn dt=41
+[prefill] p=92 layer=59/64 t=2516 eta=213 kind=dn dt=41
+[prefill] p=93 layer=60/64 t=2555 eta=170 kind=attn dt=40
+[prefill] p=95 layer=61/64 t=2597 eta=128 kind=dn dt=41
+[prefill] p=96 layer=62/64 t=2639 eta=85 kind=dn dt=42
+[prefill] p=98 layer=63/64 t=2680 eta=43 kind=dn dt=42
+[prefill] p=100 layer=64/64 t=2721 eta=0 kind=attn dt=40
+[prefill] p=1 layer=1/64 t=37 eta=2320 kind=dn dt=37
+[prefill] p=3 layer=2/64 t=73 eta=2271 kind=dn dt=36
+[prefill] p=4 layer=3/64 t=110 eta=2234 kind=dn dt=37
+[prefill] p=6 layer=4/64 t=144 eta=2158 kind=attn dt=34
+[prefill] p=7 layer=5/64 t=180 eta=2128 kind=dn dt=36
+[prefill] p=9 layer=6/64 t=217 eta=2098 kind=dn dt=37
+[prefill] p=10 layer=7/64 t=255 eta=2075 kind=dn dt=38
+[prefill] p=12 layer=8/64 t=291 eta=2038 kind=attn dt=36
+[prefill] p=14 layer=9/64 t=328 eta=2005 kind=dn dt=37
+[prefill] p=15 layer=10/64 t=365 eta=1972 kind=dn dt=37
+[prefill] p=17 layer=11/64 t=403 eta=1940 kind=dn dt=37
+[prefill] p=18 layer=12/64 t=437 eta=1896 kind=attn dt=35
+[prefill] p=20 layer=13/64 t=477 eta=1871 kind=dn dt=39
+[prefill] p=21 layer=14/64 t=516 eta=1843 kind=dn dt=39
+[prefill] p=23 layer=15/64 t=554 eta=1809 kind=dn dt=38
+[prefill] p=25 layer=16/64 t=589 eta=1767 kind=attn dt=35
+[prefill] p=26 layer=17/64 t=627 eta=1733 kind=dn dt=38
