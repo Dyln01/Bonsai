@@ -19,17 +19,43 @@ not included — see *Engine* below).
 ## Why this exists
 
 A dense 27B needs ~22 GB of resident weights; the stock engine is OOM-killed on an 8 GB box
-(measured, rc=137). This stack makes the same full-size model run in a ~4 GB RAM envelope with
-`HOT_FRAC` as an exactness dial — 1.0 restores full compute at any moment, no weights edited,
-the file on disk IS the model.
+(measured, rc=137). This stack makes the same full-size model **run** on a 7.62 GB mini-PC —
+field-measured at **6.65–7.01 GB peak RSS**, full compute, rc=0 (`HOT_FRAC=1.0` restores full
+compute at any moment, no weights edited, the file on disk IS the model). The `HOT_FRAC`
+exactness dial below 1.0 requires a hotness-**sorted** container; on the unsorted field
+container it is a documented negative (ppl 6.74 → 1791 at frac 0.25) and the sorted-container
+arm is pending — see the Phase 5 report.
 
-## Headline results (4-core / 7.8 GB emulation, synthetic containers, no downloads)
+## Headline results (REAL WEIGHTS — Qwen3.8-27B-class dense, llm-030: 4-core / 7.62 GB / HDD)
+
+Phase 5 W1 session, completed 2026-10-30 — full report:
+**[docs/REALWEIGHTS_QWEN36.md](docs/REALWEIGHTS_QWEN36.md)** (tag `phase-5`; every number
+below traces to `results/realweights_20261026-1014/`).
+
+| | measured |
+|---|---|
+| runs at all | **yes** — stock OOMs (rc=137); this stack ran every arm rc=0 |
+| peak RSS | **6.65–7.01 GB** of 7.62 GB (M4 PASS ≤ 7.8 GB) |
+| quality, full compute (frac 1.0) | **tf-NLL 1.9076 nats/tok, ppl 6.74** (wikitext-2-raw, 512 ctx / 64 scored) |
+| quality, frac 0.5 / 0.25, UNSORTED container | ppl 29.24 / 1791.28 — **documented negatives**: the dial's contract is a hotness-sorted prefix; sorted arm E pending on disk space |
+| determinism (M1) | **PASS** — 576-id greedy streams byte-identical ×2 at frac 1.0 |
+| speculative decoding (first live numbers) | **82.0% acceptance, 2.86 tokens/forward** |
+| TTFT (512 tok @ frac 1.0) | 2460.5 s |
+| decode | **~2000–2350 s/token** (`[timers] TOTAL` frac 0.25; spec-gate T(1) frac 1.0) — HDD streaming floor: the F16 trunk's frac-0.25 shared-MLP prefix alone (~8.6 GB) exceeds the box's entire 7.62 GB RAM, so nothing stays warm |
+
+The old synthetic-container projection of "12–14 tok/s warm" is **de-projected** by the
+measured row above: it was arithmetic for an int4 trunk whose frac-0.25 hot prefix (~2 GB)
+fits the page cache; this checkpoint's container is F16 (54.7 GB trunk — its frac-0.25
+shared-MLP prefix alone, ~8.6 GB, exceeds the box's entire 7.62 GB RAM). An int4-packed
+container is the measured path to the warm regime (§8 of the report).
+
+## Earlier results (4-core / 7.8 GB emulation, synthetic containers, no downloads)
 
 | | stock dense 27B | this stack (frac 0.25) |
 |---|---|---|
-| RAM | OOM at 7.36 GB (cannot run) | **runs in ~4 GB envelope** |
+| RAM | OOM at 7.36 GB (cannot run) | **runs in ~4 GB envelope** (synthetic student shape; field-measured on the real 27B: 6.65–7.01 GB — table above) |
 | bytes/token (MLP) | 8.6 GB sweep | **2.15 GB**, served from page cache after warm |
-| warm decode | ~0.9 tok/s (int4 sweep) | **12-14 tok/s projected** (9.7 measured on student analog) |
+| warm decode | ~0.9 tok/s (int4 sweep) | ~~12-14 tok/s projected~~ **de-projected by Phase 5: ~2000+ s/token measured on the F16 field container** (projection assumed an int4-sized hot prefix; 9.7 tok/s stands only for the RAM-resident student analog) |
 
 Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**), decode
 5.8 → 11.0 tok/s, TTFT 26.5 → 11.6 s, peak RSS 2.96 → 1.87 GB.
@@ -40,7 +66,10 @@ Student-analog measured (same kernels): MLP phase 119 → 38 ms/token (**3.1x**)
    MADV_WILLNEED readahead. Resident RSS = embed/head + KV + norms only.
 2. **Hot-neuron paging (HOT_FRAC)** — calibrate once, sort container neurons by importance
    (pure relabeling), compute only the top fraction. MLP cost scales exactly with the dial
-   (119/79/38 ms/tok at 1.0/0.5/0.25).
+   (119/79/38 ms/tok at 1.0/0.5/0.25). **Field verdict (Phase 5): the quality mechanism
+   requires the sorted container — on the unsorted field container frac<1.0 is random neuron
+   dropout (ppl 6.74 → 1791.28, documented negative); sorted arm E pending**
+   (`docs/REALWEIGHTS_QWEN36.md` §3).
 3. **GRIFFIN v5** — per-prompt neuron selection from the prompt's own activations
    (training-free, calibration-free, works on unmodified containers).
 4. **KV8 + flash-tile prefill** — e4m3 KV (parity-proven 256/256 codes) and 2.4x TTFT cut;
@@ -117,14 +146,21 @@ scripts in `tools/` reproduce them **byte-exactly from stock** — the full chai
 orig→premap→prehot→pretq→presm→final replays under `tools/verify_engine.sh`
 and in CI on every push (E1 drift audit closed 2026-10-19; superseded
 historical patchers in `tools/attic/`).
-**No real model weights are in this repo or were used in testing** — all benchmarks use
-synthetic same-geometry containers (see `scripts/gen_*`).
+**No real model weights are in this repo, ever** — CI and all sandbox benchmarks use synthetic
+same-geometry containers (see `scripts/gen_*`). The one real-checkpoint session (Phase 5, W1)
+ran exclusively on the mini-PC outside the repo, under the recorded sign-off
+(`docs/VALIDATION_PROTOCOL_QWEN36.md` §6); only logs, hashes and metrics were committed
+(`results/realweights_20261026-1014/`).
 
 ## Status
 
-Research code. All numbers are real engine runs on synthetic containers; 27B-scale rows are
-projections from measured student ratios (labeled in the reports). Quality claims for frac<1.0
-are by construction (sorting is relabeling) + literature; real-checkpoint perplexity
-validation is the remaining step (Phase 5, gated on sign-off — `docs/ROADMAP.md`).
+Research code. Synthetic-container numbers are real engine runs (labeled in the reports);
+27B-scale synthetic rows are projections from measured student ratios. **Real-checkpoint
+validation (Phase 5, W1) is COMPLETE on real weights** (2026-10-30, tag `phase-5`):
+full-compute dense 27B ran end-to-end on the 7.62 GB mini-PC at ppl 6.74
+(wikitext-2-raw, 512/64), M1-deterministic, RSS ≤ 7.01 GB — with the frac-dial, KV8 and
+KV_TQ4-absorb arms recorded as pre-registered documented negatives and the sorted-container
+arm pending disk space: **[docs/REALWEIGHTS_QWEN36.md](docs/REALWEIGHTS_QWEN36.md)**.
+W2 (MoE + MTP) is the follow-up session.
 
 Apache-2.0 (engine-derived portions inherit colibri's license).

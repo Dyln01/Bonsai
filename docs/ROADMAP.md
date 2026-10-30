@@ -185,7 +185,9 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (cache + sim merged; slice-3 field verdict landed 2026-10-25: read-matrix flat,
       window unallocatable on the F16 trunk, knob stays default-off — E14), 4c ports
       (qwen38 + glm53). Tag `phase-4`.
-- [~] **Phase 5 — IN PROGRESS (sign-off recorded 2026-10-20, W1 first).**
+- [x] **Phase 5 — W1 scope COMPLETE 2026-10-30 (sign-off recorded 2026-10-20; tag
+      `phase-5`; report `docs/REALWEIGHTS_QWEN36.md`; W2/MoE+MTP is the follow-up
+      session).**
       Session kit shipped: `tools/run_phase5.sh` (resumable per-arm ppl runs A-I on
       the engine's PPL=1 path, M1 determinism, M3 calibrate+sort optional, M4 RSS,
       M5 via run_battery.sh when meta.mtp; manifest sha256s; summary JSON with the
@@ -212,11 +214,25 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       that the old `.err`-existence resume cache then SKIPPED (E18): the
       summary shipped no-data for both frac references and every §3 band is
       unjudgeable until A lands. E18 hardening shipped (completion-evidence
-      caching, battery timeout-vs-NNEW guard, exec bit). Remaining field
-      step: ~6 h resume — A+B only, everything else cached, no `rm` needed
-      (tombstones self-heal). Report doc `docs/REALWEIGHTS_QWEN36.md` gets
-      written from the completed `summary.json`, then README de-projection +
-      `phase-5` tag.
+      caching, battery timeout-vs-NNEW guard, exec bit). 2026-10-30 (`d93b7a6`):
+      the ~6 h resume LANDED — the E18 tombstone self-heal worked in the field
+      without a manual `rm`; A (frac 1.0) 1.9076 nats, **ppl 6.74**, wall 9888.0 s
+      (2.75 h, cost model −5%), RSS 6.96; B (frac 0.5) ppl 29.24, wall 10603.8 s.
+      Session COMPLETE, `summary.json` final (16:42:30). Verdicts (bands
+      unmoved): A = the first honest quality number of the checkpoint — the same
+      arm that read ppl == 248320.00 exactly on the dead pre-E17 engine, the
+      field's own before/after for the fix; B/C FAIL vs A (+333.8% / +26476.9%),
+      attributed as measured to random MLP-neuron dropout on the UNSORTED
+      container (dose-response 6.74 → 29.24 → 1791.28; the dial's sorted-prefix
+      contract = arm E, disk-blocked, pending ~60 GB); F/G negatives on the
+      paired reading too (+5.31% / +12.85% vs C, 5–6× budget — KV8/TQ4-absorb
+      stay off); D PASS vs C (0.000%); H literal-vs-A FAIL = the pre-flagged
+      pairing artifact, paired 0.000% (underpowered); M1 PASS, M4 RSS PASS
+      (6.65–7.01 ≤ 7.8 GB); E/I/M2/M3/M5 not run (disk / W2 scope — pending, not
+      failed). Report + README de-projection (measured ~7 GB RSS and ~2000+
+      s/token decode replace the ~4 GB / 12–14 tok/s projections) + `phase-5`
+      tag ship in the report slice. Next field steps in report §8: E+M3 when
+      disk allows, M2, W2 session, optional live-numerics battery.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
       engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no

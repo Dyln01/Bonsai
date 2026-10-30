@@ -1,10 +1,10 @@
 # Phase 5 protocol — real-weights validation (sign-off document)
 
-**Status:** awaiting user sign-off. **Nothing here downloads anything until the
-checkbox at the bottom is ticked.** This document is the contract for what the
-first (and only planned) real-checkpoint session does, measures, and accepts.
-Every number it produces lands in `results/realweights_<date>/` and replaces
-the synthetic projections in README *only* via `docs/REALWEIGHTS_QWEN36.md`.
+**Status:** SIGNED 2026-10-20 (§6) — **W1 session COMPLETE 2026-10-30**: report
+`docs/REALWEIGHTS_QWEN36.md`, artifacts `results/realweights_20261026-1014/`, tag
+`phase-5`. W2 (MoE + MTP arms I/M5) awaits its follow-up session. This document is
+the contract for what the first real-checkpoint session did, measured, and accepted;
+the §3 bands were applied verbatim and never moved — negatives are recorded as-is.
 
 ## 0. Rules carried over from the whole project
 

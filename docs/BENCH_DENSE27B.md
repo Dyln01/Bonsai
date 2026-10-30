@@ -159,6 +159,21 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   dead engine (outputs = E14's 'чисwik' prefix, byte-identical; fix pushed hours
 #   later) and NNEW=16 vs the default 3600 s wall → 7/7 rc=124 (E18b guard now
 #   hard-blocks that mismatch). Analysis: ROADMAP E18.
+#
+#   E18 close-out (2026-10-30, d93b7a6 + report slice): the ~6 h A/B resume LANDED —
+#   tombstone self-heal worked in the field, no manual rm. A (frac 1.0): 1.9076 nats/tok,
+#   ppl 6.74, wall 9888.0 s (prefill passes 2422+1852 s + 64×~87.7 s lm_head = cost model
+#   −5%), RSS 6.96 GB. B (frac 0.5): 3.3755 nats, ppl 29.24, wall 10603.8 s. The frac
+#   ladder on the UNSORTED container is monotone — 6.74 → 29.24 → 1791.28 — random
+#   MLP-neuron dropout as attributed (sorted arm E pending on disk). B/C/F/G/H FAIL their
+#   literal vs-A bands; F/G fail the paired vs-C reading too (+5.31%/+12.85%); D PASS vs C
+#   (0.000%); H paired 0.000% (literal FAIL = pairing artifact). Same arm A had returned
+#   ppl 248320.00 exactly on the dead pre-E17 engine — the field's own before/after for
+#   the E17 fix. SESSION COMPLETE: report docs/REALWEIGHTS_QWEN36.md, README headline
+#   de-projected from it (measured ~7 GB RSS, ~2000+ s/token decode replace the ~4 GB /
+#   12–14 tok/s projections — the F16 trunk's frac-0.25 shared-MLP prefix alone, ~8.6 GB,
+#   exceeds the box's entire 7.62 GB RAM: warm residency was never reachable on this
+#   container), tag phase-5.
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M
