@@ -1,0 +1,67 @@
+{
+ "session": "results/realweights_20261026-1014",
+ "container": "/root/Models/q27_i4",
+ "ts": "2026-10-30T02:48:45",
+ "ctx": 512,
+ "scored_tokens": 64,
+ "tf_chunk": 64,
+ "arms": {
+  "A": {
+   "ppl": null,
+   "scored": null,
+   "peak_rss_gb": null,
+   "rc": null,
+   "delta_rel_vs_A": null,
+   "verdict": "no-data"
+  },
+  "B": {
+   "ppl": null,
+   "scored": null,
+   "peak_rss_gb": null,
+   "rc": null,
+   "delta_rel_vs_A": null,
+   "verdict": "no-data"
+  },
+  "C": {
+   "ppl": 1791.28,
+   "scored": 64,
+   "peak_rss_gb": 7.01,
+   "rc": 0,
+   "delta_rel_vs_A": null,
+   "verdict": "FAIL"
+  },
+  "D": {
+   "ppl": 1791.28,
+   "scored": 64,
+   "peak_rss_gb": 6.89,
+   "rc": 0,
+   "delta_rel_vs_A": null,
+   "verdict": "n/a"
+  },
+  "F": {
+   "ppl": 1886.39,
+   "scored": 64,
+   "peak_rss_gb": 6.83,
+   "rc": 0,
+   "delta_rel_vs_A": null,
+   "verdict": "FAIL"
+  },
+  "G": {
+   "ppl": 2021.48,
+   "scored": 64,
+   "peak_rss_gb": 6.65,
+   "rc": 0,
+   "delta_rel_vs_A": null,
+   "verdict": "FAIL"
+  },
+  "H": {
+   "ppl": 1791.28,
+   "scored": 64,
+   "peak_rss_gb": 6.7,
+   "rc": 0,
+   "delta_rel_vs_A": null,
+   "verdict": "FAIL"
+  }
+ },
+ "note": "bands mirrored from docs/VALIDATION_PROTOCOL_QWEN36.md \u00a73; D/E judged vs C in the report; E16: scored with Q36_TF_CHUNK (chunked tf-nll, CI-parity-gated vs per-token) \u2014 all arms share the chunk, so deltas stay paired"
+}
