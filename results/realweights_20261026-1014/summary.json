@@ -1,33 +1,33 @@
 {
  "session": "results/realweights_20261026-1014",
  "container": "/root/Models/q27_i4",
- "ts": "2026-10-30T02:48:45",
+ "ts": "2026-10-30T16:42:30",
  "ctx": 512,
  "scored_tokens": 64,
  "tf_chunk": 64,
  "arms": {
   "A": {
-   "ppl": null,
-   "scored": null,
-   "peak_rss_gb": null,
-   "rc": null,
-   "delta_rel_vs_A": null,
-   "verdict": "no-data"
+   "ppl": 6.74,
+   "scored": 64,
+   "peak_rss_gb": 6.96,
+   "rc": 0,
+   "delta_rel_vs_A": 0.0,
+   "verdict": "n/a"
   },
   "B": {
-   "ppl": null,
-   "scored": null,
-   "peak_rss_gb": null,
-   "rc": null,
-   "delta_rel_vs_A": null,
-   "verdict": "no-data"
+   "ppl": 29.24,
+   "scored": 64,
+   "peak_rss_gb": 6.87,
+   "rc": 0,
+   "delta_rel_vs_A": 3.3383,
+   "verdict": "FAIL"
   },
   "C": {
    "ppl": 1791.28,
    "scored": 64,
    "peak_rss_gb": 7.01,
    "rc": 0,
-   "delta_rel_vs_A": null,
+   "delta_rel_vs_A": 264.7685,
    "verdict": "FAIL"
   },
   "D": {
@@ -35,7 +35,7 @@
    "scored": 64,
    "peak_rss_gb": 6.89,
    "rc": 0,
-   "delta_rel_vs_A": null,
+   "delta_rel_vs_A": 264.7685,
    "verdict": "n/a"
   },
   "F": {
@@ -43,7 +43,7 @@
    "scored": 64,
    "peak_rss_gb": 6.83,
    "rc": 0,
-   "delta_rel_vs_A": null,
+   "delta_rel_vs_A": 278.8798,
    "verdict": "FAIL"
   },
   "G": {
@@ -51,7 +51,7 @@
    "scored": 64,
    "peak_rss_gb": 6.65,
    "rc": 0,
-   "delta_rel_vs_A": null,
+   "delta_rel_vs_A": 298.9228,
    "verdict": "FAIL"
   },
   "H": {
@@ -59,7 +59,7 @@
    "scored": 64,
    "peak_rss_gb": 6.7,
    "rc": 0,
-   "delta_rel_vs_A": null,
+   "delta_rel_vs_A": 264.7685,
    "verdict": "FAIL"
   }
  },

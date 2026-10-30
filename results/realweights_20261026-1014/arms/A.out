@@ -1,0 +1,3 @@
+TF-NLL: 1.9076 nats/token over 64 tokens | ppl = 6.74
+Expert cache hit rate: 0.0% (hit=0 miss=0)
+Speed: 0.01 tok/s (9888.0s for 64 tokens) | PEAK RSS: 6.96 GB
