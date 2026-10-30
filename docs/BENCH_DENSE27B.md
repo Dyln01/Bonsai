@@ -142,6 +142,23 @@ SNAP=$M Q36_MAXT=2048 OMP_NUM_THREADS=4 ~/colibri/c/qwen36 32 4 ~/some_prompt.tx
 #   reading. Fixed via tools/patch_mapf16_bias.py + the E17 CI gate (mapped-vs-
 #   resident tf-NLL parity on a real-headed F16-dense container) + a runner
 #   tripwire (ppl == vocab_size aborts the session). Analysis: ROADMAP E17.
+#
+#   E18 (2026-10-30): FIRST LIVE-NUMERICS FIELD READINGS (post-fix re-run, 4700d3f) —
+#   tf arms C/D/F/G/H complete at frac 0.25, 512 ctx / 64 scored, chunk 64:
+#   C 7.4907 nats/tok (ppl 1791.28, wall 10091.3 s = cost model +3.8%, RSS 7.01/7.62 GB);
+#   D ≡ C EXACT (window knob inactive on the F16 trunk — the gate-3 negative persists
+#   in live numerics); H ≡ C EXACT (FAST_SOFTMAX); F (KV8) +0.0517 nats (+5.31% ppl);
+#   G (TQ4-absorb) +0.1209 nats (+12.85% ppl) — §3 bands are vs A in ppl space; A/B
+#   were lost to runner-kill tombstones (E18 cache fix ships in this slice), so all
+#   verdicts wait on the ~6 h A/B resume. M1 PASS at frac 1.0 (PHASE5_M1NEW=64):
+#   576-id streams byte-identical twice; inside those logs the FIRST live spec-gate
+#   field numbers — T(1) 1,935,873.9/1,929,637.8 ms, rows 2-6 scaling 1.04-1.25,
+#   rho 0.06-0.07, acceptance by position 0.80/0.93/0.90/0.83/0.75, lookup
+#   2.86 tokens/forward (22 forwards/63 tokens), acceptance 82.0% (41/50),
+#   TTFT(512 @ frac 1.0) 2460.54 s. The Oct-27 battery rerun is invalid ×2: stale
+#   dead engine (outputs = E14's 'чисwik' prefix, byte-identical; fix pushed hours
+#   later) and NNEW=16 vs the default 3600 s wall → 7/7 rc=124 (E18b guard now
+#   hard-blocks that mismatch). Analysis: ROADMAP E18.
 
 # --- arm 2: the Bonsai default (mapped trunk + GRIFFIN + frac 0.25 + kv8) ---
 q36-minipc bench $M

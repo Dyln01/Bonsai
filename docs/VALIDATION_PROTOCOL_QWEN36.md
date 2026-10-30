@@ -125,7 +125,18 @@ as follows, implemented in `tools/run_phase5.sh` + `tools/patch_tf_chunk.py`
 - §4 M1: runs in GENERATE mode (`PPL=1` returns inside tf_nll before
   `generate()` — `DUMP_IDS` would never land, E15b): prefill +
   `PHASE5_M1NEW` (default 1) greedy tokens, bitwise, at the arm-A config,
-  twice; cached like the arms (`PHASE5_FORCE=1` reruns).
+  twice; cached like the arms (`PHASE5_FORCE=1` reruns). E18: cached only
+  when BOTH runs completed (the engine's final `Speed:` line in both
+  `A_det*.err`) — a runner kill mid-M1 reruns the pair; a completed
+  mismatch stays cached and reported FAIL (a finding, not a tombstone).
+  Field cost scales with M1NEW: each greedy step at frac 1.0 measured
+  ~1930 s (T(1), `4700d3f`'s A_det logs), so `PHASE5_M1NEW=64` ≈ 13.9 h
+  PER RUN (27.9 h for the pair — the 2026-10-30 session's biggest item);
+  the default 1 costs ~1.2 h.
+- §3 arms cache on completion evidence (E18): an arm `.err` without the
+  runner's `rc=` line is a kill tombstone, not a result — it is cleared and
+  rerun on resume. (The 2026-10-27 re-run lost A/B this way: tombstones
+  skipped as "cached", summary shipped no-data for the frac references.)
 - E17 (2026-10-27) — numeric-validity precondition: every field run before
   `patch_mapf16_bias.py` executed with a numerically dead mapped-F16 trunk
   (weights read at 2⁻¹¹²; tf ppl == vocab_size exactly). §3 bands are only

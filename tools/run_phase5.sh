@@ -54,6 +54,13 @@
 # engine-independent), rerun. The tripwire below aborts any session started on
 # a pre-E17 engine right after its first arm instead of burning ~30 h of disk
 # on dead numbers.
+# E18: resume-cache hardening — the 2026-10-27 post-E17 re-run landed C/D/F/G/H
+# + M1 live and valid, but arms A/B were killed early in load (runner deaths:
+# .err tombstones WITHOUT an rc= line) and every resume skipped them as
+# "cached" — summary.json shipped no-data for the two frac-reference arms and
+# the §3 bands became unjudgeable. An arm now caches only on rc= evidence
+# (tombstones self-heal: cleared and rerun), and M1 caches only when BOTH
+# determinism runs reached their final Speed: line.
 set -uo pipefail
 CONT="${1:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
 WIKI="${2:?usage: run_phase5.sh <container_dir> <wiki.test.raw> [session_dir]}"
@@ -121,12 +128,26 @@ e17_abort() {
   echo "!! then rerun this exact session command."
   exit 3
 }
+arm_done() {  # E18: completion evidence = the runner appended its rc= line.
+  grep -q '^rc=' "$SES/arms/$1.err" 2>/dev/null  # An engine-only kill still appends
+}                                                # rc=137/143; a MISSING rc= means the
+                                                 # runner itself died mid-arm.
 arm() {  # arm <name> <extra env...>
   local name=$1; shift
   if [ -f "$SES/arms/$name.err" ] && [ "${PHASE5_FORCE:-0}" != 1 ]; then
-    echo "== arm $name: cached"
-    ppl_degenerate "$name" && e17_abort "$name"
-    return
+    if arm_done "$name"; then
+      echo "== arm $name: cached"
+      ppl_degenerate "$name" && e17_abort "$name"
+      return
+    fi
+    # E18: .err exists WITHOUT an rc= line — a runner-kill tombstone, not a
+    # result. The 2026-10-27 post-E17 re-run lost arms A and B this way: both
+    # killed early in load, every resume then skipped them as "cached", and
+    # summary.json shipped no-data for the two frac-reference arms — the whole
+    # session's §3 bands became unjudgeable with C..H + M1 (40.7 h) already
+    # banked. Clear the tombstone and rerun the arm.
+    echo "== arm $name: TOMBSTONE (.err without rc= — runner was killed mid-run); clearing and rerunning"
+    rm -f "$SES/arms/$name.err" "$SES/arms/$name.out"
   fi
   echo "== arm $name: $*  (started $(date +%H:%M:%S))"
   env $COMMON "$@" "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > "$SES/arms/$name.out" 2> "$SES/arms/$name.err"
@@ -154,9 +175,18 @@ else
 fi
 echo "== M1: determinism (arm-A config, GENERATE mode via COMMON_GEN — PPL=1 would take tf_nll and return before generate(), so DUMP_IDS would never be written: E15b)"
 M1NEW="${PHASE5_M1NEW:-1}"
-if [ -s "$SES/arms/A.ids" ] && [ -s "$SES/arms/A2.ids" ] && [ "${PHASE5_FORCE:-0}" != 1 ]; then
-  echo "== M1: cached id streams (PHASE5_FORCE=1 to rerun — costs 2× frac-1.0 passes in the field)"
+m1_done() {  # E18: both determinism runs COMPLETED — the engine's final Speed:
+  grep -q '^Speed:' "$SES/arms/A_det.err" 2>/dev/null && \
+    grep -q '^Speed:' "$SES/arms/A_det2.err" 2>/dev/null  # line only prints at the end.
+}
+# E18: cache M1 only on completion evidence (a runner kill mid-M1 used to leave
+# partial ids that every resume trusted). A cached MISMATCH stays cached — it is
+# a real finding, not a tombstone, and must not silently burn 2× frac-1.0 passes
+# per resume (~13.9 h each in the field at PHASE5_M1NEW=64).
+if [ -s "$SES/arms/A.ids" ] && [ -s "$SES/arms/A2.ids" ] && m1_done && [ "${PHASE5_FORCE:-0}" != 1 ]; then
+  echo "== M1: cached id streams (both runs completed; PHASE5_FORCE=1 to rerun — costs 2× frac-1.0 passes in the field)"
 else
+  echo "== M1: determinism pair — prefill + $M1NEW greedy steps at frac 1.0, twice (field cost ≈ 2× (TTFT + $M1NEW × ~1930 s); PHASE5_M1NEW=1 keeps it ~1 h)"
   DUMP_IDS="$SES/arms/A.ids" env $COMMON_GEN HOT_FRAC=1.0 GRIFFIN=0 N_NEW="$M1NEW" "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det.err" || true
   DUMP_IDS="$SES/arms/A2.ids" env $COMMON_GEN HOT_FRAC=1.0 GRIFFIN=0 N_NEW="$M1NEW" "$ENGINE" "$CAP" "$THR" "$SES/ref.json" > /dev/null 2> "$SES/arms/A_det2.err" || true
 fi

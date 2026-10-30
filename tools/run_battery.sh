@@ -54,6 +54,21 @@ WARM="${BATTERY_WARM:-0}"; STREAM="${BATTERY_STREAM:-0}"
 TMO="${BATTERY_TIMEOUT:-3600}"
 case "$TMO" in ''|*[!0-9]*) echo "run_battery: BATTERY_TIMEOUT must be a non-negative integer (seconds; 0 = unlimited), got '$TMO'" >&2; exit 2 ;; esac
 if [ "$TMO" != 0 ]; then TMO_CMD="timeout $TMO"; else TMO_CMD=""; fi
+# E18b: the 2026-10-27 battery re-run burned 7 h of field wall twice over — it
+# started ~9 h BEFORE the E17 fix was pushed (so it re-measured the DEAD engine:
+# its arm outputs are the E14 'чисwik' prefix, byte-identical), and it ran
+# BATTERY_NNEW=16 against the default BATTERY_TIMEOUT=3600 on a box whose decode
+# is ~2300 s/token (E13) and whose 7k-prompt TTFT alone is ~3400 s (E14): every
+# arm rc=124 at the wall (needs ~40,000 s). Hard-stop the arithmetic mismatch
+# instead of letting the box rediscover it overnight.
+if [ "$TMO" != 0 ] && [ "$NNEW" -gt 0 ] && [ "$TMO" -lt $((NNEW * 600)) ] && [ "${BATTERY_FORCE_SHORT_TIMEOUT:-0}" != 1 ]; then
+  echo "run_battery: BATTERY_TIMEOUT=${TMO}s cannot fit NNEW=${NNEW} decode steps at >=600 s/token (E18b guard)." >&2
+  echo "  Field reality: decode ~2300 s/token (E13) and a 7k-prompt TTFT alone ~3400 s (E14)" >&2
+  echo "  — this wall kills every arm rc=124 before it can finish." >&2
+  echo "  Field recipe:  BATTERY_NNEW=2 BATTERY_TIMEOUT=0" >&2
+  echo "  Fast/synthetic models: BATTERY_FORCE_SHORT_TIMEOUT=1 keeps the wall as set." >&2
+  exit 2
+fi
 RAMGB="${BATTERY_RAM_GB:-$(awk '/MemTotal/ {printf "%d", $2/1048576+0.5}' /proc/meminfo 2>/dev/null || echo 8)}"
 PB=$(wc -c < "$PF")
 if [ "$PB" -gt "$MAXT" ]; then

@@ -202,8 +202,21 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       (bias-less `map_f16_one`, 2⁻¹¹²). A/B are void; engine fixed +
       E17-gated + runner tripwired. Re-armed AGAIN: rebuild the engine,
       `rm -f results/realweights_20261026-1014/arms/*` (keep manifest.txt +
-      ref.json), rerun the same command — budget unchanged ~28–32 h. Report
-      doc `docs/REALWEIGHTS_QWEN36.md` gets written from `summary.json`.
+      ref.json), rerun the same command — budget unchanged ~28–32 h.
+      2026-10-30 (`4700d3f`): the re-run PARTIALLY landed — C/D/F/G/H live
+      and VALID (first real quality numbers of the field checkpoint: C
+      tf-NLL 7.4907 nats/tok, ppl 1791.28 @ frac 0.25; D≡C and H≡C exact;
+      KV8 +0.0517 nats; TQ4-absorb +0.1209 nats), M1 PASS on 576-id streams
+      (PHASE5_M1NEW=64, 27.9 h — first live spec-gate field numbers: 82.0%
+      acceptance, 2.86 tok/forward) — but A/B died as runner-kill tombstones
+      that the old `.err`-existence resume cache then SKIPPED (E18): the
+      summary shipped no-data for both frac references and every §3 band is
+      unjudgeable until A lands. E18 hardening shipped (completion-evidence
+      caching, battery timeout-vs-NNEW guard, exec bit). Remaining field
+      step: ~6 h resume — A+B only, everything else cached, no `rm` needed
+      (tombstones self-heal). Report doc `docs/REALWEIGHTS_QWEN36.md` gets
+      written from the completed `summary.json`, then README de-projection +
+      `phase-5` tag.
 - [x] **E1 — patch-script regeneration audit (CLOSED 2026-10-19).** Finding: the KV8
       part-1 patcher was never committed, the flash patcher had drifted to v2 while the
       engine carries v1, and the hotneuron/hotcal/griffin/mapfast/pagebatch patchers no
@@ -622,6 +635,69 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Session re-arm: rebuild engine, `rm -f results/realweights_20261026-
       1014/arms/*` (manifest.txt + ref.json are engine-independent and
       stay), rerun — budget unchanged ~28–32 h.
+
+- [x] **E18 — the post-E17 re-run banked C/D/F/G/H + M1 live and valid, then
+      lost BOTH frac-reference arms to the resume cache: `arm()` cached on
+      `.err` EXISTENCE, so two runner-kill tombstones (A/B: 483 B of load log
+      each, identical cut after `[meta] DeltaNet:`, no `rc=` line, empty
+      `.out`) were skipped as "cached" by every resume, and `summary.json`
+      shipped `no-data` for A/B — with A the §3 reference, all band verdicts
+      became mechanically unjudgeable (the C/F/G/H "FAIL"s in `4700d3f`'s
+      summary are missing-delta FAILs, NOT quality verdicts).** An engine-only
+      kill still appends `rc=137/143` (the runner survives to write it); a
+      MISSING `rc=` line means the runner itself died mid-arm — that is the
+      completion-evidence rule the fix caches on. What DID land (first
+      live-numerics field quality table, llm-030, q27_i4, 512 ctx / 64 scored,
+      chunk 64, fixed engine): C (frac 0.25) tf-NLL 7.4907 nats/tok, ppl
+      1791.28, wall 10091.3 s = cost model +3.8%, RSS 7.01/7.62 GB; D ≡ C
+      EXACT (window knob inactive on the F16 trunk — the gate-3 structural
+      negative persisting in live numerics, as predicted); H ≡ C EXACT
+      (FAST_SOFTMAX identical at print precision); F (KV8) 7.5424 nats =
+      +0.0517 (+5.31% ppl vs C), wall 7631.4 s; G (TQ4-absorb) 7.6116 =
+      +0.1209 (+12.85% ppl vs C), wall 8218.4 s. E17's field confirmation: no
+      arm anywhere near ln(V) (tripwire silent), deltas knob-structured, M1
+      ids diverse (45 unique of 64 generated — the dead trunk emitted frozen
+      garbage). M1 PASS at `PHASE5_M1NEW=64`: 512-prompt + 64-greedy id
+      streams at frac 1.0 byte-identical across two full runs (A.ids ==
+      A2.ids, 576 ids; walls 49750.9 s + 50370.5 s = 27.9 h — the budget's
+      single biggest item; the default M1NEW=1 costs ~1.2 h). Carried inside
+      those logs: the FIRST live spec-gate field numbers — T(1) 1,935,873.9 /
+      1,929,637.8 ms at frac 1.0, rows 2–6 scaling 1.04–1.25, rho 0.06–0.07,
+      acceptance by position 0.80/0.93/0.90/0.83/0.75; lookup 2.86
+      tokens/forward (22 forwards per 63 tokens), acceptance 82.0% (41/50
+      drafts in 18 verifies), 3 declined, 5 probes; TTFT(512 @ frac 1.0)
+      2460.54 s. The same upload's battery re-run
+      (`battery_llm-030_20261027-132202.json`) is INVALID twice over: it ran
+      13:22→20:22 CET on Oct 27 — the E17 fix was pushed 22:23 CET (`538981b`
+      @ 21:23 UTC), so the box still had the DEAD engine (fingerprint: every
+      arm's output `чис`, the byte-identical prefix of E14's dead `чисwik`),
+      and `BATTERY_NNEW=16` met the default `BATTERY_TIMEOUT=3600` on a box
+      needing ~40,000 s/arm (TTFT ~3400 s + 16 × ~2300 s decode) → 7/7 arms
+      rc=124 at the wall; 7 h for a kill-point envelope re-confirmation only
+      (fs_read 39.5–41.7 GB mid-prefill, RSS 6.96–6.99/7.62). Fixes: (a)
+      `run_phase5.sh` caches an arm only on `rc=` completion evidence —
+      tombstones announce, clear, and rerun; M1 caches only when BOTH
+      `A_det*.err` reached the engine's final `Speed:` line (a cached
+      completed-MISMATCH stays cached and reported FAIL — a real finding must
+      not burn 2×13.9 h per resume); (b) `run_battery.sh` hard-guards
+      `0 < BATTERY_TIMEOUT < NNEW×600 s` (rc=2 with the E14 field recipe in
+      the message; `BATTERY_FORCE_SHORT_TIMEOUT=1` overrides for
+      fast/synthetic models); (c) `run_phase5.sh` exec bit restored (was
+      100644 in git — a fresh clone could not `nohup tools/run_phase5.sh`
+      directly). Verified: stub-engine e2e ×3 (pre-seeded tombstones
+      self-heal; live `kill -9` of the runner mid-arm reproduces the exact
+      field failure and the resume heals it; M1 tombstone-reruns /
+      complete-caches / mismatch-caches-and-FAILs), battery guard 4/4 cases,
+      `bash -n` both. Band preview (pre-registered, NOT moved): Δnats-vs-C
+      already exceeds F's/G's whole vs-A budgets (≤1%/≤2% ppl ≈ ≤0.01/≤0.02
+      nats) ~5–6× — documented negatives are the likely outcome for
+      KV8/TQ4-absorb at this checkpoint/window unless A comes in above C;
+      D ≤ C+1% and H's vs-C reading (Δ=0.000%) are already met; H's literal
+      vs-A band (0.2%) inherits C's delta — a §3 pairing artifact to report
+      both ways when A lands. Session state: ~6 h resume (A ≈ B ≈ 2.9–3.0 h
+      by the validated cost model; C..H, M1, manifest, ref all cached) →
+      completed summary.json → `docs/REALWEIGHTS_QWEN36.md` + README
+      de-projection + `phase-5` tag.
 
 ## Rules that stay
 
