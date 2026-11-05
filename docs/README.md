@@ -12,6 +12,7 @@ ship (kept so we don't retry blindly); **design** = contract pinned, implementat
 | [ROADMAP.md](ROADMAP.md) | 2026-10-19 | living | the phase board + open engineering items |
 | [VALIDATION_PROTOCOL_QWEN36.md](VALIDATION_PROTOCOL_QWEN36.md) | 2026-10-20 | signed; W1 complete | Phase 5 contract: checkpoints, eval data, arms with pre-registered acceptance bands, mini-PC mechanics, session procedure |
 | [REALWEIGHTS_QWEN36.md](REALWEIGHTS_QWEN36.md) | 2026-10-30 | **measured (real weights)** | Phase 5 W1 session report: dense 27B on the 7.62 GB box — A ppl 6.74 @ frac 1.0, frac ladder negative on the unsorted container (E pending), KV8/TQ4 negatives, M1/M4 PASS, first live spec-gate numbers; the README headline's sole source |
+| [COST_MODEL_QWEN36.md](COST_MODEL_QWEN36.md) | 2026-11-02 | shipped | **the de-projection's replacement**: the int4 dense-trunk packer, the per-class byte attribution (what `HOT_FRAC` governs and what it does not), the host-anchored projection with its field fit, and both tools' gates |
 | [REPORT.md](REPORT.md) | 2026-10-11 | measured | the original harness deep-dive (MoE synth containers, I/O throttle, pin/LRU); see its errata header for path drift |
 | [RESEARCH_MAP_DENSE.md](RESEARCH_MAP_DENSE.md) | 2026-10 | measured | literature map: what we took, what we deliberately didn't (windowing, dynamic predictor, OasisKV) |
 | [TRUNKMAP_DENSE27B.md](TRUNKMAP_DENSE27B.md) | 2026-10 | shipped | mmap'd trunk + in-register dequant in the GEMV |

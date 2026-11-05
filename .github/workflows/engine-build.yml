@@ -226,6 +226,130 @@ jobs:
             grep "\[qwen36 MTP\] run:" /tmp/force_$F.err
           done
 
+      - name: "projection gate — the cost model must reproduce the recorded field numbers"
+        run: |
+          set -e
+          python3 scripts/check_projection_field.py
+
+      - name: "int4 packer gates — layout oracle, cross-tool equivalence, refusals"
+        run: |
+          set -e
+          python3 -m pip install --quiet numpy
+          python3 tools/test_pack_trunk_i4.py
+
+      - name: "E19 gate — packer under the engine (mapped int4 vs mapped F16 layout parity)"
+        run: |
+          set -e
+          # The packer's own tests prove the file layout; this proves the ENGINE reads it
+          # as int4 (rc=0 with TRUNK_MAP=1 is already strong: a U8 tensor is mapped only
+          # when nbytes == I*O/2, so a wrong-size map falls through to load_t_n and
+          # REFUSES), that the mapped trunk really shrank ~4x, and that the packed run
+          # agrees with the dequantized oracle the packer emits.
+          export SMALL="$HOME/synth_models/small_dense_f16"
+          export PACK="$HOME/synth_models/small_dense_i4"
+          export DEQ="$HOME/synth_models/small_dense_deq"
+          python3 scripts/gen_small_dense_f16.py
+          python3 scripts/make_tokenizer.py "$SMALL/tokenizer.json" 4095
+          rm -rf "$PACK" "$DEQ"
+          python3 tools/pack_trunk_i4.py "$SMALL" "$PACK" --verify --emit-dequant "$DEQ"
+          du -sh "$SMALL" "$PACK" "$DEQ"
+          python3 - <<'PY'
+          import json
+          prompt = [72,101,108,108,111,32,119,111,114,108,100] + [1000, 2000, 3000, 4000] * 6
+          scored = [116,105,110,103,32,110,117,109,98,101,114,115]
+          json.dump({"prompt_ids": prompt, "full_ids": prompt + scored}, open("/tmp/ref_e19.json", "w"))
+          print("ref_e19.json:", len(prompt), "prompt /", len(prompt) + len(scored), "full")
+          PY
+          tf() {  # tf <name> <snap>
+            env SNAP="$2" TRUNK_MAP=1 TRUNK_WARM=1 Q36_MAXT=512 PPL=1 Q36_TF_CHUNK=64 COLI_TEMP=0 \
+                OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+                timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/ref_e19.json \
+                > "/tmp/e19_$1.out" 2> "/tmp/e19_$1.err" || { tail -20 "/tmp/e19_$1.err"; exit 1; }
+            grep "ppl =" "/tmp/e19_$1.out"
+            grep "\[warm\]" "/tmp/e19_$1.err" || echo "  (no [warm] line on arm $1)"
+          }
+          tf f16 "$SMALL"
+          tf i4  "$PACK"
+          tf deq "$DEQ"
+          for ARM in i4 deq; do
+            if [ "$ARM" = i4 ]; then SNAP2="$PACK"; else SNAP2="$DEQ"; fi
+            env SNAP="$SNAP2" TRUNK_MAP=1 Q36_MAXT=512 N_NEW=6 COLI_TEMP=0 OMP_NUM_THREADS=2 \
+                COLI_NO_OMP_TUNE=1 KVSAVE=0 DUMP_IDS="/tmp/e19_ids_$ARM.txt" \
+                timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2>&1 || true
+          done
+          # The [warm] line is generate-mode only (the tf path returns before it): it
+          # reports the SUM of the engine's mapped dense tensors, i.e. the engine's own
+          # count of the bytes the packer shrank. That is direct engine-side evidence
+          # that the U8 tensors took the mapped-int4 branch, not a proxy for it.
+          for ARM in f16 i4; do
+            if [ "$ARM" = i4 ]; then SNAP3="$PACK"; else SNAP3="$SMALL"; fi
+            env SNAP="$SNAP3" TRUNK_MAP=1 TRUNK_WARM=1 Q36_MAXT=512 N_NEW=2 COLI_TEMP=0 \
+                OMP_NUM_THREADS=2 COLI_NO_OMP_TUNE=1 KVSAVE=0 \
+                timeout 600 "$HOME/colibri/c/qwen36" 8 2 /tmp/p.txt > /dev/null 2> "/tmp/e19_warm_$ARM.err" || true
+            grep -o "\[warm\].*" "/tmp/e19_warm_$ARM.err" || { tail -8 "/tmp/e19_warm_$ARM.err"; exit 1; }
+          done
+          python3 - <<'PY'
+          import re, math
+          def nll(p):
+              m = re.search(r"TF-NLL: ([\d.eE+-]+) nats", open(p).read())
+              assert m, "no TF-NLL line in " + p
+              return float(m.group(1))
+          def mapped_gb(p):
+              m = re.search(r"\[warm\] madvise\(WILLNEED\) over ([\d.]+) GB", open(p).read())
+              return float(m.group(1)) if m else None
+          lnV = math.log(4096)
+          f16, i4, deq = nll("/tmp/e19_f16.out"), nll("/tmp/e19_i4.out"), nll("/tmp/e19_deq.out")
+          g16, g4 = mapped_gb("/tmp/e19_warm_f16.err"), mapped_gb("/tmp/e19_warm_i4.err")
+          print("tf-NLL nats/tok: f16=%.4f i4=%.4f deq=%.4f (ln V=%.4f)" % (f16, i4, deq, lnV))
+          print("engine [warm] mapped dense bytes: f16=%s GB, packed=%s GB" % (g16, g4))
+          # The engine's own line is the PRESENCE proof (it only prints on the map path);
+          # its %.2f GB rounding is useless at this container size, so the RATIO is taken
+          # exactly from the two containers' headers instead of from the log.
+          assert g16 is not None and g4 is not None, \
+              "the [warm] mapped-bytes line is missing from a generate arm (map path?)"
+          import struct, json as _json
+          def trunk_bytes(d):
+              tot = 0
+              for fn in sorted(os.listdir(d)):
+                  if not fn.endswith(".safetensors"):
+                      continue
+                  with open(os.path.join(d, fn), "rb") as fh:
+                      n = struct.unpack("<Q", fh.read(8))[0]
+                      hdr = _json.loads(fh.read(n))
+                  for k, e in hdr.items():
+                      if k == "__metadata__" or k.endswith(".qs"):
+                          continue
+                      if (k.endswith("lm_head.weight") or ".mlp." in k or ".self_attn." in k
+                              or ".linear_attn." in k) and "norm" not in k:
+                          tot += e["data_offsets"][1] - e["data_offsets"][0]
+              return tot
+          b16, b4 = trunk_bytes(os.environ["SMALL"]), trunk_bytes(os.environ["PACK"])
+          print("packed dense trunk: %.3f GB -> %.3f GB (headers)" % (b16 / 1e9, b4 / 1e9))
+          assert b16 / b4 > 3.5, "the packed container is not ~4x smaller on disk"
+          for nm, v in (("f16", f16), ("i4", i4), ("deq", deq)):
+              assert abs(v - lnV) > 0.5, nm + ": tf-NLL == ln(V) — the trunk is numerically absent"
+          rel = abs(i4 - deq) / abs(deq)
+          print("i4 vs deq-then-f16 relative NLL drift: %.4f%%" % (100 * rel))
+          assert rel < 0.01, "mapped int4 differs from its own dequantized oracle by >1%"
+          ratio = i4 / f16
+          print("i4 NLL / f16 NLL = %.2fx (random Gaussian weights: worst case for 4-bit)" % ratio)
+          assert 0.5 < ratio < 5.0, "int4 trunk NLL is outside any plausible 4-bit band"
+          a = open("/tmp/e19_ids_i4.txt").read().split()
+          b = open("/tmp/e19_ids_deq.txt").read().split()
+          assert a and b, "DUMP_IDS produced no ids"
+          same = sum(1 for x, y in zip(a[-6:], b[-6:]) if x == y)
+          print("greedy id agreement i4 vs deq (last 6): %d/6 (reported, not gated)" % same)
+          # NOT gated: the oracle stores the reconstruction as F16 while the int4 path
+          # computes code*scale in f32, so on a random-weight container (residuals that
+          # explode, NLL ~32 nats, near-tie argmaxes) a ~5e-4 weight perturbation can flip
+          # a greedy token. Random-weight nets are MECHANICAL oracles by this repo's own
+          # rule (ROADMAP "Rules that stay"); the numeric invariant here is the NLL
+          # agreement above, and exact layout equality is proven by G1/G2 offline.
+          print("E19 gate OK: the engine takes the mapped-int4 branch on the packed container "
+                "(rc=0, map path engaged, ~4x fewer bytes) and reproduces its dequantized "
+                "oracle's NLL within %.2f%%" % (100 * rel))
+          PY
+
       - name: window cache identity (Q36_WIN_MB on vs off, frac 0.5 gather path)
         run: |
           set -e

@@ -49,6 +49,39 @@ fits the page cache; this checkpoint's container is F16 (54.7 GB trunk — its f
 shared-MLP prefix alone, ~8.6 GB, exceeds the box's entire 7.62 GB RAM). An int4-packed
 container is the measured path to the warm regime (§8 of the report).
 
+## The numbers are a function of the host now, not a slogan
+
+**`docs/COST_MODEL_QWEN36.md`** — the de-projection's replacement. Two shipped tools:
+
+* **`tools/pack_trunk_i4.py`** — offline dense-trunk int4 packer (disk→disk, streaming,
+  no engine change; the engine's map path dispatches on `dtype == U8 && nbytes == I*O/2`).
+  Packs `lm_head`, the MLP, the router, attention q/k/v/o and the DeltaNet projections to
+  the engine's mapped-int4 dialect with per-row `.qs` scales; `--profile` writes the
+  hotness-sorted prefix **in the same pass** (what `HOT_FRAC`'s contract needs).
+
+  | | F16 (field container) | packed |
+  |---|---|---|
+  | dense trunk bytes | 1× | **0.25×** (measured 3.93× on 51 tensors) |
+  | MLP prefix at frac 0.25 | 8.56 GB | **2.14 GB** |
+  | fits the box's RAM at frac 0.25? | no (needs frac ≤ 0.142) | **yes (fits at frac ≤ 0.792)** |
+  | predicted decode, same frac | 2,384 s/token | **99 s/token** |
+
+* **`tools/project_q36.py`** — `q36-minipc project`-class cost model: per-class byte
+  attribution from the container's own shard headers, cold and warm columns, the frac at
+  which the working set fits RAM, and a `--probe` that measures *this* host's read rate.
+  `--field-check` re-derives the recorded field points and fails if the model drifts out of
+  band (currently +7.1% on decode, −15.7% on TTFT; the frac-1.0/512 TTFT outlier is
+  reported, not tuned away).
+
+The attribution is the part the old README could not show: at frac 0.25 the MLP dial
+governs **27%** of the per-token bytes — the other 73% (DeltaNet 57%, lm_head 8%,
+attention 7%) has no dial, no paging and no quantization on the mapped path. No kernel
+work closes that; only fewer bytes and a medium fast enough to move them.
+
+Gates: `tools/test_pack_trunk_i4.py` (layout oracle, `pack∘sort == sort∘pack`
+byte-for-byte over 102 tensors, predicates, refusals) and `scripts/check_projection_field.py`
+(field fit) — both in CI, plus an engine-level parity arm in `engine-build.yml`.
+
 ## Earlier results (4-core / 7.8 GB emulation, synthetic containers, no downloads)
 
 | | stock dense 27B | this stack (frac 0.25) |

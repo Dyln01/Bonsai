@@ -715,6 +715,63 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       completed summary.json → `docs/REALWEIGHTS_QWEN36.md` + README
       de-projection + `phase-5` tag.
 
+- [x] **E19 — the de-projection's replacement: an int4 dense-trunk packer + a cost model
+      that is a function of the host, both regression-gated against the field.**
+      Phase 5 deleted the "12–14 tok/s warm" row; deleting a wrong number is necessary and
+      not sufficient, and the reason the row was wrong is structural: `HOT_FRAC` governs
+      **27%** of the per-token bytes (the frac-0.25 MLP prefix, 8.56 GB F16), while the
+      other 73% — DeltaNet 18.12 GB (57.4%), lm_head 2.54 GB (8.1%), attention 2.35 GB
+      (7.4%) — has no dial, no paging and no quantization on the mapped path. That
+      attribution is now computed from the container's own shard headers instead of
+      asserted in prose. Two tools ship it:
+      `tools/pack_trunk_i4.py` — offline dense-trunk int4 packer, disk→disk streaming
+      (~2 MB RAM, so it runs on the field box), writing the engine's mapped-int4 dialect
+      (`dtype == U8`, `nbytes == I*O/2`, `<name>.qs` F32 per output row, byte k = element 2k
+      low nibble / 2k+1 high nibble two's complement, quantizer = `gen_student_i4.py`'s
+      `quant_i4_row`). **No engine change is needed** — the map branch dispatches on the
+      dtype predicate alone. It packs every tensor the engine loads via
+      `load_tq(quantize=1)` (lm_head, MLP/shared-expert, router, attn q/k/v/o, DeltaNet
+      in_proj_qkv/in_proj_z/out_proj) and copies everything else verbatim, with `--dry-run`,
+      `--verify`, `--hash`, `--components` and `--profile` (hotness-sorted prefix written in
+      the same pass — `hot_sort.py`'s row/column rule, which is what `HOT_FRAC`'s contract
+      needs and what arm E was blocked on). Measured on the field-dialect synthetic
+      container: 51 tensors, **3.93×** smaller, per-class 4-bit rel L2 0.127–0.137 (random
+      Gaussian weights = worst case), frac-0.25 MLP prefix **8.56 GB → 2.14 GB**.
+      `tools/project_q36.py` — the cost model, all host parameters named with provenance
+      (rate 11.2 MB/s from E12/E13/E14's 10.3–11.6 MB/s trunk stream; a resident working set
+      capped by RAM-free-after-residents, ~6.9 GB derived from the 17–24 GB measured
+      decode re-read vs 31.6 GB analytic; E13's 105 s prefill constant), `--probe` for
+      another host's own measured rate, cold/warm columns, the frac at which the working
+      set fits RAM, and `--field-check`, which re-derives the recorded field points and
+      FAILS outside band: **decode +7.1%** (2384 vs 2225 s/token), **TTFT −15.7%**
+      (2924 vs 3466 s), and the frac-1.0/512 TTFT anchor at +112% inside a deliberately
+      wide band — reported as the page-cache-warmed outlier it is, not tuned away.
+      Same container, same box, same frac: F16 **2384 s/token** and *needs frac ≤ 0.142 to
+      fit 7.62 GB* vs packed **99 s/token** and *fits at frac ≤ 0.792* — the warm regime
+      exists at all only in the second column.
+      Gates (CI, `.github/workflows/engine-build.yml`): `tools/test_pack_trunk_i4.py` —
+      G1 the packed bytes dequantized in the test's own convention reproduce the
+      `--emit-dequant` oracle container exactly (+ the 4-bit source bound per class), G2
+      `pack(--profile) ∘ hot_sort == hot_sort ∘ pack(--profile)` **byte-for-byte over 102
+      tensors** (nibble order, scale placement AND the hotness permutation all agree with
+      the shipped sorter), G3 the engine's dispatch predicate on every target, G4 refusals
+      (already-int4 input, unknown components, non-container, profile-from-another-geometry
+      = refusal rather than a silently-unsorted container, partial profile warns which
+      layers stay unsorted); `scripts/check_projection_field.py` — the field fit plus the
+      two consequences the packer rests on (F16 cannot be warm at frac 0.25 on the 7.62 GB
+      box; int4 can) and that the attribution labels the dial's scope; and an E19
+      engine-level arm — three tf arms (F16 source / packed int4 / dequantized oracle) on
+      `small_dense_f16`, asserting rc=0, the engine's own `[warm] madvise` mapped-trunk
+      bytes shrinking >3.5×, no arm degenerate against ln V (the E17 tripwire generalized
+      to the int4 path), int4 within 1% of its dequant oracle's NLL, a bounded 4-bit
+      ratio, and the greedy-id agreement between the packed run and its oracle.
+      Docs: `docs/COST_MODEL_QWEN36.md` (the two errors with arithmetic, the dialect, the
+      gates, the fit table, what it does NOT prove), README §"The numbers are a function of
+      the host now", COMMANDS §11–12. Still open and honestly flagged: the trunk-level
+      quality arm (wikitext-2 ppl at frac 1.0 on a packed real container — the same
+      Phase-5-class measurement arm A got) and arm E + the window re-gate, which the packer
+      now unblocks by making the sorted container ~14 GB instead of ~50 GB.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

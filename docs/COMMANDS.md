@@ -20,6 +20,8 @@ yours to fill.
 | reproduce the experiments / measurements | §7 drivers |
 | rebuild the engine patch stack from stock | §8 patch scripts |
 | verify an install is sound | §9 parity gates |
+| shrink the dense trunk to int4 (offline) | §11 `tools/pack_trunk_i4.py` |
+| know what a container will cost on THIS host | §12 `tools/project_q36.py` |
 
 ---
 
@@ -367,6 +369,54 @@ fp order) — pre-existing engine behavior shared with accepted lookup drafts,
 which is why the oracle invariant is sequence identity, not logit bits.
 **Part 3b (open):** MoE head (resident int4 experts), draft-cost battery on
 real hardware → `docs/MTP_QWEN36.md`.
+## 11. Dense-trunk int4 packer (`tools/pack_trunk_i4.py`)
+
+Why: the field container's dense trunk is **F16** (54.7 GB) — the pinned converter
+quantizes routed experts only and a dense model has none. Decode is pure weight
+streaming, so this is the only structural lever on the s- per-token floor, and it
+unblocks the window cache, the sorted container (arm E) and honest byte accounting.
+Report: [COST_MODEL_QWEN36.md](COST_MODEL_QWEN36.md).
+
+```bash
+python3 tools/pack_trunk_i4.py <src_dir> --dry-run          # target set + byte budget
+python3 tools/pack_trunk_i4.py <src_dir> <out_dir> --verify [--hash]
+python3 tools/pack_trunk_i4.py <src_dir> <out_dir> \
+        --profile ~/Models/q27_i4/hot_profile.json    # hot sorted prefix in the same pass
+```
+
+| Option | Meaning |
+|---|---|
+| `--components a,b,…` | subset of `lmhead,shexp,attn,dnproj,dnout,router` (default all). Attention + DeltaNet input projections cost the most perplexity per byte saved — keep them F16 if quality matters more than bytes |
+| `--profile <hot_profile.json>` | permutes MLP `gate`/`up` rows and `down` columns by `argsort(-energy)` (hot_sort's rule) **before** quantizing, so the hot prefix is the file prefix — what `HOT_FRAC`'s contract requires. A profile from another geometry is a refusal, and a partial profile names the layers that would serve unsorted |
+| `--block-rows N` | streaming row block (default 256 → ~2 MB RAM; runs on the 7.6 GB box) |
+| `--emit-dequant <dir>` | second container whose targets are the **dequantized** values as F16 — the oracle a parity gate runs against, since the engine's mapped-F16 read of exactly what the int4 read reconstructs isolates layout bugs from every other numeric |
+| `--verify` | re-reads the output and proves the engine's dispatch predicate (`dtype == U8`, `nbytes == I*O/2`, `F32 .qs` with `numel == O`) plus byte-identity of the passthrough tensors |
+| `--hash` | sha256 every shard in and out (slow: a full re-read) |
+
+No engine change is needed: the mapped branch dispatches on the dtype predicate
+alone. Serve the output exactly as the F16 container (`TRUNK_MAP=1`, launcher
+levels unchanged). Offline tests: `python3 tools/test_pack_trunk_i4.py`
+(layout oracle, `pack∘sort == sort∘pack` byte-for-byte, predicates, refusals).
+
+## 12. Cost model / projection (`tools/project_q36.py`)
+
+Answers "what will this cost **on this host**" instead of quoting a fixed number.
+Per-class bytes are computed from the container's own shard headers; every host
+parameter is a named field anchor with provenance, and `--field-check` fails if the
+model drifts out of band against the recorded measurements.
+
+```bash
+python3 tools/project_q36.py --container ~/Models/q27_i4 --frac 0.25 --ctx 1524
+python3 tools/project_q36.py --geometry --field-check          # gate the model itself
+python3 tools/project_q36.py --container ~/Models/q27_i4 --probe <big file>   # this host's rate
+```
+
+Read the output as: the attribution table (what the dial governs and what it does
+not), TTFT, cold and warm s/token, the frac at which the working set fits RAM, and
+the field fit. `--json <path>` writes everything for scripts.
+
+---
+
 *Everything here is synthetic-container measured; real-checkpoint validation
-is the declared open step (README *Status*). If a command misbehaves, run
-`q36-minipc doctor` and read the stderr banner before anything else.*
+is COMPLETE for W1 dense (docs/REALWEIGHTS_QWEN36.md, tag `phase-5`). If a command
+misbehaves, run `q36-minipc doctor` and read the stderr banner before anything else.*
