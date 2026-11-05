@@ -289,7 +289,7 @@ jobs:
             grep -o "\[warm\].*" "/tmp/e19_warm_$ARM.err" || { tail -8 "/tmp/e19_warm_$ARM.err"; exit 1; }
           done
           python3 - <<'PY'
-          import re, math
+          import os, re, math, struct, json as _json
           def nll(p):
               m = re.search(r"TF-NLL: ([\d.eE+-]+) nats", open(p).read())
               assert m, "no TF-NLL line in " + p
@@ -307,7 +307,6 @@ jobs:
           # exactly from the two containers' headers instead of from the log.
           assert g16 is not None and g4 is not None, \
               "the [warm] mapped-bytes line is missing from a generate arm (map path?)"
-          import struct, json as _json
           def trunk_bytes(d):
               tot = 0
               for fn in sorted(os.listdir(d)):
