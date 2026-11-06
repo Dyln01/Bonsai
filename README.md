@@ -78,9 +78,35 @@ governs **27%** of the per-token bytes — the other 73% (DeltaNet 57%, lm_head 
 attention 7%) has no dial, no paging and no quantization on the mapped path. No kernel
 work closes that; only fewer bytes and a medium fast enough to move them.
 
+Also shipped, each with its code *and* its number:
+
+* **`tools/make_layer_fracs.py`** — per-layer `HOT_FRAC` schedule: layers are not equally
+  compressible and every layer costs the same bytes per neuron at int4, so the resident
+  budget is a knapsack over per-layer marginal energies (Lagrangian relaxation), emitted in
+  the flat `"L<n>": <frac>` form the engine's naive `HOT_LAYERS` scan actually reads and
+  verified against a re-implementation of that scan. **+81% captured energy vs a uniform
+  fraction at equal bytes** on a heterogeneous profile. Picked up automatically by the
+  launcher (`<model>/hot_layers.json`).
+* **The window cache, now that it can allocate** — Phase 4b was blocked only by the F16
+  trunk; the packer unblocks it. Priced with the engine's own capacity formula (512 MB =
+  1090 rows/layer = 25.1% of the frac-0.25 active set). The launcher auto-enables it on an
+  int4 trunk, and prints the reason + the fix when the trunk is F16.
+
+`project_q36.py --stack` computes the whole ladder on this host — every row model output:
+
+| stack | bytes/tok | s/token | what changed |
+|---|---|---|---|
+| F16 trunk | 33.3 GB | **2536** | the container as shipped |
+| int4 trunk | 8.3 GB | **138** | `pack_trunk_i4.py` |
+| + layer schedule | 7.8 GB | **92** | `make_layer_fracs.py`, equal bytes |
+| + window cache | 8.3 GB | **90** | `Q36_WIN_MB` (marginal once the trunk is int4 — see the report) |
+| + speculation | 8.3 GB | **31** | MTP, *measured* 2.86 accepted/forward |
+
 Gates: `tools/test_pack_trunk_i4.py` (layout oracle, `pack∘sort == sort∘pack`
-byte-for-byte over 102 tensors, predicates, refusals) and `scripts/check_projection_field.py`
-(field fit) — both in CI, plus an engine-level parity arm in `engine-build.yml`.
+byte-for-byte over 102 tensors, predicates, refusals), `tools/test_layer_fracs.py`
+(engine-readable format, budget, energy capture) and `scripts/check_projection_field.py`
+(field fit + the window's capacity against the engine's formula) — all in CI, plus an
+engine-level parity arm in `engine-build.yml`.
 
 ## Earlier results (4-core / 7.8 GB emulation, synthetic containers, no downloads)
 
@@ -142,12 +168,18 @@ troubleshooting): [docs/INSTALL.md](docs/INSTALL.md)** — start there.
 **Every command, knob and log line, copy-paste ready: [docs/COMMANDS.md](docs/COMMANDS.md)**.
 
 ```bash
-# install
-cp tools/q36-minipc.sh ~/bin/q36-minipc && cp tools/hot_sort.py ~/bin/
-chmod +x ~/bin/q36-minipc ~/bin/hot_sort.py
+# install (the launcher resolves these tools from ~/bin or from the repo checkout)
+cp tools/q36-minipc.sh ~/bin/q36-minipc
+cp tools/hot_sort.py tools/pack_trunk_i4.py tools/make_layer_fracs.py tools/project_q36.py ~/bin/
+chmod +x ~/bin/q36-minipc
 
 # day one, per dense model
 q36-minipc calibrate ~/q27_i4        # Q36_CORPUS=your_text.txt
+q36-minipc pack      ~/q27_i4        # -> ~/q27_i4-i4  (int4 trunk + sorted prefix; ~1/4 the disk)
+q36-minipc fracs     ~/q27_i4-i4     # -> hot_layers.json (per-layer HOT_FRAC, auto-used)
+q36-minipc project   ~/q27_i4-i4     # what it will cost on THIS host, and the stack ladder
+q36-minipc bench     ~/q27_i4-i4     # window cache auto-on for an int4 trunk
+# optional, skip if you packed with --profile above:
 q36-minipc sort      ~/q27_i4        # -> ~/q27_i4-sorted
 # every day after — or skip both: GRIFFIN adapts per-prompt on the UNMODIFIED container
 q36-minipc serve    ~/q27_i4-sorted  # TRUNK_MAP+GRIFFIN/prefix+HOT_FRAC+KV8 (~2 GB + hot set)

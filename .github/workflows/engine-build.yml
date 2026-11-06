@@ -237,6 +237,11 @@ jobs:
           python3 -m pip install --quiet numpy
           python3 tools/test_pack_trunk_i4.py
 
+      - name: "layer-schedule gates — engine-readable HOT_LAYERS format, budget, energy capture"
+        run: |
+          set -e
+          python3 tools/test_layer_fracs.py
+
       - name: "E19 gate — packer under the engine (mapped int4 vs mapped F16 layout parity)"
         run: |
           set -e

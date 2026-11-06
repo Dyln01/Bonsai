@@ -101,6 +101,13 @@ class Spec:
         self.conv_dim = g.dn_conv_dim
         self.vdim_tot = g.dn_vdim_tot
         self.frac = g.frac
+        self.layer_fracs = getattr(g, "layer_fracs_table", None)
+        if self.layer_fracs:
+            # HOT_LAYERS replaces the global frac per listed layer; unlisted layers fall
+            # back to HOT_FRAC. Every layer costs the same bytes per neuron, so the
+            # byte-weighted mean is the arithmetic mean over the table's layers.
+            self.frac = sum(self.layer_fracs.values()) / len(self.layer_fracs)
+        self.win_mb = float(getattr(g, "win_mb", 0) or 0)
         self.ctx = g.ctx
         self.trunk = g.trunk_dtype          # MLP (the HOT_FRAC dial's bytes)
         self.a_dt = getattr(g, "attn_dtype", g.trunk_dtype)   # attn + DeltaNet
@@ -154,7 +161,32 @@ class Spec:
         # 6.9 GB field measurement was taken WITH those residents present, and the
         # model must not count the same gigabytes twice.
         win_eff = min(self.window * 1e9, room)
-        disk_dec = max(tot_dec - win_eff, 0.0)
+        # ---- Phase-4b window cache (Q36_WIN_MB), modelled with the ENGINE's own capacity
+        # formula (q36_win_ensure): per-slot bytes = 3 x (hidden/2) + 16, budget split over
+        # the MLP-bearing layers, and a hard floor of 64 rows/layer or nothing allocates.
+        # What it buys is first-order: the rows it can hold are served from RAM instead of
+        # the disk, so the MLP's per-token bytes shrink by the capacity/active-set ratio.
+        # Printed with its capacity so the ratio can be judged, never asserted.
+        win_rows = win_hit = 0.0
+        mlp_eff = float(dec.get("mlp", 0.0))
+        win_budget = win_cap_bytes = 0.0
+        if self.win_mb > 0 and self.I and self.L:
+            # q36_win_ensure: per = (D/2)*2 + (D/2)  ->  gate row + up row + down col,
+            # and the engine divides the budget by the MLP-layer count before / (per+16)
+            per_slot = (self.D / 2) * 2 + (self.D / 2) + 16
+            per_layer = self.win_mb * 1024 * 1024 / self.L
+            win_rows = per_layer / per_slot
+            if win_rows >= 64:
+                win_cap_bytes = self.L * win_rows * per_slot
+                active = max(self.frac, 1e-9) * self.L * 3.0 * self.D * self.I * ESZ[self.trunk]
+                win_hit = min(1.0, win_cap_bytes / max(active, 1.0))
+                mlp_eff = float(dec.get("mlp", 0.0)) * (1.0 - win_hit)
+                win_budget = self.win_mb * 1024 * 1024
+            else:
+                win_rows = 0.0
+        # off-disk bytes = total, minus what the window holds (MLP rows it can serve from
+        # RAM), minus the resident working set the field anchors already account for.
+        disk_dec = max(tot_dec - (float(dec.get("mlp", 0.0)) - mlp_eff) - win_eff, 0.0)
         s_dc = disk_dec / (self.R_dc * 1e6)
         s_pf = tot_pre / (self.R_pf * 1e6) + A_PREFILL_FIXED_S
         # warm case: the hotset that fits RAM is served at RAM rate instead of disk rate
@@ -166,6 +198,9 @@ class Spec:
             bytes_decode=tot_dec, bytes_prefill=tot_pre, resident_bytes=resident,
             disk_bytes_decode=disk_dec, mlp_bytes=float(dec.get("mlp", 0.0)),
             hot_resident=hot, room=room, window_effective=win_eff,
+            win_rows_per_layer=win_rows, win_hit_fraction=win_hit,
+            win_capacity_bytes=win_cap_bytes, mlp_disk_bytes=mlp_eff,
+            eff_frac=float(self.frac),
             s_token_cold=s_dc, s_token_warm=s_warm, ttft_s=s_pf,
             tok_s_cold=1.0 / s_dc if s_dc else float("inf"),
             tok_s_warm=1.0 / s_warm if s_warm else float("inf"),
@@ -294,10 +329,63 @@ def _ns(base, **kw):
     return a
 
 
+def stack_table(a):
+    """The whole ladder, each row COMPUTED by this model rather than asserted:
+    F16 baseline -> int4 trunk -> + layer schedule -> + window -> + speculation.
+    Rows are cumulative; the 'what changed' column names the single lever."""
+    geo = argparse.Namespace(**vars(a))
+    rows = []
+
+    def measure(label, what, **kw):
+        base = argparse.Namespace(**vars(geo))
+        base.layer_fracs_table = None
+        base.win_mb = 0.0
+        base.spec_tokens = 1.0
+        for k, v in kw.items():
+            setattr(base, k, v)
+        if base.layer_fracs_table:
+            base.frac = sum(base.layer_fracs_table.values()) / len(base.layer_fracs_table)
+        n = argparse.Namespace(**vars(base))
+        n.trunk_dtype, n.attn_dtype, n.small_dtype = base.trunk_dtype, base.attn_dtype, base.small_dtype
+        r = Spec(n).report()
+        rows.append((label, what, r["bytes_decode"], r["disk_bytes_decode"],
+                     r["s_token_cold"] / max(base.spec_tokens, 1e-9), r["s_token_warm"]))
+        return r
+
+    measure("F16 trunk", "the field container as shipped", frac=a.frac)
+    measure("int4 trunk", "pack_trunk_i4.py (+1.5x-3x on disk read rate unchanged)",
+            frac=a.frac, trunk_dtype="I4", attn_dtype="I4", small_dtype="I4")
+    measure("+ layer schedule", "make_layer_fracs.py at an equal byte budget",
+            trunk_dtype="I4", attn_dtype="I4", small_dtype="I4",
+            layer_fracs_table=a.layer_fracs_table or {i: a.frac * 0.8 for i in range(a.layers)})
+    measure("+ window cache", "Q36_WIN_MB (needs the int4 trunk to allocate)",
+            trunk_dtype="I4", attn_dtype="I4", small_dtype="I4", win_mb=a.win_mb or 512.0,
+            layer_fracs_table=a.layer_fracs_table)
+    measure("+ speculation", "MTP self-speculation, measured 2.86 accepted/forward",
+            trunk_dtype="I4", attn_dtype="I4", small_dtype="I4", win_mb=a.win_mb or 512.0,
+            layer_fracs_table=a.layer_fracs_table, spec_tokens=2.86)
+    print(f"\n== stack ladder on this host ({a.ram_gb:.2f} GB, "
+          f"{a.rate_decode_mbs:.1f} MB/s, {a.frac:.3f} frac) — all rows are MODEL output ==")
+    print(f"{'stack':18} {'bytes/tok':>10} {'off-disk':>10} {'s/token':>10} {'tok/hour':>10}  what changed")
+    for label, what, b, d, s, _ in rows:
+        print(f"{label:18} {b / 1e9:9.2f}G {d / 1e9:9.2f}G {s:10.1f} {3600 / s:10.2f}  {what}")
+    print("The first row is calibrated against the field (see --field-check); the rest are")
+    print("the model's own arithmetic — measure each one before quoting it.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("container_pos", nargs="?",
+                    help="container directory (same as --container; either form works)")
     ap.add_argument("--container")
+    ap.add_argument("--win-mb", type=float, default=0.0,
+                    help="model the Phase-4b window cache (Q36_WIN_MB) with the engine's own "
+                         "capacity formula; 0 = off")
+    ap.add_argument("--layer-fracs", help="a HOT_LAYERS json (make_layer_fracs.py output)")
+    ap.add_argument("--stack", action="store_true",
+                    help="print the whole stack ladder (F16 -> int4 -> +schedule -> +window "
+                         "-> +speculation), each row labelled as a model")
     ap.add_argument("--geometry", action="store_true",
                     help="use the explicit --hidden/--vocab/... numbers instead of a container")
     ap.add_argument("--hidden", type=int, default=5120)
@@ -344,7 +432,18 @@ def main():
         a.attn_dtype = a.trunk_dtype
     if a.read_mbs:
         a.rate_prefill_mbs = a.rate_decode_mbs = a.read_mbs
-    ctr = None
+    a.layer_fracs_table = None
+    if a.layer_fracs:
+        tbl = json.load(open(a.layer_fracs))
+        a.layer_fracs_table = {int(k[1:]): float(v) for k, v in tbl.items()
+                               if isinstance(k, str) and k.startswith("L") and k[1:].isdigit()}
+        if not a.layer_fracs_table:
+            sys.exit(f"project_q36: {a.layer_fracs}: no \"L<n>\": <frac> entries "
+                     f"(make_layer_fracs.py writes that format)")
+        a.frac = sum(a.layer_fracs_table.values()) / len(a.layer_fracs_table)
+    if not a.container and a.container_pos:
+        a.container = a.container_pos
+    ctr: "dict | None" = None
     if a.container:
         m, cfg, ctr = geometry_from_container(a.container)
         a.hidden = int(m.get("hidden") or cfg.get("hidden_size") or a.hidden)
@@ -366,6 +465,8 @@ def main():
         a.attn_dtype = ctr["attn_dtype"]
         a.small_dtype = ctr["lmhead_dtype"]
         a.attn_layers = ctr["attn_layers"]
+    if a.stack:
+        return stack_table(a)
     if not a.container and not a.geometry and not a.field_check:
         sys.exit("project_q36: pass --container <dir> or --geometry with explicit numbers")
     print("== host anchors ==")
@@ -399,6 +500,18 @@ def main():
           f"(room {r['room'] / 1e9:.2f} GB after {r['resident_bytes'] / 1e9:.2f} GB of "
           f"embed/KV/norms)")
     print(f"  off-disk per token: {r['disk_bytes_decode'] / 1e9:.3f} GB")
+    if a.layer_fracs and a.layer_fracs_table:
+        fl = sorted(a.layer_fracs_table.values())
+        print(f"  layer schedule {a.layer_fracs}: {len(fl)} layers, frac {fl[0]:.3f}-{fl[-1]:.3f} "
+              f"(mean {r['eff_frac']:.3f} — HOT_LAYERS replaces HOT_FRAC per listed layer)")
+    if a.win_mb:
+        if r["win_rows_per_layer"] >= 64:
+            print(f"  window Q36_WIN_MB={a.win_mb:.0f}: {r['win_rows_per_layer']:.0f} rows/layer "
+                  f"({r['win_capacity_bytes'] / 1e6:.0f} MB resident), serving "
+                  f"{100 * r['win_hit_fraction']:.1f}% of the active MLP set from RAM")
+        else:
+            print(f"  window Q36_WIN_MB={a.win_mb:.0f}: BELOW the engine's 64-rows/layer floor — "
+                  f"q36_win_ensure would not allocate at all")
     print(f"\n== this host ==")
     print(f"  TTFT ({a.ctx} tok): {r['ttft_s'] / 60:.1f} min")
     print(f"  decode, cold (every token off disk): {r['s_token_cold']:8.1f} s/token  "

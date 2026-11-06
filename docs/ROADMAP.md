@@ -772,6 +772,53 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Phase-5-class measurement arm A got) and arm E + the window re-gate, which the packer
       now unblocks by making the sorted container ~14 GB instead of ~50 GB.
 
+- [x] **E20 — the three remaining software levers, implemented and *computed* rather than
+      asserted.** E19 packed the trunk; these are the levers that ride on it, and the rule
+      applied here is that each one ships with the code AND the number, or it does not ship.
+      (1) **Per-layer HOT_FRAC schedule** — `tools/make_layer_fracs.py`: `HOT_FRAC` is one
+      scalar, layers are not equally compressible, and every layer costs the same bytes per
+      neuron (`3 x hidden x 0.5` at int4), so the resident budget is a knapsack over
+      per-layer marginal energies, solved by Lagrangian relaxation (binary-search the
+      marginal-energy threshold λ). It emits the engine's `HOT_LAYERS` format, which is NOT
+      free-form: `q36_layer_frac` reads it with `strstr("\"L")` → `atoi` → `strchr(':')` →
+      `atof`, so the file must be a FLAT `"L<n>": <frac>` map — a nested `{"layers": {…}}`
+      works only by the accident that lowercase `"l"` is unmatched, and any other key
+      starting with `L` becomes layer-0 garbage; `--check` therefore re-parses the output
+      with a re-implementation of that scan. Measured on a heterogeneous synthetic profile
+      at a binding budget: **+81% captured energy vs a uniform fraction at equal bytes**.
+      Gates (`tools/test_layer_fracs.py`): flat-map format, engine-scan round trip, budget
+      within one neuron + the `--min-frac` floor (which the tool reports when it overruns),
+      clamps, `--normalize` reallocation, refusals (missing profile, wrong geometry,
+      non-container). The launcher picks up `<model>/hot_layers.json` automatically.
+      (2) **Window cache, now that it can allocate** — Phase 4b died on the F16 trunk
+      (`q36_win_ensure` needs `map_len == D*I/2`); the int4 packer unblocks it. The model
+      now prices it with the ENGINE's own formula (`cap = win_mb*1024²/n_mlp / ((D/2)*2 +
+      (D/2) + 16)`, 64-rows/layer floor ⇒ 512 MB = **1090 rows/layer = 25.1% of the
+      frac-0.25 active set** on the field geometry), and the CI gate asserts the model
+      against that arithmetic — it caught a 1.33x transcription error in the model's first
+      version. **Honest finding: the window's marginal value is small once the trunk is
+      int4** (92 → 90 s/token in the ladder), because the model already credits a
+      RAM-resident working set capped by RAM-free-after-residents and int4/frac-0.3 nearly
+      holds the whole per-token stream; it pays where the set exceeds RAM (F16, higher
+      fracs, longer context) or across agent turns, and it is NOT additive with that
+      credit. Launcher: int4 → window ON with a RAM-scaled budget and the real rows/layer
+      printed; F16 → the reason plus the one command that fixes it; unsorted int4 +
+      `HOT_FRAC<1` → the arm-E warning with the measured damage (ppl 6.74 → 1791).
+      (3) **The stack ladder, computed** — `project_q36.py --stack` prints F16 → int4 →
+      +schedule → +window → +speculation on this host with each row's bytes/token,
+      off-disk bytes and s/token: **2536 / 138 / 92 / 90 / 31 s-token-equivalents** at
+      frac 0.3, the last row using the *measured* 2.86 accepted tokens per forward. The
+      circulating sketch's "20–40 s/token from the window cache" is not what the model
+      says for the window alone; it is reachable only together with the int4 trunk, and the
+      derivation that gets there is bytes-per-token, not caching. Also shipped: launcher
+      subcommands `pack`/`fracs`/`project` (with a sibling-tool resolver so an installed
+      launcher finds the repo's tools), `doctor` reporting the trunk dialect + window
+      eligibility, and `pack` auto-using the calibration profile for the sorted prefix.
+      Docs: COST_MODEL_QWEN36.md §4b, COMMANDS §2/§13. Still open: the field measurements
+      of all three (the W0/W256/W512 I/O battery with n_new ≥ 8, the schedule's ppl-vs-bytes
+      Pareto, MTP depth/multi-candidate) — the code and the predictions are in place, the
+      box has not yet run them.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

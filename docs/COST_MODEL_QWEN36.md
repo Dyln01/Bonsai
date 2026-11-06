@@ -167,6 +167,68 @@ int4 trunk **and** a frac at or below the fit **and** (preferably) an NVMe host.
 quoting a tok/s figure without naming bytes/token, the medium and the resident set is the
 old mistake in a new place.
 
+## 4b. The remaining levers, computed instead of asserted
+
+Three design sketches circulate for this hardware (window cache on int4, a per-layer
+`HOT_FRAC` schedule, stronger MTP). All three are real levers, and every number below is
+this model's own arithmetic — `tools/project_q36.py --stack` — not a promise. The
+first row is the field-calibrated one; the ladder is `--frac 0.3` on the field geometry:
+
+| stack | bytes/tok | off-disk | s/token | tok/hour | what changed |
+|---|---|---|---|---|---|
+| F16 trunk | 33.28 GB | 28.41 GB | **2536** | 1.4 | the container as shipped |
+| int4 trunk | 8.32 GB | 1.54 GB | **138** | 26.2 | `pack_trunk_i4.py` |
+| + layer schedule | 7.81 GB | 1.03 GB | **92** | 39.3 | `make_layer_fracs.py`, equal bytes |
+| + window cache | 8.32 GB | 1.00 GB | **90** | 40.2 | `Q36_WIN_MB` (needs the int4 trunk) |
+| + speculation | 8.32 GB | 1.00 GB | **31** | 114.9 | MTP, measured 2.86 accepted/forward |
+
+**Read the window row honestly: once the trunk is int4 at frac ≤0.3, its marginal value is
+small** — 92 → 90 s/token, because the model already credits a RAM-resident working set
+capped by RAM-free-after-residents, and at int4/frac 0.3 that set nearly holds the whole
+per-token stream. The window is not additive with that credit; it earns its keep where the
+working set *exceeds* RAM (the F16 row, higher fracs, longer contexts, or agent traffic
+whose gather set repeats across turns). The sketch's "20–40 s/token from the window" is
+reachable in the ladder only *together with* the int4 trunk, and the derivation that gets
+there is bytes-per-token, not caching.
+
+### The per-layer schedule — `tools/make_layer_fracs.py`
+
+`HOT_FRAC` is one scalar; layers are not equally compressible. The calibration profile
+already holds every MLP neuron's activation energy, and every layer costs the same bytes
+per neuron (`3 x hidden x 0.5` at int4), so allocating the resident budget is a knapsack
+over per-layer marginal energies. The tool solves the Lagrangian relaxation (binary search
+the marginal-energy threshold λ, `K_l(λ) = #{neurons in layer l with energy ≥ λ}`) and
+emits the engine's `HOT_LAYERS` format.
+
+**The format is not free-form**: `q36_layer_frac` reads it with a naive
+`strstr("\"L")` → `atoi` → `strchr(':')` → `atof` scan, so the file must be a FLAT map of
+`"L<n>": <frac>` pairs — a nested `{"layers": {...}}` only works by the accident that
+lowercase `"l"` is not matched, and any other key beginning with `L` would be read as
+layer 0 with a garbage fraction. The tool emits the flat map and `--check` re-parses it
+with a re-implementation of the engine's scan before it claims success.
+
+Measured on a heterogeneous synthetic profile at a binding budget: **+81% captured energy
+versus a uniform fraction at the same bytes** (unit test `tools/test_layer_fracs.py`).
+Gates: flat-map format, engine-scan round-trip, budget respected (within one neuron *plus*
+the `--min-frac` floor, which the tool now reports when it pushes past budget), clamps,
+`--normalize` reallocation, and refusals (missing profile, wrong geometry, non-container).
+
+### The window cache — capacity is the engine's formula
+
+`Q36_WIN_MB` allocates per MLP layer as
+`cap = (win_mb*1024*1024 / n_mlp_layers) / ((D/2)*2 + (D/2) + 16)`, and refuses outright
+below 64 rows/layer (`q36_win_ensure`). On the field geometry a 512 MB budget is **1090
+rows/layer**, i.e. **25.1% of the frac-0.25 active set** — the projection prints exactly
+this, and the gate asserts the model against that formula (a first version of the model
+got it wrong by 1.33x and the gate caught it). The window also requires **all three** MLP
+matrices int4-mapped (`sh_g`, `sh_d` at `map_len == D*I/2`), which is why `--components`
+excluding `shexp` silently disables it.
+
+The launcher now does the detection: on an int4 trunk it turns the window on with a
+RAM-scaled budget and prints the rows/layer it will actually get; on an F16 trunk it names
+the reason and the one command that fixes it; and on an unsorted int4 container with
+`HOT_FRAC<1` it prints the arm-E warning with the measured damage (ppl 6.74 → 1791).
+
 ## 5. What this does not do
 
 * The byte accounting is structural; the ~11 MB/s rate is this host's. On NVMe the model

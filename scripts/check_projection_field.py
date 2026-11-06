@@ -101,6 +101,45 @@ def main():
               f"fits at frac <= {i4_wall:.3f}")
     check("NO dial" in out_f16 and "HOT_FRAC dial" in out_f16,
           "attribution names what the dial does and does not govern")
+
+    print("\n== the stack ladder (each row is model output, monotone on purpose) ==")
+    rc_s, out_s = run("--geometry", "--stack", "--frac", "0.3")
+    print("\n".join("   " + l for l in out_s.strip().splitlines()[-9:]))
+    check(rc_s == 0, "project_q36 --stack renders")
+    row = {}
+    for line in out_s.splitlines():
+        for label in ("F16 trunk", "int4 trunk", "+ layer schedule",
+                      "+ window cache", "+ speculation"):
+            if line.startswith(label):
+                row[label] = float(line[len(label):].split()[2])
+    need = ("F16 trunk", "int4 trunk", "+ layer schedule", "+ window cache", "+ speculation")
+    check(all(k in row for k in need), "all five stack rows present", f"{sorted(row)}")
+    if all(k in row for k in need):
+        check(row["int4 trunk"] < row["F16 trunk"] * 0.25,
+              "int4 trunk cuts the modelled s/token >4x",
+              f"{row['F16 trunk']:.0f} -> {row['int4 trunk']:.0f} s/token")
+        check(row["+ layer schedule"] <= row["int4 trunk"],
+              "the layer schedule never costs more than a flat frac at equal bytes",
+              f"{row['int4 trunk']:.1f} -> {row['+ layer schedule']:.1f} s/token")
+        check(row["+ window cache"] <= row["+ layer schedule"] + 1e-6,
+              "the window never increases modelled cost",
+              f"{row['+ layer schedule']:.1f} -> {row['+ window cache']:.1f} s/token")
+        check(row["+ speculation"] < row["+ window cache"] / 2.0,
+              "speculation multiplies the whole stack (2.86 accepted/forward, measured)",
+              f"{row['+ window cache']:.1f} -> {row['+ speculation']:.1f} s/token")
+    print("\n== the window's capacity is the ENGINE's formula, not a wish ==")
+    rc_w, out_w = run("--geometry", "--trunk-dtype", "I4", "--small-dtype", "I4",
+                      "--attn-dtype", "I4", "--win-mb", "512", "--frac", "0.25")
+    rows_per_layer = grab(out_w, r"window Q36_WIN_MB=512: ([\d.]+) rows/layer")
+    # engine: per-slot = 3*(hidden/2)+16 = 7696 B, split over 64 MLP layers
+    expect = 512 * 1024 * 1024 / 64 / 7696
+    check(rows_per_layer is not None and abs(rows_per_layer - expect) < 2.0,
+          "modelled rows/layer match q36_win_ensure's arithmetic",
+          f"model {rows_per_layer} vs engine formula {expect:.1f}")
+    rc_small, out_small = run("--geometry", "--trunk-dtype", "I4", "--small-dtype", "I4",
+                              "--attn-dtype", "I4", "--win-mb", "4", "--frac", "0.25")
+    check("64-rows/layer floor" in out_small,
+          "a below-floor budget is reported as 'would not allocate' (the E14 signature)")
     print(f"\n{'PROJECTION GATE PASS' if not FAILS else 'FAILURES: ' + ', '.join(FAILS)}")
     return 1 if FAILS else 0
 

@@ -43,7 +43,10 @@ q36-minipc <command> <model_dir> [arg]
 | `seed <model>` | (MoE) write a Zipf-router `.coli_usage` prior | makes expert-cache benchmarks face realistic traffic |
 | `calibrate <model>` | (dense) one `HOT_PROFILE` pass; set `Q36_CORPUS=<text file>` | produces `<model>/hot_profile.json`. Full-compute pass: ETA banner printed; corpus capped at `Q36_CAL_TOKENS` (default 1024, `0`=whole file); engine stderr streams live; **profile written only at clean exit — don't ^C mid-pass** |
 | `sort <model> [profile]` | (dense) hotness-sorted copy of the container via `hot_sort.py` | → `<model>-sorted`; GRIFFIN makes this optional |
-| `doctor <model>` | report: engine binary, knob reference counts, model class, resolved level | run this first whenever something behaves oddly |
+| `doctor <model>` | report: engine binary, knob reference counts, model class, trunk dialect, window eligibility, resolved level | run this first whenever something behaves oddly |
+| `pack <model> [out]` | (dense) int4-pack the trunk offline via `pack_trunk_i4.py` §11 | the lever that also makes the window allocatable |
+| `fracs <model> [out]` | (dense) per-layer `HOT_FRAC` schedule via `make_layer_fracs.py` §13 | writes `<model>/hot_layers.json`, auto-used |
+| `project <model>` | what this container costs on THIS host, by class (`project_q36.py` §12) | `Q36_PROJ_STACK=1`, `Q36_WIN_MB=`, `Q36_LAYER_FRACS=` add the ladder |
 | `watch` | live-render `[prefill]` progress lines from `/tmp/calib.err` as a one-line bar (`[calib |####......|  42%  t=..s eta=..s]`) | second terminal beside a running `calibrate`/`bench`; `calibrate`/`bench` also render inline |
 
 ### 2.1 Levels (`Q36_LEVEL`)
@@ -414,6 +417,41 @@ python3 tools/project_q36.py --container ~/Models/q27_i4 --probe <big file>   # 
 Read the output as: the attribution table (what the dial governs and what it does
 not), TTFT, cold and warm s/token, the frac at which the working set fits RAM, and
 the field fit. `--json <path>` writes everything for scripts.
+
+| Option | Meaning |
+|---|---|
+| `<dir>` or `--container <dir>` | either form; the geometry and dtype mix are read from the container |
+| `--win-mb N` | model the Phase-4b window cache (`Q36_WIN_MB`) using the engine's own capacity formula, incl. the 64-rows/layer floor |
+| `--layer-fracs <json>` | a `HOT_LAYERS` file — the effective mean frac replaces the global one |
+| `--stack` | the whole ladder (F16 → int4 → +schedule → +window → +speculation), every row model output |
+| `--probe <file>` | replace both rates with this host's own measured sequential read rate |
+| `--field-check` | re-derive the recorded field points and exit non-zero outside band |
+
+## 13. Per-layer HOT_FRAC schedule (`tools/make_layer_fracs.py`)
+
+`HOT_FRAC` is one scalar; layers compress differently. This spends a resident-byte
+budget where it captures the most activation energy, and writes the file the engine's
+`HOT_LAYERS` scan can actually read.
+
+```bash
+q36-minipc fracs <model_dir> [out]                   # -> <model_dir>/hot_layers.json
+python3 tools/make_layer_fracs.py <model_dir> --budget-gb 5.5 --check -o hot_layers.json
+```
+
+| Option | Meaning |
+|---|---|
+| `--budget-gb F` | resident MLP bytes to spend (default: `--ram-gb` minus the fixed residents) |
+| `--ram-gb F` | derive the budget from RAM (default 7.62, the field box) |
+| `--trunk-dtype int4\|f16` | bytes per neuron (int4 = 0.5 B/element; the default) |
+| `--min-frac`/`--max-frac` | per-layer clamps (the floor cannot be traded away and is reported if it overruns the budget) |
+| `--normalize` | allocate by each layer's *relative* energy instead of absolute |
+| `--check` | re-parse the output with a re-implementation of the engine's own scan |
+| `--json-report <p>` | per-layer K, captured energy, bytes, and the gain vs a uniform frac |
+
+Output format is a **flat** `{"L0": 0.55, "L1": 0.4, …}` map — the engine parses it
+with `strstr("\"L")` + `atof`, so nothing else may live in that file. The launcher
+picks up `<model_dir>/hot_layers.json` automatically (`Q36_HOT_LAYERS` overrides it).
+Gates: `python3 tools/test_layer_fracs.py`.
 
 ---
 

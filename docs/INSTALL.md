@@ -114,11 +114,18 @@ PARITY OK: FWHT, radius, direction, linearity, inert, accounting — all gates p
 
 ```bash
 cp ~/bonsai/tools/q36-minipc.sh ~/bin/q36-minipc
-cp ~/bonsai/tools/hot_sort.py    ~/bin/hot_sort.py
-chmod +x ~/bin/q36-minipc ~/bin/hot_sort.py
+# the tools the launcher's `sort`, `pack`, `fracs` and `project` subcommands call:
+cp ~/bonsai/tools/hot_sort.py ~/bonsai/tools/pack_trunk_i4.py \
+   ~/bonsai/tools/make_layer_fracs.py ~/bonsai/tools/project_q36.py ~/bin/
+chmod +x ~/bin/q36-minipc
 # make sure ~/bin is on PATH (usually already is; else add to ~/.profile):
 #   export PATH="$HOME/bin:$PATH"
 ```
+
+The launcher resolves each tool from `~/bin` first, then from the repo checkout it was
+run from, so installing only the launcher still works when you run it in-tree. Nothing
+else needs installing — the packer, the schedule builder and the cost model are pure
+Python + numpy.
 
 The launcher expects the engine at `~/colibri/c/qwen36` (override with
 `Q36_ENGINE=<path>`).

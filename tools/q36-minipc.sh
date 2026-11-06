@@ -14,6 +14,15 @@ MODEL="${2:-}"
 ARG3="${3:-}"
 ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 TOOLS="$HOME/bin"
+# Resolve a sibling tool: the installed copy wins, else the repo checkout this launcher
+# was run from, else the historical harness dir. Keeps `q36-minipc pack|fracs|project`
+# working when only the launcher was installed (or when running it in-tree).
+q36_tool() {
+  for c in "$TOOLS/$1" "$(dirname "$0")/$1" "$HOME/colibri-harness/$1"; do
+    [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  printf '%s\n' "$TOOLS/$1"
+}
 
 die() { echo "q36-minipc: $*" >&2; exit 2; }
 
@@ -42,6 +51,52 @@ case "$CMD" in
     ;;
 esac
 
+# ---- trunk dialect detection (dense only): decides whether the Phase-4b window can
+# allocate at all (q36_win_ensure requires map_len == D*I/2, i.e. a PACKED int4 trunk)
+# and whether a HOT_FRAC<1.0 prefix is real (a sorted container) or random dropout. ----
+TRUNKDT="none"; SORTED="unknown"; TRUNKK=""
+if [ "$CLASS" = dense ]; then
+  TRUNKK=$(python3 - "$MODEL" <<'PY' 2>/dev/null || true
+import json, os, struct, sys
+d = sys.argv[1]
+try:
+    m = json.load(open(os.path.join(d, "qwen36_meta.json")))
+    H = int(m.get("hidden") or 0); I = int(m.get("shared_inter") or m.get("moe_inter") or 0)
+except Exception:
+    H = I = 0
+dt, nb, want, sorted_layers, manifest = None, 0, 0, None, False
+mp = os.path.join(d, "trunk_i4_manifest.json")
+if os.path.exists(mp):
+    manifest = True
+    try:
+        sorted_layers = len(json.load(open(mp)).get("sorted_layers") or [])
+    except Exception:
+        sorted_layers = None
+for f in sorted(os.listdir(d)):
+    if not f.endswith(".safetensors"):
+        continue
+    with open(os.path.join(d, f), "rb") as fh:
+        n = struct.unpack("<Q", fh.read(8))[0]
+        hdr = json.loads(fh.read(n))
+    for k, e in hdr.items():
+        if k.endswith(("mlp.gate_proj.weight", "mlp.shared_expert.gate_proj.weight")):
+            dt = e["dtype"]; nb = e["data_offsets"][1] - e["data_offsets"][0]
+            want = (H * I) // 2
+            break
+    if dt:
+        break
+kind = ("int4" if dt in ("U8", "I8") and want and nb == want else
+        ("i8" if dt in ("U8", "I8") else ("f16" if dt in ("F16", "BF16") else (dt or "none"))))
+srt = ("yes" if (manifest and sorted_layers) else
+       ("no" if (manifest and sorted_layers == 0) else "unknown"))
+print(f"{kind} {srt} {H} {I} {nb} {want}")
+PY
+)
+  if [ -n "$TRUNKK" ]; then
+    set -- $TRUNKK; TRUNKDT=$1; SORTED=$2; TKD_H=$3; TKD_I=$4; TKD_NB=$5; TKD_WANT=$6
+  fi
+fi
+
 # ---- levels ----
 case "$LEVEL" in
   eco)      CAP=24; THREADS=2; CTX=4096;  KV8V=1; WIDE=2; FRAC=0.25 ;;
@@ -69,11 +124,58 @@ if [ "$RAM_GB" -lt 8 ] && [ "$CAP" -gt 24 ]; then CAP=24; echo "[minipc] RAM<8GB
 if [ "$CLASS" = moe ]; then
   COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 CAP_RAISE=0 PIN=auto WIDE=$WIDE PILOT=2 SMOOTH=0.30 CONF_LIMIT=0.92 USAGE_SAVE=1 KVSAVE=1 $KVENV RAM_GB=$RAM_GB"
 else
+  # informational echoes only matter for commands that actually run the engine
+  QUIET=0; case "$CMD" in serve|chat|bench|calibrate) ;; *) QUIET=1 ;; esac
   # dense: trunk on disk; GRIFFIN by default (works on unmodified containers);
   # TRUNK_WARM fills the page cache once. HOT_LAYERS/FRAC still honored if user sets them.
   FRAC="${Q36_HOT_FRAC:-$FRAC}"
   COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV RAM_GB=$RAM_GB"
-  [ -n "${Q36_HOT_LAYERS:-}" ] && COMMON="$COMMON HOT_LAYERS=$Q36_HOT_LAYERS"
+  # HOT_LAYERS: explicit knob wins; else a hot_layers.json beside the model is used
+  HL="${Q36_HOT_LAYERS:-}"
+  if [ -z "$HL" ] && [ -f "$MODEL/hot_layers.json" ]; then
+    HL="$MODEL/hot_layers.json"
+    [ "$QUIET" = 1 ] || echo "[minipc] HOT_LAYERS: using $HL (make_layer_fracs.py output; Q36_HOT_LAYERS overrides)"
+  fi
+  [ -n "$HL" ] && COMMON="$COMMON HOT_LAYERS=$HL"
+  # Phase-4b window: it can ONLY allocate on a packed int4 trunk (q36_win_ensure requires
+  # map_len == D*I/2). On one, give it a RAM-scaled budget unless the user set one: a
+  # resident window turns repeated gather reads from disk into RAM hits.
+  if [ "$TRUNKDT" = int4 ]; then
+    WINMB="${Q36_WIN_MB:-$(( RAM_GB * 64 ))}"
+    [ "$WINMB" -gt 512 ] && WINMB=512
+    case "$LEVEL" in quality) [ "$WINMB" -gt 768 ] && WINMB=768 ;; esac
+    if [ "$WINMB" -ge 64 ]; then
+      COMMON="$COMMON Q36_WIN_MB=$WINMB"
+      # per-slot bytes = gate row + up row + down col = 3 x (hidden/2), +16 B bookkeeping
+      # (the engine's own formula in q36_win_ensure); rows/layer = budget/L / per-slot
+      PER=$(( TKD_H * 3 / 2 + 16 ))
+      ROWS=$(( WINMB * 1024 * 1024 / 64 / PER ))
+      [ "$QUIET" = 1 ] || echo "[minipc] trunk is int4-packed: window cache ON (Q36_WIN_MB=$WINMB -> ~$ROWS rows/layer over 64 layers, $PER B/slot; Q36_WIN_MB=0 disables)"
+    else
+      [ "$QUIET" = 1 ] || echo "[minipc] int4 trunk but RAM_GB=$RAM_GB is too small for a >=64-row window/layer — window stays off"
+    fi
+  elif [ "$TRUNKDT" = f16 ] || [ "$TRUNKDT" = BF16 ]; then
+    [ "$QUIET" = 1 ] || {
+    echo "[minipc] trunk is $TRUNKDT (not packed): the window cache CANNOT allocate and"
+    echo "[minipc]   HOT_FRAC<1.0 prunes by FILE ORDER unless the container is sorted."
+    echo "[minipc]   fix once, offline (disk->disk, runs on this box):"
+    echo "[minipc]     q36-minipc pack $MODEL \${MODEL}_i4s --profile $MODEL/hot_profile.json"
+    echo "[minipc]   then serve the packed container. HOT_FRAC=1.0 stays exact here."
+    }
+  fi
+  # the arm-E trap, stated at the moment it would bite
+  if [ "$SORTED" = no ] && [ "$FRAC" != "1.0" ] && [ "$FRAC" != "1" ]; then
+    echo "[minipc] WARNING: this int4 container is UNSORTED (manifest: 0 sorted layers) and"
+    echo "[minipc]   HOT_FRAC=$FRAC -> the prefix is an arbitrary neuron subset = MLP dropout"
+    echo "[minipc]   (measured: ppl 6.74 -> 1791 on the field container). Re-pack with"
+    echo "[minipc]   --profile, or set Q36_HOT_FRAC=1.0 for exact compute."
+  fi
+  if [ "$SORTED" = yes ] && [ -z "$HL" ]; then
+    [ "$QUIET" = 1 ] || {
+    echo "[minipc] note: container is hotness-sorted; make_layer_fracs.py can spend its"
+    echo "[minipc]   bytes better than one global HOT_FRAC=$FRAC (q36-minipc fracs $MODEL)"
+    }
+  fi
 fi
 
 case "$CMD" in
@@ -213,9 +315,48 @@ PY
     PROF="${ARG3:-$MODEL/hot_profile.json}"
     [ -f "$PROF" ] || die "profile not found: $PROF (run calibrate first)"
     OUT="${Q36_SORT_OUT:-$MODEL-sorted}"
-    python3 "$TOOLS/hot_sort.py" "$MODEL" "$PROF" "$OUT"
+    python3 "$(q36_tool hot_sort.py)" "$MODEL" "$PROF" "$OUT"
     echo "[minipc] sorted container: $OUT"
     echo "[minipc] serving it: Q36_GRIFFIN=0 (use the static prefix) or keep GRIFFIN=1 (order no longer matters)"
+    ;;
+  pack)
+    # offline dense-trunk int4 packer: the only structural lever on the decode floor,
+    # and the thing that makes the window cache allocatable at all
+    [ "$CLASS" = dense ] || die "pack is for dense containers (MoE trunks stay as the converter made them)"
+    SRC="$MODEL"; DST="${ARG3:-${MODEL}-i4}"
+    PROFARG=""
+    if [ -n "${Q36_PACK_PROFILE:-}" ]; then PROFARG="--profile $Q36_PACK_PROFILE"
+    elif [ -f "$MODEL/hot_profile.json" ]; then PROFARG="--profile $MODEL/hot_profile.json"
+      echo "[minipc] pack: using $MODEL/hot_profile.json -> the hot prefix is written in file order"
+      echo "[minipc]   (add --profile only after calibrate/sort the schedule makes HOT_FRAC real)"
+    fi
+    python3 "$(q36_tool pack_trunk_i4.py)" "$SRC" "$DST" $PROFARG --verify --hash \
+        ${Q36_PACK_COMPONENTS:+--components "$Q36_PACK_COMPONENTS"} \
+        ${Q36_PACK_DRY:+--dry-run}
+    echo "[minipc] packed container: $DST"
+    echo "[minipc] now serve it: q36-minipc bench $DST  (the launcher auto-enables the window)"
+    ;;
+  fracs)
+    # per-layer HOT_FRAC schedule from the calibration profile
+    [ "$CLASS" = dense ] || die "fracs is for dense containers"
+    python3 "$(q36_tool make_layer_fracs.py)" "$MODEL" \
+        ${Q36_FRACS_BUDGET:+--budget-gb "$Q36_FRACS_BUDGET"} \
+        ${Q36_FRACS_RAM:+--ram-gb "$Q36_FRACS_RAM"} \
+        ${Q36_TRUNK_DTYPE:+--trunk-dtype "$Q36_TRUNK_DTYPE"} \
+        ${Q36_FRACS_NORM:+--normalize} \
+        ${Q36_FRACS_REPORT:+--json-report "$Q36_FRACS_REPORT"} \
+        --check -o "${ARG3:-$MODEL/hot_layers.json}"
+    echo "[minipc] schedule: ${ARG3:-$MODEL/hot_layers.json} (the launcher picks it up automatically)"
+    ;;
+  project)
+    # what this container costs on THIS host, by class, with the field fit
+    python3 "$(q36_tool project_q36.py)" --container "$MODEL" \
+        ${Q36_PROJ_FRAC:+--frac "$Q36_PROJ_FRAC"} \
+        ${Q36_PROJ_CTX:+--ctx "$Q36_PROJ_CTX"} \
+        ${Q36_WIN_MB:+--win-mb "$Q36_WIN_MB"} \
+        ${Q36_LAYER_FRACS:+--layer-fracs "$Q36_LAYER_FRACS"} \
+        ${Q36_PROJ_STACK:+--stack} \
+        --ram-gb "$RAM_GB" ${Q36_PROJ_FIELD:+--field-check}
     ;;
   watch)
     echo "[minipc] live bar from /tmp/calib.err (Ctrl-C quits; run calibrate/bench in another terminal)"
@@ -232,6 +373,12 @@ PY
     else
       echo "== mtp head: no qwen36_meta.json found"
     fi
+    if [ "$CLASS" = dense ]; then
+      echo "== trunk: $TRUNKDT (sorted: $SORTED)  window cache: $([ "$TRUNKDT" = int4 ] && echo "ELIGIBLE (Q36_WIN_MB=$(( RAM_GB * 64 )), capped 512)" || echo "NOT ELIGIBLE — q36_win_ensure needs a packed int4 trunk (D*I/2 maps)")"
+      if [ "$TRUNKDT" != int4 ]; then echo "   fix: q36-minipc pack $MODEL ${MODEL}-i4 --profile $MODEL/hot_profile.json"; fi
+      if [ "$SORTED" = no ]; then echo "   HOT_FRAC<1 would be random neuron dropout here: the container is UNSORTED (re-pack with --profile)"; fi
+      [ -f "$MODEL/hot_layers.json" ] && echo "== per-layer schedule: $MODEL/hot_layers.json (auto-used)" || echo "== per-layer schedule: none (q36-minipc fracs $MODEL)"
+    fi
     echo "== level: $LEVEL (cap=$CAP threads=$THREADS ctx=$CTX kv8=$KV8V frac=$FRAC)"
     echo "== ram: $(free -h | awk '/Mem:/ {print $2}')"
     ;;
@@ -244,10 +391,14 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc seed      <model_dir>          (MoE) Zipf .coli_usage prior
   q36-minipc calibrate <model_dir>          (dense) HOT_PROFILE run; Q36_CORPUS=<file>
   q36-minipc sort      <model_dir> [prof]   (dense) hot-sort a copy via hot_sort.py
+  q36-minipc pack      <model_dir> [out]    (dense) int4-pack the trunk offline (needs ~1/4 free)
+  q36-minipc fracs     <model_dir> [out]    (dense) per-layer HOT_FRAC schedule (hot_layers.json)
+  q36-minipc project   <model_dir>          what this container costs on THIS host
   q36-minipc doctor    <model_dir>          knob/model/level report
   q36-minipc watch                          live progress bar for a running calibrate/bench
 Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
+     Q36_WIN_MB=<n> (window cache; auto-on for int4 trunks) · Q36_PACK_PROFILE=<prof> · Q36_FRACS_BUDGET=<GB>
 KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)
 Dense profile: TRUNK_MAP + GRIFFIN + HOT_FRAC + TRUNK_WARM + KV tier (frac 1.0 = exact full model)
 MoE profile:   cap + PIN=auto + PILOT=2 + WIDE + KV tier (exact routing, full capability)
