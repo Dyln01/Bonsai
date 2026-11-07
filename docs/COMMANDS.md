@@ -282,6 +282,30 @@ Example:
 python3 scripts/exp_kvtq_q36.py A_f32 E_tq4_c1      # two arms, appends to the results JSON
 ```
 
+### 7.1 The one-command battery (`tools/run_battery.sh`)
+
+```bash
+tools/run_battery.sh <model_dir> <prompt_file> [out_json]
+```
+
+Per-arm honest `[timers]` decode, TTFT, PEAK RSS and rc; writes `results/battery_<host>_<ts>.json`
+plus per-arm logs beside it. Env that matters on an HDD box: `BATTERY_ARMS` (subset, e.g.
+`"A W0 W256"`), `BATTERY_NNEW` (**default 64 — set 2–8 on a rotating disk, or one arm costs
+hours**), `BATTERY_TIMEOUT=0` (unlimited; `rc=124` in the JSON = this wall, not a fault),
+`BATTERY_FRAC`, `BATTERY_MAXT`, `BATTERY_STREAM=1`, `BATTERY_WARM` (0 = cold, what the
+window read-matrix wants), and the two added for the E19/E20 levers:
+
+| Env | Adds | Why |
+|---|---|---|
+| `BATTERY_HOT_LAYERS=<file>` | `HOT_LAYERS` to every arm | the per-layer schedule vs one global `HOT_FRAC`, same runner, same bytes |
+| `BATTERY_WIN_MB=<n>` | `Q36_WIN_MB` to the non-W arms | window on/off on the *same* arm set (the `W0/W256/W1G` arms set their own) |
+
+```bash
+# the window read-matrix, cold, on a packed container (n_new small: HDD)
+BATTERY_ARMS="W0 W256 W1G" BATTERY_NNEW=8 BATTERY_TIMEOUT=0 BATTERY_FRAC=0.25 \
+BATTERY_MAXT=8192 BATTERY_STREAM=1 tools/run_battery.sh ~/q27_i4-i4 ~/prompt_7k.txt
+```
+
 ---
 
 ## 8. Rebuilding the engine from stock (patch scripts)

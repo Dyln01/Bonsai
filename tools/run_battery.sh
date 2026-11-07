@@ -83,6 +83,12 @@ W=/tmp/battery_$TS; mkdir -p "$W"
 # containers on small-RAM boxes — stock-dialect runs OOM (rc=137) mid-load.
 COMMON="SNAP=$MODEL Q36_MAXT=$MAXT N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS=$THR TRUNK_MAP=1 TRUNK_WARM=$WARM HOT_FRAC=$FRAC RAM_GB=$RAMGB"
 [ "$STREAM" = 1 ] && COMMON="$COMMON Q36_TRUNK_STREAM=1"
+# BATTERY_HOT_LAYERS: a make_layer_fracs.py schedule (per-layer fracs, engine-native
+# HOT_LAYERS). Without it every arm runs one global HOT_FRAC — which is exactly the
+# thing the schedule replaces, so the A/B is "same runner, same frac bytes, one file".
+# BATTERY_WIN_MB: window budget for the NON-W arms (the W0/W256/W1G arms set their own).
+[ -n "${BATTERY_HOT_LAYERS:-}" ] && COMMON="$COMMON HOT_LAYERS=$BATTERY_HOT_LAYERS"
+[ -n "${BATTERY_WIN_MB:-}" ] && COMMON="$COMMON Q36_WIN_MB=$BATTERY_WIN_MB"
 ENGINE="${Q36_ENGINE:-$HOME/colibri/c/qwen36}"
 echo "[battery] engine=$ENGINE frac=$FRAC maxt=$MAXT warm=$WARM stream=$STREAM ram_gb=$RAMGB threads=$THR n_new=$NNEW"
 echo "[battery] TRUNK_MAP=1: trunk stays mmap'd on disk (page cache + kernel eviction, no OOM)."
