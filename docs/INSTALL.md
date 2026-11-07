@@ -55,8 +55,14 @@ sudo apt install git python3 build-essential python3-numpy
 ```bash
 cd ~
 git clone https://github.com/JustVugg/colibri
+git -C colibri checkout bf24429      # PINNED: the engine snapshot and every patch
+                                     # script are built against this revision (CI too)
 git clone https://github.com/Dyln01/Bonsai bonsai
 ```
+
+Pinning matters: the `engine/` snapshot is byte-pinned in `tools/patch_manifest.json`
+and `tools/verify_engine.sh` replays the patch chain against *stock at this revision*.
+A newer colibri can move a helper or a struct and the overlay will stop matching.
 
 ### 2.3 Overlay the Bonsai engine files
 
@@ -299,14 +305,23 @@ q36-minipc calibrate ~/Models/qwen27_i4   # once: Q36_CORPUS=<your_text.txt>
 #   FULL-COMPUTE pass: ETA banner printed, corpus capped at Q36_CAL_TOKENS
 #   (default 1024 ≈ 20-35 min on a dense 27B; 0 = whole file), stderr streams live,
 #   profile lands ONLY at clean exit (killing it mid-pass writes nothing)
-q36-minipc sort      ~/Models/qwen27_i4   # once: hotness-sorted copy
-q36-minipc serve     ~/Models/qwen27_i4-sorted
-# or skip both: GRIFFIN adapts per-prompt on the UNMODIFIED container
+q36-minipc pack      ~/Models/qwen27_i4   # once: -> qwen27_i4-i4 (int4 trunk + sorted prefix)
+#   ~1/4 the disk of the F16 trunk; auto-uses hot_profile.json; needs ~14 GB free.
+#   This is what makes the window cache allocatable and the HOT_FRAC prefix real.
+q36-minipc fracs     ~/Models/qwen27_i4-i4  # once: per-layer HOT_FRAC -> hot_layers.json
+q36-minipc project   ~/Models/qwen27_i4-i4  # what it costs on THIS host (before you wait)
+q36-minipc serve     ~/Models/qwen27_i4-i4  # window auto-on for an int4 trunk
+# optional: q36-minipc sort <model> for a sorted F16 copy (the packer's --profile does it too)
 ```
 
-Measured on the sorted student analog: MLP phase 119→38 ms/token (3.1×),
-decode 5.8→11.0 tok/s, TTFT 26.5→11.6 s, RSS ≈ 1.9–2 GB; the full-size 27B
-projects to a ~4 GB envelope at frac 0.25 (12–14 tok/s warm) vs OOM stock.
+**Read `project` before `serve`.** On the field box (4-core / 7.62 GB / rotating disk) the
+honest numbers are: F16 trunk ≈ 2000+ s/token, int4 trunk ≈ 99–140 s/token by the cost
+model, and the warm regime (tok/s) needs the working set resident — which needs the int4
+trunk *and* a frac at or below the `fits at frac <=` line `project` prints. Anything
+quoting tok/s without bytes/token, the medium and the resident set is the mistake Phase 5
+de-projected (the old "12–14 tok/s warm" row was arithmetic for a container nobody ran).
+The student-analog figures (MLP 119→38 ms/token, 11.0 tok/s, RSS ≈ 1.9–2 GB) stand for a
+RAM-resident container and are labelled as such in the reports.
 
 ---
 
