@@ -368,7 +368,10 @@ def stack_table(a):
           f"{a.rate_decode_mbs:.1f} MB/s, {a.frac:.3f} frac) — all rows are MODEL output ==")
     print(f"{'stack':18} {'bytes/tok':>10} {'off-disk':>10} {'s/token':>10} {'tok/hour':>10}  what changed")
     for label, what, b, d, s, _ in rows:
-        print(f"{label:18} {b / 1e9:9.2f}G {d / 1e9:9.2f}G {s:10.1f} {3600 / s:10.2f}  {what}")
+        # a container small enough to be fully resident projects ~0 s/token; say so
+        # instead of dividing by zero (a real crash the first time this ran end-to-end)
+        rate = f"{3600 / s:10.2f}" if s > 1e-9 else f"{'instant':>10}"
+        print(f"{label:18} {b / 1e9:9.2f}G {d / 1e9:9.2f}G {s:10.1f} {rate}  {what}")
     print("The first row is calibrated against the field (see --field-check); the rest are")
     print("the model's own arithmetic — measure each one before quoting it.")
 

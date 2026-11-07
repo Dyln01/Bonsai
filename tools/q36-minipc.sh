@@ -89,11 +89,13 @@ kind = ("int4" if dt in ("U8", "I8") and want and nb == want else
         ("i8" if dt in ("U8", "I8") else ("f16" if dt in ("F16", "BF16") else (dt or "none"))))
 srt = ("yes" if (manifest and sorted_layers) else
        ("no" if (manifest and sorted_layers == 0) else "unknown"))
-print(f"{kind} {srt} {H} {I} {nb} {want}")
+NL = int(m.get("n_layers") or 0)
+print(f"{kind} {srt} {H} {I} {nb} {want} {NL}")
 PY
 )
   if [ -n "$TRUNKK" ]; then
-    set -- $TRUNKK; TRUNKDT=$1; SORTED=$2; TKD_H=$3; TKD_I=$4; TKD_NB=$5; TKD_WANT=$6
+    set -- $TRUNKK; TRUNKDT=$1; SORTED=$2; TKD_H=$3; TKD_I=$4; TKD_NB=$5; TKD_WANT=$6; TKD_L=$7
+    [ -n "${TKD_L:-}" ] && [ "$TKD_L" -gt 0 ] 2>/dev/null || TKD_L=1
   fi
 fi
 
@@ -149,8 +151,8 @@ else
       # per-slot bytes = gate row + up row + down col = 3 x (hidden/2), +16 B bookkeeping
       # (the engine's own formula in q36_win_ensure); rows/layer = budget/L / per-slot
       PER=$(( TKD_H * 3 / 2 + 16 ))
-      ROWS=$(( WINMB * 1024 * 1024 / 64 / PER ))
-      [ "$QUIET" = 1 ] || echo "[minipc] trunk is int4-packed: window cache ON (Q36_WIN_MB=$WINMB -> ~$ROWS rows/layer over 64 layers, $PER B/slot; Q36_WIN_MB=0 disables)"
+      ROWS=$(( WINMB * 1024 * 1024 / TKD_L / PER ))
+      [ "$QUIET" = 1 ] || echo "[minipc] trunk is int4-packed: window cache ON (Q36_WIN_MB=$WINMB -> ~$ROWS rows/layer over $TKD_L layers, $PER B/slot; Q36_WIN_MB=0 disables)"
     else
       [ "$QUIET" = 1 ] || echo "[minipc] int4 trunk but RAM_GB=$RAM_GB is too small for a >=64-row window/layer — window stays off"
     fi
@@ -307,7 +309,10 @@ if m:
         open(os.path.join(sys.argv[1], ".q36_cal_rate"), "w").write("%.4f %d" % (ms / 1000.0 / toks, time.time()))
         print("[minipc] measured %.2f s/token cached in .q36_cal_rate — next ETA is measured, not modeled" % (ms / 1000.0 / toks))
 PY
-    echo "[minipc] profile: $OUT  (now run: q36-minipc sort <model> <profile>)"
+    echo "[minipc] profile: $OUT"
+    echo "[minipc] next: q36-minipc pack <model> <model>-i4   (int4 trunk + this profile's sorted"
+    echo "[minipc]   prefix in one pass; then q36-minipc fracs <model>-i4 for the per-layer schedule)."
+    echo "[minipc]   Plain sorted F16 copy instead: q36-minipc sort <model> <profile>"
     ;;
   sort)
     # dense: permute the container by the profile -> hotness-sorted copy
