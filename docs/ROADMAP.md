@@ -850,6 +850,38 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       `BATTERY_WIN_MB` pass the E20 levers through the existing runner so they are measurable
       in the same matrix as everything else. Docs: COMMANDS §14, §7.1.
 
+- [x] **E22 — Cascade-Hot Streaming: the premise measured, the offline half shipped, the
+      runtime half withheld.** The CHS sketch proposes three tiers (L0 pinned / L1 window /
+      L2 disk), a per-token predictor, and prefetch of the delta between tokens, projecting
+      18–35 s/token. Measured, on synthetic dumps the engine already writes (8 layers, 96
+      tokens, K=64): consecutive true top-K sets are **never** identical and 27.8% of the set
+      turns over per token — so the premise is not vacuous — but at field geometry that delta
+      is **~8.7 MB/token**, i.e. **0.57%** of the int4/frac-0.3 per-token stream (~1.54 GB),
+      ≈0.8 s at the field's 10–11 MB/s. A tier whose whole ceiling is 0.6% of traffic cannot
+      produce the projected 3–5x. The predictor gate, on a **corrected** metric, fails:
+      static-A 0.7288 / GRIFFIN-j 0.7868 / predictor 0.7067 at rank 64 (rank saturates at 64)
+      → −2.2 pp vs static, −8.0 pp vs GRIFFIN, against a +5 pp bar. What shipped:
+      `tools/train_chs_predictor.py` (real dump format, ridge → `A[D,r] @ B[r,I]`
+      factorization because the natural `W[D,I]` is 356 MB/layer, rank/reward curve,
+      `--delta-report`, and a `gate_cleared` flag in the artifact so a runtime cannot
+      prefetch from an unvalidated map) plus `tools/test_chs_predictor.py` (index round-trip
+      through the structured dtype, metric bounded under signed energies, constructed churn
+      delta recovered exactly, constant-set negative, and a counter-case that must PASS).
+      Three defects were found by building it: the record's indices are all-zero if the dump
+      is read as bare f32; and the coverage metric was wrong in **two** ways — `tmap[true_idx]
+      = True` on a 2-D array marks the union of every token's true set (so every arm scored
+      ~1.0000, including the Phase-4a ledger's numbers, now fixed in
+      `scripts/exp_predictor_q36.py` too), and signed energies make a signed "fraction"
+      exceed 1. The engine-side tiers (L0 mlock, delta, async prefetch) are **not**
+      implemented: precondition is a real-container dump where the gate clears, and even then
+      §2's arithmetic bounds the prefetch's value. L0 pinning is separable from the predictor
+      and should be judged by running the W-arm read-matrix at a larger resident budget —
+      it changes which/when bytes are resident, not how many. Also found: the dump writer
+      selects the true set by **signed** per-token energy while the shipped profile
+      accumulates `fabs(row[i])` — the two rankings should be reconciled before anything
+      predicts one from the other. Docs: `docs/CHS_QWEN36.md`, COMMANDS §15; CI runs the
+      CHS gates.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

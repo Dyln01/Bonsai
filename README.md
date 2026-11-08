@@ -91,6 +91,13 @@ Also shipped, each with its code *and* its number:
   trunk; the packer unblocks it. Priced with the engine's own capacity formula (512 MB =
   1090 rows/layer = 25.1% of the frac-0.25 active set). The launcher auto-enables it on an
   int4 trunk, and prints the reason + the fix when the trunk is F16.
+* **CHS (tiering + delta prefetch) ships its offline half only** — the delta between
+  consecutive tokens measures 27.8% of the true top-K set, but that is ~8.7 MB/token at field
+  geometry, i.e. **0.57%** of the per-token stream, and the predictor that would steer the
+  prefetch **loses** to the static prefix and to GRIFFIN on the pre-registered rule
+  (0.7067 vs 0.7288 / 0.7868). `tools/train_chs_predictor.py --delta-report` reproduces both
+  numbers; the engine-side tiers are withheld until a real dump clears the gate. See
+  `docs/CHS_QWEN36.md`.
 
 `project_q36.py --stack` computes the whole ladder on this host — every row model output:
 

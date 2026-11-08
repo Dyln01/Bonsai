@@ -517,6 +517,25 @@ anything on a container without an MTP head (`meta.mtp`) instead of inventing nu
 Real acceptance is a real-weights measurement — the field's M1 arm measured 82.0% /
 2.86 tokens/forward.
 
+### 14.3 Cascade-Hot Streaming (CHS) — `tools/train_chs_predictor.py`
+
+CHS's runtime half is withheld pending a measurement (see `docs/CHS_QWEN36.md`); what runs
+today is the offline half, against the dumps the engine already writes:
+
+```bash
+python3 tools/train_chs_predictor.py --dumps ~/dumps/train --D 5120 --I 17408 --K 64 \
+        --delta-report                                  # the premise: 27.8%/token measured
+python3 tools/train_chs_predictor.py --dumps ~/dumps/train --dumps-eval ~/dumps/eval \
+        --D 5120 --I 17408 --K 64 --rank-scan 16,32,64,128 --rank 64 \
+        -o MODEL/chs_predictor.npz                      # the pre-registered gate
+python3 tools/test_chs_predictor.py                     # the gates (also run in CI)
+```
+
+`--dumps-eval` is what makes it the pre-registered disjoint-corpus gate; without it the run
+is a same-corpus holdout and says so. The artifact records `gate_cleared`; a runtime must not
+prefetch from a map whose gate did not clear. Dump records are `D f32 | K u32 | K f32` and
+**must** be read with a structured dtype (a bare-f32 read makes every index 0).
+
 ---
 
 *Everything here is synthetic-container measured; real-checkpoint validation

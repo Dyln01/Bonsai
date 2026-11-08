@@ -247,6 +247,11 @@ jobs:
           set -e
           python3 scripts/check_window_readmatrix.py --self-test
 
+      - name: "CHS predictor gates — dump format, per-token metric, churn, verdict tracking"
+        run: |
+          set -e
+          python3 tools/test_chs_predictor.py
+
       - name: "E19 gate — packer under the engine (mapped int4 vs mapped F16 layout parity)"
         run: |
           set -e

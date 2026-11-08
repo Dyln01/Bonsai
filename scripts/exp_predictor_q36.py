@@ -41,14 +41,27 @@ def topk_mask(idx, energy, n_tok):
     """dense (n_tok, I) energy vector: top-K energies at their indices"""
     y = np.zeros((n_tok, I), dtype=np.float32)
     rows = np.repeat(np.arange(n_tok), K)
-    y[rows, idx.reshape(-1)] = energy.reshape(-1)
+    y[rows, idx.reshape(-1)] = np.abs(energy).reshape(-1)  # magnitude: see coverage()
     return y
 
 def coverage(pred_idx, true_idx, true_en):
-    """mean fraction of true-top-K energy covered by the predicted set"""
-    tmap = np.zeros(I, dtype=bool); tmap[true_idx] = True
-    tot = true_en.sum(axis=1)
-    hit = np.where(tmap[pred_idx], true_en, 0.0).sum(axis=1)
+    """Mean fraction of each token's TRUE top-K |energy| covered by the predicted set.
+
+    Per-token mask + magnitude, both required:
+      * `tmap[true_idx] = True` on the 2-D array marks the UNION of every token's true set,
+        so any prediction inside the union is a hit and every arm scores 1.0000 -- the
+        original formula was too lenient to separate the arms at all.
+      * the dumps carry SIGNED per-token energies (~31% negative), so a signed sum is not a
+        fraction: hitting only negatives scores > 1.0.
+    Magnitude also matches the engine: the corpus profile accumulates fabs(row[i]).
+    """
+    en = np.abs(true_en)
+    nb = true_idx.shape[0]
+    nidx = int(max(true_idx.max(), pred_idx.max())) + 1
+    lut = np.zeros((nb, nidx), dtype=np.float32)
+    lut[np.arange(nb)[:, None], true_idx.astype(np.intp)] = en
+    hit = np.take_along_axis(lut, pred_idx.astype(np.intp), axis=1).sum(axis=1)
+    tot = en.sum(axis=1)
     return float((hit / np.maximum(tot, 1e-30)).mean())
 
 def main():
