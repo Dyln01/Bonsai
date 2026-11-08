@@ -414,6 +414,60 @@ def deq_plan(hdr, targets_in_shard, dstart=0):
     return entries, kinds
 
 
+def pack_permuted_rows(fout, fin, t, order, a_blocks=256, fdeq=None, stats=None):
+    """The hotness-permuted MLP path: output row k must hold SOURCE row order[k].
+
+    The trap: permuting a *block* of rows with an index array of length O is only correct
+    when the block happens to be the whole matrix (a 256-row synthetic vs the 256-row
+    default block hid this for a whole release). Reading the required rows one at a time is
+    correct but costs O preads per matrix — 2.2M seeks across the field container's MLP.
+
+    So: read the SOURCE sequentially, quantize per row-block, and scatter each row into its
+    destination slot of a staging buffer. Sequential IO is preserved and the permutation is
+    exact. Memory = one packed matrix (I*O/2 bytes; 44.5 MB for a 17408x5120 gate matrix at
+    27B scale) + one f16 matrix more when --emit-dequant is also writing the oracle.
+    """
+    I, O, esz = t["I"], t["O"], ESZ[t["dtype"]]
+    rowb = I // 2
+    inv = np.empty(O, dtype=np.int64)
+    inv[order] = np.arange(O, dtype=np.int64)      # source row -> output slot
+    buf = np.empty((O, rowb), dtype=np.uint8)
+    scales = np.empty(O, dtype=np.float32)
+    deq_buf = np.empty((O, I), dtype=np.float16) if fdeq else None
+    max_abs = 0.0
+    sumsq_err = 0.0
+    sumsq_ref = 0.0
+    done = 0
+    while done < O:
+        rows = min(a_blocks, O - done)
+        blk = read_rows(fin, t["abs_off"] + done * I * esz, rows, I, esz)
+        packed, s = quant_rows(blk)
+        dest = inv[done:done + rows]
+        buf[dest] = packed.reshape(rows, rowb)
+        scales[dest] = s
+        if fdeq:
+            q = packed.astype(np.int16)
+            lo, hi = (q & 0xF), (q >> 4)
+            q = np.empty(q.size * 2, dtype=np.int16)
+            q[0::2] = np.where(lo & 8, lo - 16, lo)
+            q[1::2] = np.where(hi & 8, hi - 16, hi)
+            dq = q.astype(np.float32).reshape(rows, I) * s.reshape(rows, 1)
+            deq_buf[dest] = dq.astype(np.float16)
+            d = dq - blk                            # row-wise error vs its own source row:
+            max_abs = max(max_abs, float(np.abs(d).max(initial=0.0)))   # permutation-free
+            sumsq_err += float((d.astype(np.float64) ** 2).sum())
+            sumsq_ref += float((blk.astype(np.float64) ** 2).sum())
+        done += rows
+    fout.write(buf.tobytes())
+    fout.write(scales.tobytes())
+    if fdeq:
+        assert deq_buf is not None
+        fdeq.write(deq_buf.tobytes())
+    if stats is not None:
+        stats.update(max_abs_err=max_abs,
+                     rel_l2_err=(sumsq_err / sumsq_ref) ** 0.5 if sumsq_ref else 0.0)
+
+
 def pack_shard(src, fname, hdr, ts, geo, args, orders, deq_dir=None):
     """One streaming pass over one shard: read source floats block-wise, write the
     packed U8 + regenerated F32 .qs, and (optionally) the dequantized F16 oracle.
@@ -447,6 +501,18 @@ def pack_shard(src, fname, hdr, ts, geo, args, orders, deq_dir=None):
         off = t["abs_off"]
         order = orders.get(t["layer"]) if (t["cls"] == "shexp" and orders) else None
         how = SORTABLE.get(t["role"]) if order is not None else None
+        if how == "rows":
+            st = dict(name=name, cls=t["cls"], role=t["role"], layer=t["layer"],
+                      I=I, O=O, src_dtype=t["dtype"], src_bytes=t["nbytes"],
+                      out_bytes=I * O // 2 + O * 4, permuted=True,
+                      max_abs_err=0.0, rel_l2_err=0.0)
+            pack_permuted_rows(fout, fin, t, order, a_blocks=args.block_rows, fdeq=fdeq,
+                               stats=st)
+            stats.append(st)
+            print(f"  {name}: {t['dtype']} {O}x{I} -> U8 {I * O // 2 / 1e6:.1f} MB + qs "
+                  f"{O * 4 / 1e6:.2f} MB (hotness-permuted, sequential read; "
+                  f"rel L2 {st['rel_l2_err']:.2e})", flush=True)
+            continue
         scales = np.empty(O, dtype=np.float32)
         max_abs = 0.0
         sumsq_err = 0.0

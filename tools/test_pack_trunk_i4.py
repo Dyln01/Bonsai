@@ -97,6 +97,7 @@ def main():
         idx = st_index(src)
         f16 = {n: e for n, (_, e, _) in idx.items() if e["dtype"] == "F16"}
         packed_dir = os.path.join(tmp, "packed")
+        packed_dir_plain = packed_dir
         deq_dir = os.path.join(tmp, "deq")
 
         print("\n== G1/G3: pack with the dequant oracle, then verify ==")
@@ -172,6 +173,69 @@ def main():
                         diff.append(k)
         check(not diff, f"G2 pack∘sort == sort∘pack byte-for-byte ({same_n} tensors compared)",
               f"{len(diff)} differ: {diff[:3]}")
+
+        print("\n== G2b: the profile path must be block-size independent ==")
+        # The bug this catches: the hotness permutation was applied to a BLOCK of rows with
+        # an index array of length O, so it only worked when the whole matrix arrived in one
+        # block (a 256-row synthetic vs the 256-row default block — exactly why the first G2
+        # passed). The oracle is hot_sort applied to the UNPERMUTED int4 pack: the packer's
+        # --profile and the shipped sorter must land on the same bytes, at any block size.
+        one_blk = os.path.join(tmp, "P_one")
+        sml_blk = os.path.join(tmp, "P_small")
+        check(run(PACKER, src, one_blk, "--profile", ppath,
+                  "--block-rows", "1000000").returncode == 0, "pack --profile (one block)")
+        check(run(PACKER, src, sml_blk, "--profile", ppath,
+                  "--block-rows", "16").returncode == 0, "pack --profile --block-rows 16")
+        oracle = os.path.join(tmp, "P_oracle")
+        check(run(os.path.join(HERE, "hot_sort.py"), packed_dir_plain, ppath,
+                  oracle).returncode == 0, "hot_sort on the UNPERMUTED int4 pack (oracle)")
+        oi = st_index(oracle)
+        man_p = json.load(open(os.path.join(one_blk, "trunk_i4_manifest.json")))
+        perm = [x for x in man_p["tensors"] if x["permuted"]]
+        check(len(perm) > 0, "the profile permuted tensors", f"{len(perm)} tensor(s)")
+        si, oi_, diff_blk, diff_or = st_index(sml_blk), oi, [], []
+        for x in perm:
+            for k in (x["name"], x["name"] + ".qs"):
+                if k in si and k in oi:
+                    if bytes(read_tensor(si, k)[0]) != bytes(read_tensor(oi_, k)[0]):
+                        diff_blk.append(k)
+                if k in oi:
+                    if bytes(read_tensor(oi, k)[0]) != bytes(read_tensor(oi_, k)[0]):
+                        diff_or.append(k)
+        check(not diff_blk, "16-row blocks == one-block output, byte-for-byte",
+              f"{len(diff_blk)} differ: {diff_blk[:3]}")
+        check(not diff_or, "pack --profile == hot_sort(plain pack), byte-for-byte "
+                           "(the independent ordering oracle)",
+              f"{len(diff_or)} differ: {diff_or[:3]}")
+        gp = next((x for x in man_p["tensors"] if x["role"] == "sh_gate"), None)
+        if gp and gp["name"] in si and gp["name"] in pidx:
+            check(bytes(read_tensor(si, gp["name"])[0])
+                  != bytes(read_tensor(pidx, gp["name"])[0]),
+                  "the permuted gate_proj differs from the unpermuted pack (not a no-op)")
+
+        print("\n== G2c: the packed bytes ARE the quantized permuted source ==")
+        # The strongest statement available offline, on a genuinely non-identity shuffle:
+        # for gate/up (rows permuted) and down (columns permuted), the packed tensor must
+        # equal, byte for byte, the same quantizer applied to the permuted source rows.
+        order0 = np.argsort(-np.asarray(prof["L0"]["energy"], dtype=np.float64), kind="stable")
+        check(not np.array_equal(order0, np.arange(I)),
+              "the test profile is a real shuffle (not the identity)",
+              "else this gate proves nothing")
+        for name, kind, K, W in (("model.layers.0.mlp.gate_proj.weight", "rows", I, H),
+                                 ("model.layers.0.mlp.down_proj.weight", "cols", H, I)):
+            if name not in si or name not in f16:
+                continue
+            src2 = np.frombuffer(bytes(read_tensor(idx, name)[0]),
+                                 dtype=np.float16).astype(np.float32).reshape(K, W)
+            want = src2[order0] if kind == "rows" else src2[:, order0]
+            amax = np.abs(want).max(axis=1, keepdims=True)
+            mine = np.rint(np.clip(want / np.maximum(amax, 1e-8) * 7.0, -7, 7)).astype(np.int8)
+            lo2 = (mine.reshape(-1)[0::2] & 0xF).astype(np.uint8)
+            hi2 = ((mine.reshape(-1)[1::2] & 0xF) << 4).astype(np.uint8)
+            expect = (lo2 | hi2)
+            got = read_tensor(si, name)[0]
+            check(np.array_equal(got, expect),
+                  f"{kind} path: packed == quantizer(permuted source)", name.split(".")[-2])
 
         print("\n== G4: refusals and narrowing ==")
         p = run(PACKER, packed_dir, os.path.join(tmp, "again"), expect_rc=None)
