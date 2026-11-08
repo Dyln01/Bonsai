@@ -242,6 +242,11 @@ jobs:
           set -e
           python3 tools/test_layer_fracs.py
 
+      - name: "window read-matrix gate — the pre-registered verdict, self-tested"
+        run: |
+          set -e
+          python3 scripts/check_window_readmatrix.py --self-test
+
       - name: "E19 gate — packer under the engine (mapped int4 vs mapped F16 layout parity)"
         run: |
           set -e

@@ -471,11 +471,51 @@ python3 tools/make_layer_fracs.py <model_dir> --budget-gb 5.5 --check -o hot_lay
 | `--normalize` | allocate by each layer's *relative* energy instead of absolute |
 | `--check` | re-parse the output with a re-implementation of the engine's own scan |
 | `--json-report <p>` | per-layer K, captured energy, bytes, and the gain vs a uniform frac |
+| `--budget-sweep GB,GB,…` | write one schedule per budget (`<stem>-<gb>g.json`) + the bytes/energy row for each — the resident-budget curve the quality arms are run against |
 
 Output format is a **flat** `{"L0": 0.55, "L1": 0.4, …}` map — the engine parses it
 with `strstr("\"L")` + `atof`, so nothing else may live in that file. The launcher
 picks up `<model_dir>/hot_layers.json` automatically (`Q36_HOT_LAYERS` overrides it).
 Gates: `python3 tools/test_layer_fracs.py`.
+
+## 14. The two measurement verdicts (`scripts/`)
+
+Both take artifacts a run already produces and return a verdict, so a field session ends
+with an answer rather than a JSON nobody reads. Unlike the launcher's tools these live in
+the repo, so run them from the checkout (`~/bonsai/scripts/...`).
+
+### 14.1 Window read-matrix — `scripts/check_window_readmatrix.py`
+
+Phase 4b's gate 3, executable: window-on must cut read bytes ≥40% vs `W0` at equal-or-better
+decode, and the gate **states its `n_new`** (E14's calibration lesson — at the field's
+one-step budget a 40% *total* cut is arithmetically out of reach for any window).
+
+```bash
+BATTERY_ARMS="W0 W256 W1G" BATTERY_NNEW=8 BATTERY_TIMEOUT=0 BATTERY_FRAC=0.25 \
+BATTERY_MAXT=8192 BATTERY_STREAM=1 \
+tools/run_battery.sh ~/Models/q27_i4-i4 ~/prompt_7k.txt        # then:
+python3 scripts/check_window_readmatrix.py results/battery_<host>_<ts>.json
+```
+
+Exit codes: `0` PASS (names the budget that clears the bar, and any that do not), `1` FAIL
+(nothing cleared it — the knob stays default-off per the contract), `2` INCONCLUSIVE
+(the `hits 0 misses 0` signature: the window never allocated, i.e. the trunk is not packed;
+or `n_new < 8`). `--self-test` rehearses all four verdicts and is in CI.
+
+### 14.2 MTP draft depth — `scripts/exp_mtp_depth_q36.py`
+
+"How much does one more draft buy" is a sweep of an existing knob plus a parse of the engine's
+own report line — no engine change, and the generative half (tree/multi-candidate drafts) is
+**not** implemented:
+
+```bash
+python3 scripts/exp_mtp_depth_q36.py ~/Models/q27_i4-i4 ~/prompt.txt --depths 0,1,2,3 --nnew 64
+```
+
+Prints tokens/forward, acceptance and the effective tok/s per depth, and refuses to report
+anything on a container without an MTP head (`meta.mtp`) instead of inventing numbers.
+Real acceptance is a real-weights measurement — the field's M1 arm measured 82.0% /
+2.86 tokens/forward.
 
 ---
 

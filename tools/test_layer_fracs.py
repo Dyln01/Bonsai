@@ -128,6 +128,31 @@ def main():
         check(gain > 0.5, "captured energy strictly beats the uniform fraction",
               f"{gain:+.2f}% at {rep['used_bytes'] / 1e9:.4f} GB")
 
+        print("\n== G3b: --budget-sweep writes one engine-readable file per budget ==")
+        sw = run(model, "--budget-sweep",
+                 "%.9f,%.9f,%.9f" % (FULL * 0.25 / 1e9, FULL * 0.5 / 1e9, FULL * 0.9 / 1e9),
+                 "--check", "-o", os.path.join(tmp, "sweep.json"))
+        check(sw.returncode == 0, "--budget-sweep runs with --check")
+        made = sorted(f for f in os.listdir(tmp) if re.fullmatch(r"sweep-.*g\.json", f))
+        check(len(made) == 3, "one schedule file per budget", f"{made}")
+        check(all(all(abs(mlf.engine_parse(os.path.join(tmp, f)).get(int(k[1:]), -1) - v) <= 5e-4
+                      for k, v in json.load(open(os.path.join(tmp, f))).items())
+                  for f in made), "every sweep file re-parses with the engine's scan")
+        # captured energy must grow with the budget (recomputed from the profile directly)
+        caps, fracs_list = [], []
+        for f in made:
+            fr = json.load(open(os.path.join(tmp, f)))
+            tot = 0.0
+            for li in range(NL):
+                e = np.asarray(prof[f"L{li}"]["energy"], dtype=np.float64)
+                k = int(round(fr[f"L{li}"] * I))
+                tot += float(np.sort(e)[::-1][:k].sum())
+            caps.append(tot)
+        check(all(caps[i] < caps[i + 1] for i in range(len(caps) - 1)),
+              "captured energy increases with the budget", " < ".join("%.1f" % c for c in caps))
+        check(all(fracs_list[i] < fracs_list[i + 1] for i in range(len(fracs_list) - 1)),
+              "mean frac increases with the budget", " < ".join("%.3f" % f for f in fracs_list))
+
         print("\n== G4: --normalize reallocates, clamps bind ==")
         p2 = run(model, "--budget-gb", "%.9f" % (FULL * 0.5 / 1e9), "--normalize",
                  "--json-report", os.path.join(tmp, "n.json"))

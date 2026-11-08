@@ -44,7 +44,13 @@
 # TTFT + ms/token from the JSON, then budget the matrix (ROADMAP E12).
 set -uo pipefail
 MODEL="${1:?usage: run_battery.sh <model_dir> <prompt_file> [out_json]}"
-PF="${2:?usage: run_battery.sh <model_dir> <prompt_file> [out_json]}"
+# the prompt is optional: a built-in one keeps `run_battery.sh <model>` (the form the
+# recipe used) working, at the cost of a shorter/less representative context
+if [ -n "${2:-}" ]; then PF="$2"; else
+  PF="${BATTERY_PROMPT:-/tmp/battery_default_prompt.txt}"
+  [ -f "$PF" ] || printf 'def fibonacci(n):\n    if n < 2: return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nExplain what this function does, then write a function that checks whether a string is a palindrome, and one that reverses a linked list iteratively. ' > "$PF"
+  echo "run_battery: no prompt file given -> built-in $(wc -c < "$PF")-byte prompt ($PF); pass a real corpus for published numbers"
+fi
 TS=$(date +%Y%m%d-%H%M%S)
 OUT="${3:-results/battery_$(hostname -s)_$TS.json}"
 THR="${BATTERY_THREADS:-4}"; NNEW="${BATTERY_NNEW:-64}"; CAP="${BATTERY_CAP:-8}"

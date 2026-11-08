@@ -45,6 +45,7 @@ at the same total bytes (the number that justifies using it at all).
 import argparse
 import json
 import os
+import re
 import sys
 
 import numpy as np
@@ -169,6 +170,57 @@ def waterfill(energies, budget_bytes, bytes_per_neuron, min_frac, max_frac, norm
     return K, lam
 
 
+def sweep(a, hidden, inter, energies, bytes_per_neuron, _geo):
+    """One schedule per budget + the Pareto row for each: how much captured energy the
+    bytes actually buy. This is the measurement plan's first half; the second half (ppl
+    per schedule) is the Phase-5-class arm set, run against these files."""
+    try:
+        budgets = [float(x) for x in a.budget_sweep.split(",") if x.strip()]
+    except ValueError:
+        die(f"--budget-sweep wants comma-separated GB values, got '{a.budget_sweep}'")
+    if not budgets:
+        die("--budget-sweep: no values")
+    stem = (a.out or os.path.join(a.model_dir, "hot_layers.json"))
+    stem = re.sub(r"\.json$", "", stem)
+    print(f"\n== budget sweep: {len(budgets)} schedule(s), "
+          f"{bytes_per_neuron / 1024:.1f} KiB/neuron at {a.trunk_dtype} ==")
+    print(f"{'budget GB':>9} {'used GB':>8} {'mean frac':>9} {'min':>6} {'max':>6} "
+          f"{'captured':>12} {'vs uniform':>11}  file")
+    rows = []
+    for gb in budgets:
+        K, lam = waterfill(energies, gb * 1e9, bytes_per_neuron, a.min_frac, a.max_frac, a.normalize)
+        used = sum(K.values()) * bytes_per_neuron
+        fracs = {li: K[li] / inter for li in sorted(K)}
+
+        def cap(Kd):
+            return sum(float(np.sort(arr)[::-1][:Kd.get(li, 0)].sum())
+                       for li, arr in energies.items())
+        c_sched = cap(K)
+        uk = max(1, int(used / bytes_per_neuron / max(len(K), 1)))
+        c_unif = cap({li: min(inter, uk) for li in K})
+        path = f"{stem}-{gb:g}g.json"
+        with open(path, "w") as f:
+            f.write(json.dumps({f"L{li}": round(fracs[li], 6) for li in sorted(fracs)}, indent=1) + "\n")
+        if a.check:
+            back = engine_parse(path)
+            bad = [li for li in fracs if abs(back.get(li, -1) - fracs[li]) > 5e-4]
+            if bad:
+                die(f"{path}: the engine's parser reads different values for {bad[:5]}")
+        rows.append((gb, used, fracs, c_sched, c_unif, path))
+        tag = ""
+        if used > gb * 1e9 * 1.02:
+            tag = "  <- floor-bound (--min-frac cannot be traded away)"
+        print(f"{gb:9.2f} {used / 1e9:8.3f} {np.mean(list(fracs.values())):9.3f} "
+              f"{min(fracs.values()):6.3f} {max(fracs.values()):6.3f} {c_sched:12.6g} "
+              f"{100 * (c_sched / max(c_unif, 1e-30) - 1):+10.2f}%  {path}{tag}")
+    if any(r[1] > r[0] * 1e9 * 1.02 for r in rows):
+        print("\nnote: the smallest budgets are floor-bound — every layer is already at "
+              "--min-frac, so lowering the budget further buys nothing.")
+    print("\nEach file is a complete HOT_LAYERS map: serve it with Q36_HOT_LAYERS=<file>")
+    print("(or copy it to <model>/hot_layers.json) and run the Phase-5-class ppl arms against")
+    print("each — that pair of columns is the Pareto the schedule is chosen from.")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -182,6 +234,10 @@ def main():
     ap.add_argument("--normalize", action="store_true")
     ap.add_argument("--json-report")
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--budget-sweep", metavar="GB,GB,...",
+                    help="write ONE schedule per budget (comma list) beside -o, named "
+                         "<stem>-<gb>g.json, and print the bytes/energy Pareto row for each "
+                         "— the resident-budget curve the quality arms are then run against")
     ap.add_argument("-o", "--out")
     a = ap.parse_args()
 
@@ -202,6 +258,8 @@ def main():
 
     if a.max_frac < a.min_frac:
         die("--max-frac < --min-frac")
+    if a.budget_sweep:
+        return sweep(a, hidden, inter, energies, bytes_per_neuron, geo_of(a.model_dir))
     full_bytes = len(energies) * inter * bytes_per_neuron
     if budget >= full_bytes:
         # Nothing to trade: every neuron fits. Say so instead of emitting a schedule

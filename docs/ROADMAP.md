@@ -819,6 +819,37 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Pareto, MTP depth/multi-candidate) — the code and the predictions are in place, the
       box has not yet run them.
 
+- [x] **E21 — the measurement plans from the E20 sketches, turned into executables.**
+      E20 shipped the levers with predictions; the sketches also carried measurement plans,
+      and a plan that stays prose never produces a verdict. Three artifacts, each verified by
+      running it: (1) **`make_layer_fracs.py --budget-sweep GB,GB,…`** — one engine-readable
+      schedule per budget plus the bytes/energy row for each, i.e. the resident-budget curve
+      the ppl arms are then run against (the sketch asked for 3.5/4.5/5.5/6.5 GB; the tool
+      takes any list and marks floor-bound budgets, where `--min-frac` cannot be traded
+      away). Its gate: `test_layer_fracs.py` now asserts one file per budget, engine-scan
+      round trip for every file, and monotone captured-energy/mean-frac growth. (2)
+      **`scripts/check_window_readmatrix.py`** — Phase 4b's gate 3 made executable against a
+      battery JSON: window-on must cut `fs_read_gb` ≥40% vs `W0`, and the gate STATES its
+      n_new because E14 proved the bar is arithmetic-impossible at the field's one-step
+      budget. Verdicts: 0 PASS at a named budget (naming the budgets that do not clear it —
+      a Pareto result must not collapse into one word), 1 FAIL when nothing clears it, 2
+      INCONCLUSIVE for the `hits 0 misses 0` signature (window never allocated ⇒ the
+      container is not packed) or n_new < 8. `--self-test` rehearses all four verdicts and
+      is wired into CI — and it immediately caught a real defect in the first version of the
+      verdict logic (the "best" arm was computed over all arms, so a 0.7% cut was reported
+      as a PASS). (3) **`scripts/exp_mtp_depth_q36.py`** — the MTP sketch's measurement half
+      done with existing knobs only: sweeps `Q36_MTP_DRAFTS=0..3`, parses the engine's own
+      `[qwen36 lookup] … tokens/forward … acceptance` line, and refuses to report on a
+      container without `meta.mtp` instead of inventing numbers. Run live on a synthetic head:
+      drafts=0 → 1.00 tokens/forward, drafts 1/2 → still 1.00 at 0.0% acceptance with the
+      verify overhead visible (0.40x/0.93x effective) — the mechanical-oracle behaviour the
+      house rule predicts, so real acceptance remains a real-weights measurement. The
+      generative half (tree / multi-candidate drafts) is explicitly NOT implemented and not
+      claimed. Also: `run_battery.sh <model>` now works without a prompt file (the recipe's
+      form) by falling back to a built-in one and saying so, and `BATTERY_HOT_LAYERS` /
+      `BATTERY_WIN_MB` pass the E20 levers through the existing runner so they are measurable
+      in the same matrix as everything else. Docs: COMMANDS §14, §7.1.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).
