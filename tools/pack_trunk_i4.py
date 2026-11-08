@@ -456,9 +456,13 @@ def pack_shard(src, fname, hdr, ts, geo, args, orders, deq_dir=None):
             rows = min(args.block_rows, O - done)
             blk = read_rows(fin, off + done * I * esz, rows, I, esz)
             if how == "rows":
-                blk = blk[order]                     # whole rows follow their neuron
+                # output row (done+k) must contain source row order[done+k]
+                idx = order[done:done + rows]
+                blk = np.empty((rows, I), dtype=np.float32)
+                for k, sr in enumerate(idx):
+                    blk[k] = read_rows(fin, off + int(sr) * I * esz, 1, I, esz)[0]
             elif how == "cols":
-                blk = blk[:, order]                  # down: input neurons are columns
+                blk = blk[:, order]            # columns dimension == mlp_inter, this one is correct
             packed, s = quant_rows(blk)
             fout.write(packed.tobytes())
             scales[done:done + rows] = s
