@@ -882,6 +882,30 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       predicts one from the other. Docs: `docs/CHS_QWEN36.md`, COMMANDS §15; CI runs the
       CHS gates.
 
+- [x] **E23 — the floor, computed instead of argued.** A field measurement of 14215 s / 64
+      tokens (222.1 s/token, 16 tok/h) prompted the question the earlier levers could not
+      answer, and the answer is that they cannot: at the field geometry **78% of the
+      per-token bytes have no dial** (DeltaNet 46% + lm_head 26% + attn 6%), and the 22% that
+      does is exactly the part a resident window already serves — which is why the model's
+      warm column is flat in frac (249.5 / 249.6 / 249.8 s/token at frac 0.25 / 0.20 / 0.125)
+      and why `HOT_FRAC`, the schedule and the window are all out of road for this number.
+      Added `project_q36.py --floor` + `q36-minipc floor`: it generalises residency beyond the
+      MLP (every class is read once per token, so pinning any of them saves its bytes 1:1) and
+      computes `streamed = max(0, total(frac) - cache_room)`, the lever table priced against
+      that, and `frac_zero` — the frac at which NOTHING streams, past which decode is
+      compute-bound and the model must refuse to guess (no compute term; the measurement is a
+      page-warm second pass). Result on the field box: lm_head→int4 (1.91 GB/token) + embed
+      row-streamed (+2.54 GB of room, and the engine currently holds that table **f32-resident
+      — 5.09 GB at this geometry for one 20 KB row per token**) + kv8 → `cache_room` 7.56 GB,
+      `frac_zero` 0.2118; with a 0.7 GB OS reserve, 0.128. So the physical floor is not a disk
+      number at all — it is the compute time at a frac the quality arms still have to bless.
+      Gate: `scripts/check_projection_field.py` now asserts `streamed == max(0, total - room)`,
+      that the dial is a minority, that lm_head→int4 removes exactly its byte difference (with
+      the embed held fixed — `--small-dtype` drives BOTH, which the first version of the gate
+      got wrong by exactly 2x), and that streaming the embed never increases the stream.
+      Still open (and the only things between here and the floor): the embed row-stream engine
+      patch, and the real-weights quality arm at `frac_zero`.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

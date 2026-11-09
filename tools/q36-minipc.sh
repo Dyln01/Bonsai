@@ -363,6 +363,18 @@ PY
         ${Q36_PROJ_STACK:+--stack} \
         --ram-gb "$RAM_GB" ${Q36_PROJ_FIELD:+--field-check}
     ;;
+  floor)
+    # the PHYSICAL FLOOR for this container on this host: what must stream after every
+    # lever, and the frac at which nothing streams at all (decode turns compute-bound)
+    python3 "$(q36_tool project_q36.py)" --container "$MODEL" --floor \
+        ${Q36_PROJ_FRAC:+--frac "$Q36_PROJ_FRAC"} \
+        ${Q36_PROJ_CTX:+--ctx "$Q36_PROJ_CTX"} \
+        ${Q36_EMBED_STREAMED:+--embed-streamed} \
+        ${Q36_KVQ:+--kvq "$Q36_KVQ"} \
+        --ram-gb "$RAM_GB" \
+        ${Q36_DECODE_MBS:+--rate-decode-mbs "$Q36_DECODE_MBS"} \
+        ${Q36_MTP_DRAFTS:+--spec-tokens "$Q36_MTP_DRAFTS"}
+    ;;
   watch)
     echo "[minipc] live bar from /tmp/calib.err (Ctrl-C quits; run calibrate/bench in another terminal)"
     tail -n +1 -f /tmp/calib.err 2>/dev/null | q36_render

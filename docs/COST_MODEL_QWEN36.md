@@ -11,6 +11,46 @@ This document is the replacement: the projection is now a **function of the host
 container**, regression-gated against the field numbers it has to reproduce, and the only
 structural lever on the decode floor is now a shipped offline tool.
 
+## The floor: where the disk stops mattering
+
+`project_q36.py --floor` (and `q36-minipc floor`) computes the bound the rest of this
+document dances around. Every decode class is read exactly once per token, so pinning *any*
+of them saves its bytes 1:1 and what bounds the cost is
+
+    streamed = max(0, total(frac) - cache_room),  cache_room = RAM - (embed + KV + norms)
+
+Field geometry (`D=5120, I=17408, L=64`, int4 trunk, 7.62 GB box, 11.2 MB/s), F16 lm_head:
+
+| at frac 0.25 | bytes/token | share | dial? |
+|---|---|---|---|
+| DeltaNet | 4.53 GB | 46% | none (already int4) |
+| lm_head | 2.54 GB | 26% | none (wide in this container) |
+| MLP prefix | 2.14 GB | 22% | HOT_FRAC |
+| attention | 0.59 GB | 6% | none (already int4) |
+
+**78% of the traffic has no dial**, and the dial's share is exactly the part a resident
+window already serves — which is why the warm column is flat in frac (249.5/249.6/249.8
+s/token at frac 0.25/0.20/0.125). Levers, each priced against the streamed bytes:
+
+| lever | removes | s/token at 11.2 MB/s | kind |
+|---|---|---|---|
+| lm_head → int4 | 1.91 GB | 170.3 | packer |
+| HOT_FRAC → `frac_zero` | 2.14 GB | 191.0 | quality dial |
+| stream the embed row | +2.54 GB of room | 227.0 | **engine work** |
+| KVQ → kv8 | +0.10 GB of room | 8.9 | knob |
+
+Applied together (lm_head int4 + embed streamed + kv8) at 7.62 GB usable:
+
+    cache_room 7.56 GB, total(frac) = 5.75 GB + 8.56 GB * frac
+    frac_zero = 0.2118   -> at or below it, NOTHING streams per token
+
+So the floor on this box is **not a disk number**: past `frac_zero` decode is compute-bound,
+and this model deliberately has no compute term — the measurement is a page-warm second pass
+with `COLI_TIMERS=1`. With a realistic reserve for the OS (6.9 GB usable) `frac_zero` = 0.128,
+which is the operating point worth driving to. Below `frac_zero` the remaining question is
+quality at that frac (the real-weights ppl arm), not bandwidth.
+
+
 ---
 
 ## 1. Why the projection was wrong — both errors, with the arithmetic

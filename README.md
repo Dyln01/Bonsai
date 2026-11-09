@@ -99,6 +99,15 @@ Also shipped, each with its code *and* its number:
   numbers; the engine-side tiers are withheld until a real dump clears the gate. See
   `docs/CHS_QWEN36.md`.
 
+`q36-minipc floor` (or `project_q36.py --floor`) answers the question above all of them:
+**what must stream after every lever, and at what frac does nothing stream at all.** On this
+container/box: 78% of the per-token bytes have no dial (DeltaNet 46% + lm_head 26% + attn 6%),
+so frac tuning cannot reach the floor; lm_head→int4 + streaming the embed row (the engine
+holds it f32-resident — 5.09 GB at 27B geometry) + kv8 take `cache_room` to 7.56 GB, at which
+`frac <= 0.2118` streams **nothing** and decode becomes compute-bound. With 0.7 GB reserved
+for the OS the threshold is `frac = 0.128`. Past it the disk stops being the bottleneck and
+the remaining question is quality at that frac, not bandwidth.
+
 `project_q36.py --stack` computes the whole ladder on this host — every row model output:
 
 | stack | bytes/tok | s/token | what changed |

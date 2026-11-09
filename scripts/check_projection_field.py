@@ -43,6 +43,86 @@ def run(*args):
     return p.returncode, p.stdout + p.stderr
 
 
+def floor_gate():
+    """--floor must be arithmetic, not narrative: check it against closed-form cases."""
+    import tempfile
+    bad = 0
+
+    def run(args):
+        r = subprocess.run([sys.executable, TOOL] + args, capture_output=True, text=True)
+        return r
+
+    def check(ok, what, detail=""):
+        nonlocal bad
+        print(f"  [{'ok' if ok else 'FAIL'}] {what}" + (f" -- {detail}" if detail else ""))
+        if not ok:
+            bad += 1
+
+    base = ["--geometry", "--trunk-dtype", "U8", "--frac", "0.25"]
+
+    def streamed(out):
+        m = re.search(r"now: streamed ([\d.]+) GB", out)
+        return float(m.group(1)) if m else None
+
+    # (a) a box big enough for everything must report 0 bytes streamed (compute-bound),
+    #     and a 7.62 GB one must not.
+    big = run(base + ["--small-dtype", "U8", "--ram-gb", "400", "--floor"])
+    small = run(base + ["--ram-gb", "7.62", "--floor"])
+    s_big, s_small = streamed(big.stdout), streamed(small.stdout)
+    check(big.returncode == 0 and s_big == 0.0,
+          "a box that fits the working set -> 0 GB streamed (compute-bound)", f"{s_big} GB")
+    check(s_small is not None and s_small > 0,
+          "a 7.62 GB box does stream at frac 0.25 with a wide lm_head", f"{s_small} GB")
+    # (b) the JSON must satisfy streamed == max(0, total - room)
+    out = os.path.join(tempfile.mkdtemp(prefix="floor_"), "f.json")
+    run(base + ["--small-dtype", "F16", "--ram-gb", "7.62", "--floor", "--json", out])
+    d = json.load(open(out))
+    check(abs(d["streamed_now"] - max(0.0, d["total_bytes"] - d["cache_room"])) < 1.0,
+          "streamed == max(0, total - cache_room)",
+          f"{d['streamed_now'] / 1e9:.3f} vs "
+          f"{max(0.0, d['total_bytes'] - d['cache_room']) / 1e9:.3f} GB")
+    # (c) the dial is a minority and the no-dial classes dominate -- the reason frac
+    #     tuning cannot reach the floor
+    mlp_share = d["mlp_bytes"] / d["total_bytes"]
+    check(0.0 < mlp_share < 0.5, "the MLP dial is a minority of the bytes",
+          f"{100 * mlp_share:.0f}% dial-able")
+    check(d["no_dial_bytes"] > d["mlp_bytes"],
+          "the no-dial classes dominate (which is why frac tuning is out of road)")
+    # (d) lm_head F16 -> int4 removes its byte difference. NOTE: --small-dtype drives BOTH
+    #     lm_head and embed (the first version of this gate forgot that and expected half
+    #     the observed delta), so hold the embed fixed by streaming it in both arms.
+    out2 = out.replace(".json", "2.json")
+    a_f16 = base + ["--small-dtype", "F16", "--ram-gb", "7.62", "--embed-streamed"]
+    a_u8 = base + ["--small-dtype", "U8", "--ram-gb", "7.62", "--embed-streamed"]
+    run(a_f16 + ["--floor", "--json", out])
+    run(a_u8 + ["--floor", "--json", out2])
+    d, d2 = json.load(open(out)), json.load(open(out2))
+    cut = 1.907e9
+    dr = d["streamed_now"] - d2["streamed_now"]
+    check(abs(dr - cut) / cut < 0.02,
+          "lm_head F16 -> int4 removes ~1.91 GB/token with the embed held fixed",
+          f"{dr / 1e9:.3f} GB")
+    check(abs((d["cache_room"] - d2["cache_room"])) < 1.0,
+          "...and the arms really do hold the same cache_room (embed streamed in both)",
+          f"{d['cache_room'] / 1e9:.2f} vs {d2['cache_room'] / 1e9:.2f} GB")
+    # (e) freeing the embed must strictly increase the room and never decrease it
+    out3 = out.replace(".json", "3.json")
+    out4 = out.replace(".json", "4.json")
+    run(base + ["--small-dtype", "F16", "--ram-gb", "7.62", "--floor", "--embed-streamed",
+                "--json", out3])
+    run(base + ["--small-dtype", "F16", "--ram-gb", "7.62", "--floor", "--json", out4])
+    d3, d_base = json.load(open(out3)), json.load(open(out4))
+    check(d3["cache_room"] > d_base["cache_room"],
+          "streaming the embed row grows cache_room",
+          f"{d_base['cache_room'] / 1e9:.2f} -> {d3['cache_room'] / 1e9:.2f} GB")
+    check(d3["streamed_now"] <= d_base["streamed_now"],
+          "and never increases what streams",
+          f"{d_base['streamed_now'] / 1e9:.3f} -> {d3['streamed_now'] / 1e9:.3f} GB")
+
+    print("FLOOR GATE: " + ("PASS" if not bad else f"{bad} FAILED"))
+    return 1 if bad else 0
+
+
 def main():
     print("== the recorded field numbers this gate is calibrated on ==")
     ok_artifacts = True
@@ -140,6 +220,10 @@ def main():
                               "--attn-dtype", "I4", "--win-mb", "4", "--frac", "0.25")
     check("64-rows/layer floor" in out_small,
           "a below-floor budget is reported as 'would not allocate' (the E14 signature)")
+    print("\n== --floor: the floor analysis must be arithmetic, not narrative ==")
+    if floor_gate():
+        FAILS.append("floor")
+
     print(f"\n{'PROJECTION GATE PASS' if not FAILS else 'FAILURES: ' + ', '.join(FAILS)}")
     return 1 if FAILS else 0
 

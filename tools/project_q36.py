@@ -376,6 +376,103 @@ def stack_table(a):
     print("the model's own arithmetic — measure each one before quoting it.")
 
 
+def floor_report(a, ctr):
+    """The PHYSICAL FLOOR for this container on this host, from the container's own headers.
+
+    `report()`'s warm column credits only the MLP as cacheable (`hot = min(mlp_bytes, room)`),
+    which is why it sits flat at ~250 s/token for every frac: lowering HOT_FRAC shrinks the
+    class that is already served from RAM. That is right for the window (which only holds MLP
+    rows) and wrong as a bound, because EVERY class is read exactly once per decode token --
+    pinning any class saves its bytes 1:1, so what bounds the floor is
+
+        streamed_bytes_per_token = max(0, total_bytes(frac) - cache_room)
+
+    with cache_room = RAM - (tensors that must be resident: embed, KV, norms). Two levers
+    change `total`, one changes `cache_room`, and one is a multiplier:
+
+      total:      lm_head -> int4 (if the container still carries it wide); HOT_FRAC
+      cache_room: stream the embed row instead of holding the table (--embed-streamed); KVQ
+      multiplier: accepted tokens per forward (MTP), which divides whatever the floor is
+
+    `frac_zero` is the frac at which nothing streams any more -- past it decode is
+    COMPUTE-bound and this model has no term for that (only a measurement does), so it is
+    printed as a threshold with the compute floor left explicitly unknown.
+    """
+    s = Spec(a)
+    dec, res = s.bytes_by_class(True)
+    tot = sum(dec.values())
+    mlp = float(dec.get("mlp", 0.0))
+    per_frac = s.L * (3.0 * s.D * s.I) * ESZ[s.trunk] if s.I else 0.0
+    base0 = tot - mlp                      # every class with no dial, at frac 0
+    emb = res["embed"] if a.embed_streamed is False else 0.0
+    residents = emb + res["kv"] + res["norms"]
+    room = max(s.ram * 1e9 - residents, 0.0)
+    rate = s.R_dc * 1e6
+    print(f"== the physical floor for this container ({s.ram:.2f} GB box) ==")
+    print(f"  total/token at frac={s.frac:.3f}: {tot / 1e9:.3f} GB  ({mlp / 1e9:.3f} GB of it is "
+          f"the HOT_FRAC dial = {100 * mlp / tot:.0f}%, the other {100 * base0 / tot:.0f}% has no dial)")
+    print(f"  cache_room = {s.ram:.2f} GB - embed {emb / 1e9:.2f} GB"
+          f"{' (streamed)' if a.embed_streamed else ''} - KV {res['kv'] / 1e9:.2f} GB - norms "
+          f"{res['norms'] / 1e9:.3f} GB = {room / 1e9:.2f} GB")
+    if per_frac > 0:
+        fz = max(0.0, min(1.0, (room - base0) / per_frac))
+        print(f"  frac at which NOTHING streams (total == cache_room): "
+              f"{'-- unreachable: the no-dial classes alone are ' + format(base0 / 1e9, '.2f') + ' GB > room' if fz <= 1e-9 else format(fz, '.4f')}")
+    else:
+        fz = 0.0
+    streamed_now = max(tot - room, 0.0)
+    print(f"\n  now: streamed {streamed_now / 1e9:.3f} GB/token -> {streamed_now / rate:.1f} s/token "
+          f"(+ compute; this model has no compute term)")
+
+    # --- levers, each computed from THIS container's own bytes -----------------------
+    print(f"\n  {'lever':44} {'bytes removed':>14} {'s/token':>9} {'streamed after':>15}")
+    rows = []
+
+    def row(label, cut):
+        after = max(streamed_now - cut, 0.0)
+        rows.append((label, cut, streamed_now / rate - after / rate, after))
+        print(f"  {label:44} {cut / 1e9:>11.3f} GB {cut / rate:>9.1f} {after / 1e9:>12.3f} GB")
+
+    esz_lm = ESZ[s.small]
+    lm_i4 = float(s.V) * s.D * 0.5
+    if esz_lm > 0.5 and "lmhead" in dec:
+        row(f"lm_head -> int4 ({dec['lmhead'] / 1e9:.2f} -> {lm_i4 / 1e9:.2f} GB)", dec["lmhead"] - lm_i4)
+    if s.frac > fz and mlp > 0:
+        row(f"HOT_FRAC {s.frac:.3f} -> {fz:.4f} (MLP stops streaming)", mlp * (1 - fz / s.frac))
+    if not a.embed_streamed:   # default = today's behaviour: the engine holds it resident
+        row("stream the embed row (frees RAM for the cache set)",
+            min(res["embed"], streamed_now))
+    if s.kvq == "f32" and res["kv"] > 0:
+        row("KVQ -> kv8 (frees context RAM for the cache set)", min(res["kv"] * 0.5, streamed_now))
+    if s.spec > 1.0:
+        print(f"\n  MTP x{s.spec:.2f} accepted/forward divides whatever the floor is: "
+              f"{streamed_now / rate:.1f} -> {streamed_now / rate / s.spec:.1f} s/token")
+    # the floor with every lever applied at once (not the sum of the rows, which double-count)
+    room_all = max(s.ram * 1e9 - (res["kv"] * 0.5 + res["norms"]), 0.0)
+    tot_all = base0 - (dec["lmhead"] - lm_i4 if esz_lm > 0.5 else 0.0) + per_frac * fz
+    floor_bytes = max(tot_all - room_all, 0.0)
+    floor_s = floor_bytes / rate
+    print(f"\n  ALL levers at once, frac at the streaming threshold: "
+          f"total {tot_all / 1e9:.3f} GB, room {room_all / 1e9:.2f} GB "
+          f"-> floor {floor_s:.1f} s/token" + (f", x{s.spec:.2f} MTP -> "
+          f"{floor_s / s.spec:.1f} s/token" if s.spec > 1 else ""))
+    if floor_bytes < 1e-6:
+        print(f"  ...which is 0 GB streamed: past this point decode is COMPUTE-bound and this "
+              f"model cannot price it. The experiment that prices it: run twice back-to-back "
+              f"and take the second pass (page-warm) with COLI_TIMERS=1.")
+    else:
+        print(f"  ...so no lever in this list gets below {floor_s:.1f} s/token on this box "
+              f"without the working set fitting RAM.")
+    if a.json:
+        json.dump(dict(total_bytes=tot, mlp_bytes=mlp, no_dial_bytes=base0, cache_room=room,
+                       streamed_now=streamed_now, frac_zero=fz, s_now=streamed_now / rate,
+                       floor_bytes=floor_bytes, floor_s=floor_s,
+                       floor_s_spec=floor_s / s.spec if s.spec else None,
+                       levers=[(l, c, d, aft) for l, c, d, aft in rows]),
+                  open(a.json, "w"), indent=1)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -426,6 +523,13 @@ def main():
     ap.add_argument("--window-gb", type=float, default=A_WINDOW_GB)
     ap.add_argument("--read-mbs", type=float, help="override BOTH rates with one measured rate")
     ap.add_argument("--probe", help="measure this host's read rate on <path> first")
+    ap.add_argument("--floor", action="store_true",
+                    help="the PHYSICAL FLOOR for this container/host: streamed = max(0, "
+                         "total(frac) - cache_room), the frac at which nothing streams, and "
+                         "every lever priced against it (from the container's own dtypes)")
+    ap.add_argument("--embed-streamed", action="store_true",
+                    help="assume the embed table is NOT resident (row-streamed), freeing its "
+                         "RAM for the cache set -- the engine loads it f32-resident today")
     ap.add_argument("--field-check", action="store_true",
                     help="fit the model against the recorded field measurements and exit "
                          "non-zero if any point is outside its band")
@@ -470,6 +574,8 @@ def main():
         a.attn_layers = ctr["attn_layers"]
     if a.stack:
         return stack_table(a)
+    if a.floor:
+        return floor_report(a, ctr)
     if not a.container and not a.geometry and not a.field_check:
         sys.exit("project_q36: pass --container <dir> or --geometry with explicit numbers")
     print("== host anchors ==")

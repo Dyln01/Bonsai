@@ -517,6 +517,29 @@ anything on a container without an MTP head (`meta.mtp`) instead of inventing nu
 Real acceptance is a real-weights measurement — the field's M1 arm measured 82.0% /
 2.86 tokens/forward.
 
+### 14.2b The physical floor — `q36-minipc floor` / `project_q36.py --floor`
+
+`project` prices a *configuration*; `floor` answers "how low can THIS container go on THIS
+box, and what is in the way". It is computed from the container's own headers, and it exists
+because `project`'s warm column credits only the MLP as cacheable (right for the window,
+wrong as a bound): every class is read exactly once per decode token, so
+
+    streamed_bytes_per_token = max(0, total_bytes(frac) - cache_room)
+    cache_room               = RAM - (tensors that must stay resident: embed, KV, norms)
+
+```bash
+q36-minipc floor                        # your model, your RAM, with the lever table
+Q36_EMBED_STREAMED=1 Q36_KVQ=kv8 q36-minipc floor   # with the RAM levers applied
+python3 tools/project_q36.py <container> --floor --ram-gb 6.9 --embed-streamed --kvq kv8
+```
+
+It prints the lever table (bytes removed per lever and the s/token each buys), `frac_zero` —
+the frac at which **nothing streams any more**, past which decode is compute-bound and the
+model has no term for it — and the floor with every lever applied at once. `--embed-streamed`
+models the one lever that needs engine work: the engine loads the embedding table f32-resident
+(`load_t_n` → `falloc` + `st_read_f32`), which at 27B geometry is 5.09 GB of a 7.62 GB box
+(2.54 GB f16) for a table decode touches one 20 KB row of.
+
 ### 14.3 Cascade-Hot Streaming (CHS) — `tools/train_chs_predictor.py`
 
 CHS's runtime half is withheld pending a measurement (see `docs/CHS_QWEN36.md`); what runs
