@@ -7,6 +7,14 @@
  *     floor $IOTH_LAT_US + aggregate bandwidth cap $IOTH_BW_MBPS (token-bucket
  *     over a monotonic clock; multithread-safe under one mutex)
  *   - disabled entirely when IOTH_OFF=1; reads of size 0 are free
+ * *   - IOTH_STATS=1 prints "[ioth] intercepted <bytes> bytes in <calls> call(s) in
+ *     <secs>s (<rate> MB/s)" on exit. This is the DETERMINISTIC half of the harness
+ *     gate: a wall-clock bound alone cannot distinguish "the shim throttled the read"
+ *     from "the read never entered the shim". Coreutils turns `cat file > /dev/null`
+ *     into copy_file_range, a kernel-side copy that bypasses read/pread entirely, so a
+ *     gate that reads with `cat` measures a pass-through (observed: 48 MB "read" in
+ *     5 ms on a newer runner image) -- read with an explicit read() loop (dd) and
+ *     assert the accounted bytes, not just the elapsed time.
  *
  * Build:  gcc -O2 -shared -fPIC iothrottle.c -o iothrottle.so -ldl
  * Use:    IOTH_DIR=$MODEL IOTH_LAT_US=100 IOTH_BW_MBPS=150 \
@@ -36,6 +44,11 @@ static double g_bw_mbps = 0.0;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 static struct timespec g_credit_ts;          /* token-bucket "fully paid up to" */
 
+/* accounting (IOTH_STATS=1): evidence that a read actually entered this shim */
+static long long g_bytes = 0, g_calls = 0;
+static double    g_t0 = 0.0;
+static int       g_stats = 0;
+
 static double now_s(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + 1e-9 * ts.tv_nsec;
@@ -50,6 +63,8 @@ static void __attribute__((constructor)) ioth_ctor(void) {
     g_dir_len = strlen(g_dir);
     const char *l = getenv("IOTH_LAT_US");   if (l) g_lat_us  = atol(l);
     const char *b = getenv("IOTH_BW_MBPS");  if (b) g_bw_mbps = atof(b);
+    const char *st = getenv("IOTH_STATS"); if (st && st[0] == '1') g_stats = 1;
+    g_t0 = now_s();
     g_on = 1;
     double t = now_s();
     g_credit_ts.tv_sec  = (long)t;
@@ -69,6 +84,11 @@ static int under_dir(const char *path) {
 
 static void pay_bytes(long long n) {
     if (n <= 0) return;
+    if (g_stats) {
+        pthread_mutex_lock(&g_mu);
+        g_bytes += n; g_calls++;
+        pthread_mutex_unlock(&g_mu);
+    }
     if (g_lat_us > 0) {
         struct timespec ts = { g_lat_us / 1000000, (g_lat_us % 1000000) * 1000 };
         nanosleep(&ts, NULL);
@@ -89,6 +109,13 @@ static void pay_bytes(long long n) {
         struct timespec ts = { (long)sleep_for, (long)((sleep_for - (double)(long)sleep_for) * 1e9) };
         nanosleep(&ts, NULL);
     }
+}
+
+static void __attribute__((destructor)) ioth_dtor(void) {
+    if (!g_stats || !g_on) return;
+    double dt = now_s() - g_t0;
+    fprintf(stderr, "[ioth] intercepted %lld bytes in %lld call(s) in %.3fs (%.1f MB/s)\n",
+            g_bytes, g_calls, dt, dt > 0 ? (double)g_bytes / 1e6 / dt : 0.0);
 }
 
 typedef int    (*open_t)(const char *, int, ...);

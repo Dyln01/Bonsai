@@ -53,10 +53,23 @@ jobs:
           gcc -O2 -shared -fPIC scripts/iothrottle.c -o /tmp/iothrottle.so -ldl -lpthread
           mkdir -p /tmp/ioth_dir
           head -c 48m /dev/zero > /tmp/ioth_dir/data.bin
+          # Read with dd (an explicit read() loop), NOT `cat`: coreutils turns
+          # `cat file > /dev/null` into copy_file_range, a kernel-side copy that never
+          # enters the interposed read/pread hooks -- this gate then measures a
+          # pass-through and fails on a runner-image bump (48 MB "read" in 5 ms), which
+          # is exactly what happened on the runner image that forced Node 24.
           t0=$(date +%s%N)
-          IOTH_DIR=/tmp/ioth_dir IOTH_BW_MBPS=150 LD_PRELOAD=/tmp/iothrottle.so \
-            cat /tmp/ioth_dir/data.bin > /dev/null
+          IOTH_DIR=/tmp/ioth_dir IOTH_BW_MBPS=150 IOTH_STATS=1 LD_PRELOAD=/tmp/iothrottle.so \
+            dd if=/tmp/ioth_dir/data.bin of=/dev/null bs=1M 2>/tmp/ioth_dd.err
           ms=$(( ($(date +%s%N) - t0) / 1000000 ))
-          echo "throttled read took ${ms}ms (expect >= ~320ms at 48MB / 150MB/s)"
+          # Deterministic half of the gate: the shim must ACCOUNT for the bytes. A timing
+          # bound alone cannot tell "throttled" from "never intercepted".
+          grep -E "\[ioth\] intercepted" /tmp/ioth_dd.err || true
+          by=$(grep -oE "intercepted [0-9]+ bytes" /tmp/ioth_dd.err | grep -oE "[0-9]+" | tail -1)
+          echo "throttled read took ${ms}ms, shim accounted ${by:-0} bytes (expect >= ~320ms / 48 MB)"
+          if [ -n "$by" ] && [ "$by" -ge 46000000 ]; then :; else
+            echo "FAIL: the shim did not account for the read — it was never intercepted"
+            exit 1
+          fi
           [ "$ms" -ge 250 ]
 
