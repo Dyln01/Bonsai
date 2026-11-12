@@ -247,6 +247,11 @@ jobs:
           set -e
           python3 scripts/check_window_readmatrix.py --self-test
 
+      - name: "E24 gate — Q36_EMBED_MAP: mapped table must be identical AND engaged"
+        run: |
+          set -e
+          bash scripts/check_embed_map.sh
+
       - name: "CHS predictor gates — dump format, per-token metric, churn, verdict tracking"
         run: |
           set -e

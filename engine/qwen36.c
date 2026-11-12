@@ -2665,6 +2665,24 @@ static float *load_t_affine(Model *m, const char *wname, int64_t want) {
  * while every read afterwards used CONFIG dims, so a short tensor was a plain
  * heap OOB read (embed is indexed as m->embed + ids[s]*D). The expert path
  * already refuses a wrong size; this is the same discipline for the dense set. */
+/* ---- Q36_EMBED_MAP: the embedding table stays on disk, rows read on demand ----
+ * vocab*hidden at the 27B geometry is 2.54 GB f16 / 5.09 GB f32 held resident to serve
+ * one 20 KB row per decode token. Freed, the page cache holds that much more of the
+ * per-token working set (see project_q36.py --floor: +2.54 GB of cache_room). */
+static void q36_embed_report(void);               /* atexit hook, defined with the read path */
+static int  g_q36_embed_map = -1;                 /* -1 unread, 0 off, 1 on */
+static char g_embed_name[QW_DENSE_NAME_MAX];      /* the resolved tensor name */
+static long long g_embed_rows = 0, g_embed_bytes = 0;
+
+static int q36_embed_map_on(void) {
+    if (g_q36_embed_map < 0) {
+        const char *e = getenv("Q36_EMBED_MAP");
+        g_q36_embed_map = (e && e[0] == '1');
+        if (g_q36_embed_map) atexit(q36_embed_report);   /* defined below; declared here */
+    }
+    return g_q36_embed_map;
+}
+
 static float *load_t_n(Model *m, const char *name, int64_t want) {
     char rn[QW_DENSE_NAME_MAX];
     const char *nm = dense_resolve(m, name, rn, sizeof rn);
@@ -2985,9 +3003,31 @@ static void model_init_range(Model *m, const char *snap, int cap, int bits,
     int quantize_dense = load_boundaries && dense_i8_on();
     int qcount = 0; double qfreed = 0;
     if (load_boundaries) {
-        m->embed = load_t_n(m, "model.embed_tokens.weight", (int64_t)c->vocab * c->hidden);
+        if (q36_embed_map_on()) {
+            const char *en = dense_resolve(m, "model.embed_tokens.weight",
+                                           g_embed_name, sizeof g_embed_name);
+            /* dense_resolve may return ITS OWN buffer rather than the one passed in (it does
+             * for the common name), so copy explicitly -- otherwise g_embed_name stays empty,
+             * the mapped branch is skipped, and the forward memcpys from a NULL table.
+             * ASan caught exactly that: q36_embed_row -> memcpy -> SEGV on +0x2a000. */
+            snprintf(g_embed_name, sizeof g_embed_name, "%s", en);
+            st_tensor *et = st_find(&m->S, en);
+            if (!et) { fprintf(stderr, "missing %s\n", en); exit(1); }
+            if (et->dtype >= 3) {   /* int4/affine tables cannot be sliced as floats */
+                fprintf(stderr, "[embed] Q36_EMBED_MAP: %s is %s, not a float tensor -- "
+                                "keeping it resident\n", en, st_dtype_name(et->dtype));
+                m->embed = load_t_n(m, "model.embed_tokens.weight", (int64_t)c->vocab * c->hidden);
+            } else {
+                m->embed = NULL; m->embed_h = NULL;
+                fprintf(stderr, "[embed] Q36_EMBED_MAP: %s stays on disk (%.2f GB not "
+                                "resident); rows read on demand\n",
+                        en, (double)et->numel * st_dtype_esz(et->dtype) / 1e9);
+            }
+        } else {
+            m->embed = load_t_n(m, "model.embed_tokens.weight", (int64_t)c->vocab * c->hidden);
+        }
 #ifndef COLI_VULKAN
-        if (quantize_dense && dense_bits() == 16) {   /* 16-bit trunk: the table too, 2.5 GB less on the 27B */
+        if (quantize_dense && dense_bits() == 16 && m->embed) {   /* 16-bit trunk: the table too, 2.5 GB less on the 27B; NULL under Q36_EMBED_MAP */
             int64_t n = (int64_t)c->vocab * c->hidden;
             m->embed_h = malloc((size_t)n * sizeof(uint16_t));
             if (!m->embed_h) { fprintf(stderr, "OOM keeping the embeddings in f16\n"); exit(1); }
@@ -5639,13 +5679,34 @@ static float *g_hidden_sink = NULL;
 
 static void q36_embed_row(Model *m, int id, int pos, float *row) {
     int D = m->c.hidden;
-    int vrow = (m->vis_map && pos < m->vis_map_len) ? m->vis_map[pos] : -1;
+    /* pos >= 0 guards the vis_map index: the prefill path passes -1 meaning "no position",
+     * and vis_map[-1] was a latent out-of-bounds read. */
+    int vrow = (m->vis_map && pos >= 0 && pos < m->vis_map_len) ? m->vis_map[pos] : -1;
     if (vrow >= 0 && vrow < m->vis_rows_n)
         memcpy(row, m->vis_rows + (int64_t)vrow*D, D*sizeof(float));
     else if (m->embed_h)
         f16_to_f32_bulk(m->embed_h + (int64_t)id*D, row, D);
-    else
+    else if (!m->embed && g_embed_name[0]) {          /* Q36_EMBED_MAP: one row off disk */
+        st_read_slice_f32(&m->S, g_embed_name, (int64_t)id*D, D, row, 0);
+        long long nb = (int64_t)D * sizeof(float);
+        g_embed_rows++; g_embed_bytes += nb;
+    } else {
+        if (!m->embed) {
+            fprintf(stderr, "embed: no resident table and no mapped name -- refusing\n");
+            exit(1);
+        }
         memcpy(row, m->embed + (int64_t)id*D, D*sizeof(float));
+    }
+}
+
+/* atexit hook (registered by q36_embed_map_on): the evidence that the mapped path ran,
+ * in the same spirit as the I/O shim's IOTH_STATS accounting -- an idle table and a
+ * table that was never touched look identical without it. */
+static void q36_embed_report(void) {
+    if (g_embed_rows)
+        fprintf(stderr, "[embed] mapped: %lld row read(s), %.1f MB off disk "
+                        "(the table was never resident)\n",
+                g_embed_rows, (double)g_embed_bytes / 1e6);
 }
 
 /* The forward: ids[0..S) at pos_base through every layer, the final norm and
@@ -5860,8 +5921,9 @@ static float *q36_step_rows(Model *m, const Q36Row *rows, const int *ids, int S)
             fprintf(stderr, "token id %d out of range 0..%d -- refusing\n", ids[s], c->vocab - 1);
             exit(1);
         }
-        if (m->embed_h) f16_to_f32_bulk(m->embed_h + (int64_t)ids[s]*D, x + (int64_t)s*D, D);
-        else memcpy(x + (int64_t)s*D, m->embed + (int64_t)ids[s]*D, D*sizeof(float));
+        /* through the helper, so prefill works in mapped mode too (pos -1 = no visual row,
+         * which is the behaviour this loop had before) */
+        q36_embed_row(m, ids[s], -1, x + (int64_t)s*D);
     }
     tier_rebuild_evicted(m);
     m->mux_rows = rows;

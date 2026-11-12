@@ -906,6 +906,32 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       Still open (and the only things between here and the floor): the embed row-stream engine
       patch, and the real-weights quality arm at `frac_zero`.
 
+- [x] **E24 — the embedding table comes off RAM (`Q36_EMBED_MAP=1`).** A field measurement of
+      **17000 s / 64 tokens (265.6 s/token)** and a repeat at **18000 s (281.2)** identified the
+      configuration exactly: `HOT_FRAC=0.25` with a wide lm_head, and `streamed = total − room`
+      = 9.80 − 6.83 GB = 2.97 GB, i.e. 265.2 s at the 11.2 MB/s anchor — the model reproduces the
+      box to **0.15%**. That means the box already serves all the RAM it has and the ONLY way down
+      is to shrink the per-token bytes, of which 78% have no dial. The largest available lever was
+      hiding in `load_t_n`: the vocabulary table is loaded `falloc(numel)` + `st_read_f32`, i.e.
+      fully resident — at this geometry **2.54 GB f16 / 5.09 GB f32**, a third of a 7.62 GB box,
+      for a table decode touches one 20 KB row of per token. The patch (tools/patch_embed_map.py,
+      chain hop 25, backup `preebmap`) skips the resident alloc and reads rows through
+      `st_read_slice_f32` — bounds-checked, f16/bf16→f32, over the tensor's own persistent fd.
+      The table is touched in exactly three places and all three are routed (load site,
+      `q36_embed_row`, the prefill row loop), with the `dense_bits()==16` f16 conversion guarded
+      so it cannot run on a NULL table. **ASan found the bug that a build could not**:
+      `dense_resolve` returns its OWN buffer rather than the out-parameter for the common name, so
+      storing the name only via the parameter left it empty, the mapped branch was skipped, and the
+      forward memcpy'd from NULL (`q36_embed_row → memcpy → SEGV on +0x2a000`) — one line, and it
+      was only visible as a fault before the first row read. A missing table is now a refusal
+      instead of a segfault. Verified: 6 anchored edits, build clean, `Q36_EMBED_MAP=1` produces a
+      **byte-identical id stream** (md5 c28178986082) with `101 row read(s)` proving the path ran,
+      RSS 26.9 → 19.0 MB on the 4 MB synthetic table (the real geometry win is arithmetic: V*D*esz).
+      Gate: `scripts/check_embed_map.sh` (identity + engagement; RSS reported, not asserted) wired
+      into engine-build; the chain now replays `premapf16 -mapf16_bias-> preebmap -embed_map->
+      qwen36.c` and `verify_engine.sh` passes ALL steps on a pristine archive. Launcher:
+      `Q36_EMBED_MAP=1`. Docs: COMMANDS 14.2c, README levers, `project --floor` lever table.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

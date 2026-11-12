@@ -91,6 +91,11 @@ Also shipped, each with its code *and* its number:
   trunk; the packer unblocks it. Priced with the engine's own capacity formula (512 MB =
   1090 rows/layer = 25.1% of the frac-0.25 active set). The launcher auto-enables it on an
   int4 trunk, and prints the reason + the fix when the trunk is F16.
+* **`Q36_EMBED_MAP=1` — the vocabulary table comes off RAM** — it is 2.54 GB f16 (5.09 GB f32)
+  at this geometry, held resident to serve one 20 KB row per token. Rows are read on demand
+  through `st_read_slice_f32`; the freed RAM is what the per-token working set needs
+  (`q36-minipc floor`: +2.54 GB of `cache_room`). Gated by `scripts/check_embed_map.sh`
+  (id stream byte-identical to the resident path, and the row count proves it ran).
 * **CHS (tiering + delta prefetch) ships its offline half only** — the delta between
   consecutive tokens measures 27.8% of the true top-K set, but that is ~8.7 MB/token at field
   geometry, i.e. **0.57%** of the per-token stream, and the predictor that would steer the

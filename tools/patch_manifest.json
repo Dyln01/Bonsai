@@ -1,254 +1,263 @@
 {
-  "comment": "Engine snapshot manifest. Source of truth for engine/ provenance; checked by tools/verify_engine.sh and CI. Regenerate only with a commit that explains why.",
-  "stock": {
-    "repo": "https://github.com/JustVugg/colibri",
-    "commit": "bf24429",
-    "path": "c/qwen36.c",
-    "md5": "fb4b73ed5e1644da7e644e046d19c114",
-    "matches": "engine/qwen36.c.orig"
+ "comment": "Engine snapshot manifest. Source of truth for engine/ provenance; checked by tools/verify_engine.sh and CI. Regenerate only with a commit that explains why.",
+ "stock": {
+  "repo": "https://github.com/JustVugg/colibri",
+  "commit": "bf24429",
+  "path": "c/qwen36.c",
+  "md5": "fb4b73ed5e1644da7e644e046d19c114",
+  "matches": "engine/qwen36.c.orig"
+ },
+ "engine_files": {
+  "NOTICE.md": "529c38b4892b853a8dcc8fefb0eee4d9",
+  "kv8_fused.h": "6494bd828002c876c01e0645023c82ff",
+  "kv8_parity.c": "3bff73e2fae403fb6d1d3dd52f8612fd",
+  "kv_fp8.h": "a92762dab601fb885221dd499db21445",
+  "kv_tq.h": "6a476ecd475326942ceb345829792196",
+  "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
+  "qwen36.c": "99208abaa5c1ca33fb054818eddcb0d5",
+  "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
+  "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
+  "qwen36.c.preabsp": "5a90dfd069685530de049bd90f42d5a2",
+  "qwen36.c.prebar": "8528e621c0b1c8665c3e0c2cb8f32932",
+  "qwen36.c.predraft": "6a1ab33a2ad22e72f222d8d5f4d9afde",
+  "qwen36.c.preftz": "4495cdc386858e742092398989a5769d",
+  "qwen36.c.pregqa": "d6b3ff1c40546661c4a51f208e260277",
+  "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
+  "qwen36.c.prei4": "3c19e9e41b7c92cddc2df4e67de883b8",
+  "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
+  "qwen36.c.premapf16": "0b2903f66a23cdce500f678f24cdf066",
+  "qwen36.c.premapsc": "8d1d31f0bbc7c27b1b9da52f8f973795",
+  "qwen36.c.premoe": "fe026e28cd6ed27a333afa572272370c",
+  "qwen36.c.premtp": "3131a067ebc71127b044a83d0b9fe26e",
+  "qwen36.c.preoracle": "cc9177d1560567fadf6eefa56fa78900",
+  "qwen36.c.preprog2": "42a739c640bb5d46eab743702f9a9079",
+  "qwen36.c.preptk": "e639efe5470f970ff789552c24d9b9d4",
+  "qwen36.c.prescan": "49286a76d4b4869b03b432bba9be3549",
+  "qwen36.c.presm": "9dc3a0fc0611f2c0a2f21971e47f2b17",
+  "qwen36.c.prestream": "a6fddae3d1b250b78250631a1d09fc54",
+  "qwen36.c.pretdw": "14af4adf2f9f262a152e7082ec307ac6",
+  "qwen36.c.pretfc": "0231536effa21e9fb86b5c1dcf07bd2f",
+  "qwen36.c.pretq": "1b9bee718dcfb7ff3944fb2cecf3b7c2",
+  "qwen36.c.prewin": "d5a5e9c3aff79816024499e0eb4c0efd",
+  "scan_decay.h": "fa109ebf057a71c8b17153112ddef1fa",
+  "softmaxbench_q36.c": "b4d9d6b2cecb158d6309f12d7ce0605b",
+  "tq_absorb_parity.c": "429ac5dd090640e8a7dbbae7ca79ca67",
+  "qwen36.c.preebmap": "bf08d9aa9b8194a408a94b13bf16a70b"
+ },
+ "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
+ "reproducible_segments": [
+  {
+   "from": "qwen36.c.orig",
+   "scripts": [
+    "patch_kv8_flash_v1.py"
+   ],
+   "to": "qwen36.c.premap",
+   "regenerated": "E1 2026-10-19"
   },
-  "engine_files": {
-    "NOTICE.md": "529c38b4892b853a8dcc8fefb0eee4d9",
-    "kv8_fused.h": "6494bd828002c876c01e0645023c82ff",
-    "kv8_parity.c": "3bff73e2fae403fb6d1d3dd52f8612fd",
-    "kv_fp8.h": "a92762dab601fb885221dd499db21445",
-    "kv_tq.h": "6a476ecd475326942ceb345829792196",
-    "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-    "qwen36.c": "bf08d9aa9b8194a408a94b13bf16a70b",
-    "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
-    "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
-    "qwen36.c.preabsp": "5a90dfd069685530de049bd90f42d5a2",
-    "qwen36.c.prebar": "8528e621c0b1c8665c3e0c2cb8f32932",
-    "qwen36.c.predraft": "6a1ab33a2ad22e72f222d8d5f4d9afde",
-    "qwen36.c.preftz": "4495cdc386858e742092398989a5769d",
-    "qwen36.c.pregqa": "d6b3ff1c40546661c4a51f208e260277",
-    "qwen36.c.prehot": "dc4623c78dc929b113ed0e4a29e4a1af",
-    "qwen36.c.prei4": "3c19e9e41b7c92cddc2df4e67de883b8",
-    "qwen36.c.premap": "05b9a5bde7548488ffdd2d8cef93aa19",
-    "qwen36.c.premapf16": "0b2903f66a23cdce500f678f24cdf066",
-    "qwen36.c.premapsc": "8d1d31f0bbc7c27b1b9da52f8f973795",
-    "qwen36.c.premoe": "fe026e28cd6ed27a333afa572272370c",
-    "qwen36.c.premtp": "3131a067ebc71127b044a83d0b9fe26e",
-    "qwen36.c.preoracle": "cc9177d1560567fadf6eefa56fa78900",
-    "qwen36.c.preprog2": "42a739c640bb5d46eab743702f9a9079",
-    "qwen36.c.preptk": "e639efe5470f970ff789552c24d9b9d4",
-    "qwen36.c.prescan": "49286a76d4b4869b03b432bba9be3549",
-    "qwen36.c.presm": "9dc3a0fc0611f2c0a2f21971e47f2b17",
-    "qwen36.c.prestream": "a6fddae3d1b250b78250631a1d09fc54",
-    "qwen36.c.pretdw": "14af4adf2f9f262a152e7082ec307ac6",
-    "qwen36.c.pretfc": "0231536effa21e9fb86b5c1dcf07bd2f",
-    "qwen36.c.pretq": "1b9bee718dcfb7ff3944fb2cecf3b7c2",
-    "qwen36.c.prewin": "d5a5e9c3aff79816024499e0eb4c0efd",
-    "scan_decay.h": "fa109ebf057a71c8b17153112ddef1fa",
-    "softmaxbench_q36.c": "b4d9d6b2cecb158d6309f12d7ce0605b",
-    "tq_absorb_parity.c": "429ac5dd090640e8a7dbbae7ca79ca67"
+  {
+   "from": "qwen36.c.premap",
+   "scripts": [
+    "patch_trunkmap.py",
+    "patch_trunkmap_v2.py"
+   ],
+   "to": "qwen36.c.prehot"
   },
-  "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
-  "reproducible_segments": [
-    {
-      "from": "qwen36.c.orig",
-      "scripts": [
-        "patch_kv8_flash_v1.py"
-      ],
-      "to": "qwen36.c.premap",
-      "regenerated": "E1 2026-10-19"
-    },
-    {
-      "from": "qwen36.c.premap",
-      "scripts": [
-        "patch_trunkmap.py",
-        "patch_trunkmap_v2.py"
-      ],
-      "to": "qwen36.c.prehot"
-    },
-    {
-      "from": "qwen36.c.prehot",
-      "scripts": [
-        "patch_hotstack_v1.py"
-      ],
-      "to": "qwen36.c.pretq",
-      "regenerated": "E1 2026-10-19"
-    },
-    {
-      "from": "qwen36.c.pretq",
-      "scripts": [
-        "patch_kvtq.py"
-      ],
-      "to": "qwen36.c.presm"
-    },
-    {
-      "from": "qwen36.c.presm",
-      "scripts": [
-        "patch_softmax.py"
-      ],
-      "to": "qwen36.c.premtp"
-    },
-    {
-      "from": "qwen36.c.premtp",
-      "scripts": [
-        "patch_mtp.py"
-      ],
-      "to": "qwen36.c.predraft",
-      "added": "Phase 2b part 1"
-    },
-    {
-      "from": "qwen36.c.predraft",
-      "scripts": [
-        "patch_mtp_draft.py"
-      ],
-      "to": "qwen36.c.preoracle",
-      "added": "Phase 2b part 2"
-    },
-    {
-      "from": "qwen36.c.preoracle",
-      "scripts": [
-        "patch_mtp_oracle.py"
-      ],
-      "to": "qwen36.c.premoe",
-      "added": "Phase 2b part 3a"
-    },
-    {
-      "from": "qwen36.c.premoe",
-      "scripts": [
-        "patch_mtp_moe.py"
-      ],
-      "to": "qwen36.c.prei4",
-      "added": "Phase 2b part 3b"
-    },
-    {
-      "from": "qwen36.c.prei4",
-      "scripts": [
-        "patch_mtp_i4.py"
-      ],
-      "to": "qwen36.c.pregqa",
-      "added": "Phase 2b-5a (manifest segment was missing; verify_engine.sh already replayed this link)"
-    },
-    {
-      "from": "qwen36.c.pregqa",
-      "scripts": [
-        "patch_gqa_absorb.py"
-      ],
-      "to": "qwen36.c.prebar",
-      "added": "Phase 3a GQA-absorbed decode"
-    },
-    {
-      "from": "qwen36.c.prebar",
-      "scripts": [
-        "patch_calib_bar.py"
-      ],
-      "to": "qwen36.c.preabsorb",
-      "added": "E7 progress bar"
-    },
-    {
-      "from": "qwen36.c.preabsorb",
-      "scripts": [
-        "patch_tq_absorb.py"
-      ],
-      "to": "qwen36.c.preabsp",
-      "added": "Phase 3b-rot"
-    },
-    {
-      "from": "qwen36.c.preabsp",
-      "scripts": [
-        "patch_tq_absorb_prefill.py"
-      ],
-      "to": "qwen36.c.premapsc",
-      "added": "Phase 3b-prefill"
-    },
-    {
-      "from": "qwen36.c.premapsc",
-      "scripts": [
-        "patch_mapsc.py"
-      ],
-      "to": "qwen36.c.prescan",
-      "added": "E8 scale fix"
-    },
-    {
-      "from": "qwen36.c.prescan",
-      "scripts": [
-        "patch_scan_decay.py"
-      ],
-      "to": "qwen36.c.preptk",
-      "added": "Phase 3b-scan two-tier deterministic decode scan"
-    },
-    {
-      "from": "qwen36.c.preptk",
-      "scripts": [
-        "patch_profile_tok.py"
-      ],
-      "to": "qwen36.c.preftz",
-      "added": "Phase 4 per-token profiling dumps (Q36_PROFILE_TOK)"
-    },
-    {
-      "from": "qwen36.c.preftz",
-      "scripts": [
-        "patch_ftz.py"
-      ],
-      "to": "qwen36.c.prestream",
-      "added": "FTZ/DAZ denormal guard"
-    },
-    {
-      "from": "qwen36.c.prestream",
-      "scripts": [
-        "patch_trunk_stream.py"
-      ],
-      "to": "qwen36.c.preprog2",
-      "added": "HDD/small-RAM streaming mode"
-    },
-    {
-      "from": "qwen36.c.preprog2",
-      "scripts": [
-        "patch_progress_dt.py"
-      ],
-      "to": "qwen36.c.prewin",
-      "added": "per-layer dt/kind forensics"
-    },
-    {
-      "from": "qwen36.c.prewin",
-      "scripts": [
-        "patch_window.py"
-      ],
-      "to": "qwen36.c.pretdw",
-      "added": "Phase 4b slice 1"
-    },
-    {
-      "from": "qwen36.c.pretdw",
-      "scripts": [
-        "patch_tokdump_w.py"
-      ],
-      "to": "qwen36.c.pretfc",
-      "added": "Phase 4b slice 2 enabler",
-      "fixed": "E17 audit: segment listed 'to qwen36.c' but the E16 tf_chunk hop existed only in verify_engine.sh"
-    },
-    {
-      "from": "qwen36.c.pretfc",
-      "scripts": [
-        "patch_tf_chunk.py"
-      ],
-      "to": "qwen36.c.premapf16",
-      "added": "E16 chunked tf-nll (Q36_TF_CHUNK)"
-    },
-    {
-      "from": "qwen36.c.premapf16",
-      "scripts": [
-        "patch_mapf16_bias.py"
-      ],
-      "to": "qwen36.c",
-      "added": "E17 mapped-F16 exponent-bias fix (map_f16_one + the down_prefix inline copy)"
-    }
-  ],
-  "drift_audit": {
-    "status": "CLOSED 2026-10-19",
-    "finding": "KV8 part-1 patcher was never committed; flash patcher had drifted to v2 while the engine carries v1; hotneuron/hotcal/griffin/mapfast/pagebatch patchers drifted after the pretq snapshot with feature edits interleaved inside single diff hunks.",
-    "resolution": "Two byte-faithful regenerated patchers (patch_kv8_flash_v1.py, patch_hotstack_v1.py) derived from the committed snapshots; full chain orig->final now replays byte-exact (verify_engine.sh + CI). Superseded per-feature scripts kept in tools/attic/ with ATTIC.md."
+  {
+   "from": "qwen36.c.prehot",
+   "scripts": [
+    "patch_hotstack_v1.py"
+   ],
+   "to": "qwen36.c.pretq",
+   "regenerated": "E1 2026-10-19"
   },
-  "attic": [
-    "patch_qwen_kv8_p2.py",
-    "patch_flash_qwen36.py",
-    "patch_hotneuron.py",
-    "patch_hotcal_v4.py",
-    "patch_griffin.py",
-    "patch_mapfast.py",
-    "patch_pagebatch.py"
-  ]
+  {
+   "from": "qwen36.c.pretq",
+   "scripts": [
+    "patch_kvtq.py"
+   ],
+   "to": "qwen36.c.presm"
+  },
+  {
+   "from": "qwen36.c.presm",
+   "scripts": [
+    "patch_softmax.py"
+   ],
+   "to": "qwen36.c.premtp"
+  },
+  {
+   "from": "qwen36.c.premtp",
+   "scripts": [
+    "patch_mtp.py"
+   ],
+   "to": "qwen36.c.predraft",
+   "added": "Phase 2b part 1"
+  },
+  {
+   "from": "qwen36.c.predraft",
+   "scripts": [
+    "patch_mtp_draft.py"
+   ],
+   "to": "qwen36.c.preoracle",
+   "added": "Phase 2b part 2"
+  },
+  {
+   "from": "qwen36.c.preoracle",
+   "scripts": [
+    "patch_mtp_oracle.py"
+   ],
+   "to": "qwen36.c.premoe",
+   "added": "Phase 2b part 3a"
+  },
+  {
+   "from": "qwen36.c.premoe",
+   "scripts": [
+    "patch_mtp_moe.py"
+   ],
+   "to": "qwen36.c.prei4",
+   "added": "Phase 2b part 3b"
+  },
+  {
+   "from": "qwen36.c.prei4",
+   "scripts": [
+    "patch_mtp_i4.py"
+   ],
+   "to": "qwen36.c.pregqa",
+   "added": "Phase 2b-5a (manifest segment was missing; verify_engine.sh already replayed this link)"
+  },
+  {
+   "from": "qwen36.c.pregqa",
+   "scripts": [
+    "patch_gqa_absorb.py"
+   ],
+   "to": "qwen36.c.prebar",
+   "added": "Phase 3a GQA-absorbed decode"
+  },
+  {
+   "from": "qwen36.c.prebar",
+   "scripts": [
+    "patch_calib_bar.py"
+   ],
+   "to": "qwen36.c.preabsorb",
+   "added": "E7 progress bar"
+  },
+  {
+   "from": "qwen36.c.preabsorb",
+   "scripts": [
+    "patch_tq_absorb.py"
+   ],
+   "to": "qwen36.c.preabsp",
+   "added": "Phase 3b-rot"
+  },
+  {
+   "from": "qwen36.c.preabsp",
+   "scripts": [
+    "patch_tq_absorb_prefill.py"
+   ],
+   "to": "qwen36.c.premapsc",
+   "added": "Phase 3b-prefill"
+  },
+  {
+   "from": "qwen36.c.premapsc",
+   "scripts": [
+    "patch_mapsc.py"
+   ],
+   "to": "qwen36.c.prescan",
+   "added": "E8 scale fix"
+  },
+  {
+   "from": "qwen36.c.prescan",
+   "scripts": [
+    "patch_scan_decay.py"
+   ],
+   "to": "qwen36.c.preptk",
+   "added": "Phase 3b-scan two-tier deterministic decode scan"
+  },
+  {
+   "from": "qwen36.c.preptk",
+   "scripts": [
+    "patch_profile_tok.py"
+   ],
+   "to": "qwen36.c.preftz",
+   "added": "Phase 4 per-token profiling dumps (Q36_PROFILE_TOK)"
+  },
+  {
+   "from": "qwen36.c.preftz",
+   "scripts": [
+    "patch_ftz.py"
+   ],
+   "to": "qwen36.c.prestream",
+   "added": "FTZ/DAZ denormal guard"
+  },
+  {
+   "from": "qwen36.c.prestream",
+   "scripts": [
+    "patch_trunk_stream.py"
+   ],
+   "to": "qwen36.c.preprog2",
+   "added": "HDD/small-RAM streaming mode"
+  },
+  {
+   "from": "qwen36.c.preprog2",
+   "scripts": [
+    "patch_progress_dt.py"
+   ],
+   "to": "qwen36.c.prewin",
+   "added": "per-layer dt/kind forensics"
+  },
+  {
+   "from": "qwen36.c.prewin",
+   "scripts": [
+    "patch_window.py"
+   ],
+   "to": "qwen36.c.pretdw",
+   "added": "Phase 4b slice 1"
+  },
+  {
+   "from": "qwen36.c.pretdw",
+   "scripts": [
+    "patch_tokdump_w.py"
+   ],
+   "to": "qwen36.c.pretfc",
+   "added": "Phase 4b slice 2 enabler",
+   "fixed": "E17 audit: segment listed 'to qwen36.c' but the E16 tf_chunk hop existed only in verify_engine.sh"
+  },
+  {
+   "from": "qwen36.c.pretfc",
+   "scripts": [
+    "patch_tf_chunk.py"
+   ],
+   "to": "qwen36.c.premapf16",
+   "added": "E16 chunked tf-nll (Q36_TF_CHUNK)"
+  },
+  {
+   "from": "qwen36.c.premapf16",
+   "scripts": [
+    "patch_mapf16_bias.py"
+   ],
+   "to": "qwen36.c.preebmap",
+   "added": "E17 mapped-F16 exponent-bias fix (map_f16_one + the down_prefix inline copy)"
+  },
+  {
+   "from": "qwen36.c.preebmap",
+   "scripts": [
+    "patch_embed_map.py"
+   ],
+   "to": "qwen36.c",
+   "added": "E24 Q36_EMBED_MAP"
+  }
+ ],
+ "drift_audit": {
+  "status": "CLOSED 2026-10-19",
+  "finding": "KV8 part-1 patcher was never committed; flash patcher had drifted to v2 while the engine carries v1; hotneuron/hotcal/griffin/mapfast/pagebatch patchers drifted after the pretq snapshot with feature edits interleaved inside single diff hunks.",
+  "resolution": "Two byte-faithful regenerated patchers (patch_kv8_flash_v1.py, patch_hotstack_v1.py) derived from the committed snapshots; full chain orig->final now replays byte-exact (verify_engine.sh + CI). Superseded per-feature scripts kept in tools/attic/ with ATTIC.md."
+ },
+ "attic": [
+  "patch_qwen_kv8_p2.py",
+  "patch_flash_qwen36.py",
+  "patch_hotneuron.py",
+  "patch_hotcal_v4.py",
+  "patch_griffin.py",
+  "patch_mapfast.py",
+  "patch_pagebatch.py"
+ ]
 }

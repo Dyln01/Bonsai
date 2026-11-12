@@ -540,6 +540,26 @@ models the one lever that needs engine work: the engine loads the embedding tabl
 (`load_t_n` → `falloc` + `st_read_f32`), which at 27B geometry is 5.09 GB of a 7.62 GB box
 (2.54 GB f16) for a table decode touches one 20 KB row of.
 
+### 14.2c `Q36_EMBED_MAP=1` — the vocabulary table stays on disk
+
+`model.embed_tokens.weight` is `vocab*hidden` = 1.27e9 elements: **2.54 GB as f16, 5.09 GB as
+f32**, which the engine loads resident (`load_t_n` → `falloc` + `st_read_f32`) to serve ONE
+20 KB row per decode token. On a 7.62 GB mini-PC that is a third of RAM doing nothing, and
+the page cache it frees holds exactly that much more of the per-token working set:
+`q36-minipc floor` prices it as +2.54 GB of `cache_room` (alone: 265 → 38 s/token; with an
+int4 lm_head: the streamed set goes to zero).
+
+```bash
+Q36_EMBED_MAP=1 q36-minipc bench ~/Models/q27_i4-i4
+Q36_EMBED_MAP=1 q36-minipc serve ~/Models/q27_i4-i4
+bash scripts/check_embed_map.sh          # the gate: id-identity + engagement
+```
+
+Rows are read through `st_read_slice_f32` (bounds-checked, f16/bf16→f32, over the tensor's own
+persistent fd), so a row is one pread of `D*esz` bytes. A table that is not a float tensor
+(int4/affine) is refused with a message and stays resident; the engine prints
+`[embed] mapped: N row read(s)` at exit, which is the gate's proof that the path ran.
+
 ### 14.3 Cascade-Hot Streaming (CHS) — `tools/train_chs_predictor.py`
 
 CHS's runtime half is withheld pending a measurement (see `docs/CHS_QWEN36.md`); what runs

@@ -3,6 +3,7 @@
 #
 # MoE containers  : cap + PIN + PILOT + WIDE + KV8 (web-ops composition)
 # Dense containers: TRUNK_MAP + (GRIFFIN | hot-sort prefix) + HOT_FRAC + TRUNK_WARM + KV8
+#                     + Q36_EMBED_MAP=1 (table on disk, rows read on demand)
 #   auto-detected from qwen36_meta.json num_experts.
 #
 # Commands: serve|chat|bench|seed (MoE) + calibrate|sort (dense pipeline) + doctor
@@ -131,7 +132,12 @@ else
   # dense: trunk on disk; GRIFFIN by default (works on unmodified containers);
   # TRUNK_WARM fills the page cache once. HOT_LAYERS/FRAC still honored if user sets them.
   FRAC="${Q36_HOT_FRAC:-$FRAC}"
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV RAM_GB=$RAM_GB"
+  # Q36_EMBED_MAP=1 keeps the vocabulary table on disk and reads rows on demand: on a
+  # 7.62 GB box the table is 2.5 GB f16 (5 GB f32) held resident to serve one 20 KB row
+  # per token, and the freed RAM is what the per-token working set needs (see
+  # `q36-minipc floor`: +2.54 GB of cache_room, i.e. 265 -> 95 s/token band).
+  EMBMAP="${Q36_EMBED_MAP:+Q36_EMBED_MAP=$Q36_EMBED_MAP}"
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMMAP RAM_GB=$RAM_GB"
   # HOT_LAYERS: explicit knob wins; else a hot_layers.json beside the model is used
   HL="${Q36_HOT_LAYERS:-}"
   if [ -z "$HL" ] && [ -f "$MODEL/hot_layers.json" ]; then
