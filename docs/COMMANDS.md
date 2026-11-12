@@ -560,6 +560,35 @@ persistent fd), so a row is one pread of `D*esz` bytes. A table that is not a fl
 (int4/affine) is refused with a message and stays resident; the engine prints
 `[embed] mapped: N row read(s)` at exit, which is the gate's proof that the path ran.
 
+### 14.2d Low-rank + sparse residual (LRS) — `tools/analyze_lrs.py`
+
+The LRS proposal replaces a dense GEMV with `W ~= U @ V.T + S` (rank r + the top-k residual
+entries) for the classes with no HOT_FRAC dial. Its sketch prices the win against **F16**
+("1.5-3x on the untouchable ~70%") — the wrong baseline, because the container it targets is
+already **int4** at 0.5 B/element. This tool answers the only question that decides the lever,
+with both sides *measured*:
+
+```bash
+# on the SOURCE container (before pack_trunk_i4 -- a packed U8 tensor is already int4,
+# so quantizing it again would compare int4 with itself; the tool says so and skips it)
+python3 tools/analyze_lrs.py ~/Models/q27_i4 --classes deltanet,lm_head,attn --rank-scan 8,32,128
+python3 tools/analyze_lrs.py ~/Models/q27_i4 --rows 2048 --classes lm_head   # big tensors
+python3 tools/analyze_lrs.py --self-test                                     # in CI
+```
+
+Per tensor it prints int4's rel-L2 at its byte cost (`m*n/2 + m*4`), then LRS at each rank with
+the sparse budget being **whatever bytes are left**, so the comparison is byte-for-byte and
+never flatters either side. `--self-test` builds a genuinely rank-16 matrix where LRS MUST win
+and an iid Gaussian one where it cannot, and asserts both verdicts, exact byte accounting, error
+monotonicity in the sparse budget, and that the int4 baseline reproduces this repo's measured
+0.12-0.14 rel-L2 band on random weights.
+
+Measured on the synthetic container (`--classes all`, ranks 8/32/128): **LRS loses on 5/5**,
+needing 3.4-6.0x MORE bytes to reach int4's error, and getting *worse* as rank rises at fixed
+bytes (a higher rank eats the sparse budget that was carrying the approximation). Random weights
+are the worst case for low rank by construction, so the number that decides the lever is a
+`--rows` run on real weights. See `docs/ROADMAP.md` E25.
+
 ### 14.3 Cascade-Hot Streaming (CHS) — `tools/train_chs_predictor.py`
 
 CHS's runtime half is withheld pending a measurement (see `docs/CHS_QWEN36.md`); what runs

@@ -932,6 +932,35 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       qwen36.c` and `verify_engine.sh` passes ALL steps on a pristine archive. Launcher:
       `Q36_EMBED_MAP=1`. Docs: COMMANDS 14.2c, README levers, `project --floor` lever table.
 
+- [ ] **E25 — Low-rank + sparse residual: measured against int4, and withheld pending a real-
+      weights ratio below 1.** The proposal (`W ~= U @ V.T + S`, rank r, top-k |residual|
+      entries) correctly identifies the classes with no dial, but it is priced against F16 while
+      the container it targets is already int4 at 0.5 B/element, so its "1.5-3x on the untouchable
+      70%" compares against a representation nobody ships. Shipped instead:
+      `tools/analyze_lrs.py`, which measures both sides at EQUAL bytes — int4 through this repo's
+      own quantizer (`m*n/2 + m*4`), LRS as `(m+n)*r*2` for the f16 factors plus `nnz*6` for the
+      residual (u32 index + f16 value), with the sparse budget being whatever bytes are LEFT of
+      int4's count. Verdict on the synthetic container (`--classes all`, ranks 8/32/128): **0/5
+      tensors** — 3.4-6.0x MORE bytes needed for int4's error, and the ratio gets *worse* as rank
+      rises at fixed bytes, because a higher rank eats the sparse budget that was carrying the
+      approximation on a flat spectrum. That is the expected mechanical outcome on random weights
+      (Marchenko-Pastur); the deciding measurement is a `--rows` run on a real container, which
+      the tool supports. Gates: `--self-test` in CI builds a genuinely rank-16 matrix where LRS
+      must WIN and an iid Gaussian where it must lose, asserts exact byte accounting and error
+      monotonicity in the sparse budget, and checks the int4 baseline reproduces the repo's
+      measured 0.12-0.14 rel-L2 band. NOT shipped, and why: `pack_lowrank_sparse.py` is a stub by
+      its own admission (`load_tensor` raises NotImplementedError, the tensor loop is a comment)
+      yet it WRITES `meta["lrs"]` into the copied container — a container that advertises an LRS
+      block containing no LRS tensors, which the engine's meta parser would happily read;
+      `patch_lrs_engine.py`'s anchors (`int embed_streamed;`, `m->embed_streamed = getenv(...)`)
+      are ABSENT from this engine (the embed lever shipped as a file-scope static, not a struct
+      field), so it matches nothing, prints "No changes (already patched or anchors moved)" and
+      exits 0 — the silent-no-op shape E24's cleanup removed. Precondition to build the engine half:
+      an LRS container whose four tensors actually exist (`U`, `V`, `S_idx`, `S_val`) AND a measured
+      ratio below 1 on the source container's real weights for the class in question. Until then
+      the measurable win on those same bytes is `lm_head -> int4` (1.91 GB/token, 170 s at the
+      field's 11.2 MB/s), which needs no engine change at all.
+
 ## Rules that stay
 
 - No real checkpoint downloaded (Phase 5 excepted, by explicit sign-off).

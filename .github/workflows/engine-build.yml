@@ -247,6 +247,11 @@ jobs:
           set -e
           python3 scripts/check_window_readmatrix.py --self-test
 
+      - name: "LRS feasibility gates — the analyzer must be able to say BOTH yes and no"
+        run: |
+          set -e
+          python3 tools/analyze_lrs.py --self-test
+
       - name: "E24 gate — Q36_EMBED_MAP: mapped table must be identical AND engaged"
         run: |
           set -e

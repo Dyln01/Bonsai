@@ -96,6 +96,10 @@ Also shipped, each with its code *and* its number:
   through `st_read_slice_f32`; the freed RAM is what the per-token working set needs
   (`q36-minipc floor`: +2.54 GB of `cache_room`). Gated by `scripts/check_embed_map.sh`
   (id stream byte-identical to the resident path, and the row count proves it ran).
+* **Low-rank + sparse (LRS) is measured, not shipped** — `tools/analyze_lrs.py` compares it
+  against **int4** (not F16) at equal bytes on the source container. On the synthetic container
+  it loses 5/5, needing 3.4-6.0x more bytes for int4's error. The engine-side GEMV path is
+  withheld until a real-weights run shows a ratio below 1.
 * **CHS (tiering + delta prefetch) ships its offline half only** — the delta between
   consecutive tokens measures 27.8% of the true top-K set, but that is ~8.7 MB/token at field
   geometry, i.e. **0.57%** of the per-token stream, and the predictor that would steer the
