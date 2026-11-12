@@ -2676,7 +2676,10 @@ static long long g_embed_rows = 0, g_embed_bytes = 0;
 
 static int q36_embed_map_on(void) {
     if (g_q36_embed_map < 0) {
+        /* Q36_EMBED_STREAM is accepted as an alias: an independent sketch for this same
+         * lever shipped under that name, so both spellings work and neither surprises. */
         const char *e = getenv("Q36_EMBED_MAP");
+        if (!e || !*e) e = getenv("Q36_EMBED_STREAM");
         g_q36_embed_map = (e && e[0] == '1');
         if (g_q36_embed_map) atexit(q36_embed_report);   /* defined below; declared here */
     }

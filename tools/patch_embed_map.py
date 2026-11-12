@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""patch_embed_map.py — Q36_EMBED_MAP=1: keep the embedding table on disk, read rows on demand.
+"""patch_embed_map.py — Q36_EMBED_MAP=1 (Q36_EMBED_STREAM is an accepted alias): keep the embedding table on disk, read rows on demand.
 
 WHY. `model.embed_tokens.weight` is vocab*hidden = 1.27e9 elements at the 27B geometry:
 2.54 GB as f16, 5.09 GB as f32. The engine loads the whole table resident
@@ -65,7 +65,10 @@ static long long g_embed_rows = 0, g_embed_bytes = 0;
 
 static int q36_embed_map_on(void) {
     if (g_q36_embed_map < 0) {
+        /* Q36_EMBED_STREAM is accepted as an alias: an independent sketch for this same
+         * lever shipped under that name, so both spellings work and neither surprises. */
         const char *e = getenv("Q36_EMBED_MAP");
+        if (!e || !*e) e = getenv("Q36_EMBED_STREAM");
         g_q36_embed_map = (e && e[0] == '1');
         if (g_q36_embed_map) atexit(q36_embed_report);   /* defined below; declared here */
     }
