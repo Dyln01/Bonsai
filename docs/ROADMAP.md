@@ -941,10 +941,18 @@ Format: GitHub task lists, so `[x]` renders as a checkbox.
       own quantizer (`m*n/2 + m*4`), LRS as `(m+n)*r*2` for the f16 factors plus `nnz*6` for the
       residual (u32 index + f16 value), with the sparse budget being whatever bytes are LEFT of
       int4's count. Verdict on the synthetic container (`--classes all`, ranks 8/32/128): **0/5
-      tensors** — 3.4-6.0x MORE bytes needed for int4's error, and the ratio gets *worse* as rank
+      tensors** — 3.5-5.8x MORE bytes needed for int4's error, and the ratio gets *worse* as rank
       rises at fixed bytes, because a higher rank eats the sparse budget that was carrying the
       approximation on a flat spectrum. That is the expected mechanical outcome on random weights
       (Marchenko-Pastur); the deciding measurement is a `--rows` run on a real container, which
+      the tool supports. The numbers above are POST-FIX: the first `rand_svd` oversampled by p=8
+      for accuracy and then returned r+p factors, so every caller was charged for r factors while
+      being handed r+p -- the analyzer undercounted LRS's bytes and flattered it, and
+      `tools/pack_lrs.py`, which consumes that function, wrote rank-16 factors under a rank-8 meta
+      block. THEIR `verify()` is what surfaced it (`shape [96, 16] != (96, 8)`): two independent
+      tools disagreeing about one shared function, which a single self-consistent tool cannot see.
+      `rand_svd` now truncates to exactly r and the analyzer GATES that property (r = 4/8/32 ->
+      exactly 4/8/32 factors).
       the tool supports. Gates: `--self-test` in CI builds a genuinely rank-16 matrix where LRS
       must WIN and an iid Gaussian where it must lose, asserts exact byte accounting and error
       monotonicity in the sparse budget, and checks the int4 baseline reproduces the repo's

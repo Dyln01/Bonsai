@@ -583,8 +583,41 @@ and an iid Gaussian one where it cannot, and asserts both verdicts, exact byte a
 monotonicity in the sparse budget, and that the int4 baseline reproduces this repo's measured
 0.12-0.14 rel-L2 band on random weights.
 
+`--rows` (needed for the 248320x5120 logits matrix) is a SAMPLE, and a row sample favours low
+rank. Measured on the fixture's lm_head (4096 rows), best ratio vs int4:
+
+| rows analysed | share | best ratio | vs full |
+|---|---|---|---|
+| 4096 (full) | 100% | x5.72 | truth |
+| 2048 | 50% | x5.70 | converged |
+| 512 | 12.5% | x5.63 | within 2% |
+| 128 | 3.1% | x5.46 | 5% too kind |
+| 64 | 1.6% | x3.93 | **1.5x too kind** |
+
+So >=10% of the rows is usable guidance and below that a `WINS` verdict is not evidence — the
+tool prints exactly that warning at the threshold.
+
+`tools/pack_lrs.py` builds the container once Step 1 says yes. It reuses this repo's readers,
+emits four real tensors per target (`<name>.lrs_U/.lrs_V/.lrs_S_idx/.lrs_S_val`), writes the
+`lrs` meta block **only** for tensors whose bytes it actually wrote (and drops the block entirely
+when nothing was packed), and REFUSES a target whose LRS form loses to int4 at equal bytes
+(`--allow-losing` overrides for an experiment). `--verify` re-checks a container and fails one that
+advertises LRS it lacks; `--self-test` (in CI) asserts the low-rank tensor gets packed, the flat one
+is refused, the dense original is gone, and verify catches a lying container.
+
+```bash
+python3 tools/pack_lrs.py --model ~/Models/q27_source --out ~/Models/q27_lrs \
+        --rank 64 --classes lm_head,deltanet --verify
+```
+
+Classes accept the documented spellings (`lm_head`, `deltanet`, `attn`, `mlp`, or `all`) and are
+resolved through the analyzer's own map; an unknown name is an error, never an empty result.
+
+Run it only when Step 1 shows a ratio below 1 for that class -- the ordering is the point, and the
+packer enforces it per tensor rather than trusting the caller.
+
 Measured on the synthetic container (`--classes all`, ranks 8/32/128): **LRS loses on 5/5**,
-needing 3.4-6.0x MORE bytes to reach int4's error, and getting *worse* as rank rises at fixed
+needing 3.5-5.8x MORE bytes to reach int4's error, and getting *worse* as rank rises at fixed
 bytes (a higher rank eats the sparse budget that was carrying the approximation). Random weights
 are the worst case for low rank by construction, so the number that decides the lever is a
 `--rows` run on real weights. See `docs/ROADMAP.md` E25.

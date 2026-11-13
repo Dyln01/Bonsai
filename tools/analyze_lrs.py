@@ -44,8 +44,44 @@ sys.path.insert(0, HERE)
 import pack_trunk_i4 as pk   # the repo's own reader/quantizer/classifier: reuse, not re-implement
 
 
+# Documentation and proposals name classes differently from the repo's internal names
+# ("lm_head" vs "lmhead", "deltanet" vs dnproj+dnout). Without this map the documented
+# commands silently analyze nothing -- which is how it was found: `--classes lm_head`
+# printed the header and zero tensors. Single source of truth: tools/pack_lrs.py imports it.
+CLASS_ALIASES = {"lm_head": {"lmhead"}, "lmhead": {"lmhead"},
+                 "mlp": {"shexp"}, "shexp": {"shexp"},
+                 "attn": {"attn"}, "attention": {"attn"},
+                 "deltanet": {"dnproj", "dnout"}, "dnproj": {"dnproj"}, "dnout": {"dnout"},
+                 "all": None}
+
+
+def resolve_classes(spec):
+    """'lm_head,deltanet' -> {'lmhead','dnproj','dnout'}; None means every class.
+    An unknown name is an ERROR, not a silent skip -- a typo must not look like an empty
+    result set."""
+    out = set()
+    for raw in spec.split(","):
+        c = raw.strip().lower()
+        if not c:
+            continue
+        if c not in CLASS_ALIASES:
+            known = ", ".join(sorted(k for k in CLASS_ALIASES if k != "all"))
+            raise SystemExit(f"unknown class '{c}' (known: {known}, or 'all')")
+        v = CLASS_ALIASES[c]
+        if v is None:
+            return None
+        out |= v
+    return out
+
+
 def rand_svd(W, r, p=8, seed=0, iters=2):
-    """Top-r singular triplets via randomized range finding (numpy only)."""
+    """Top-r singular triplets via randomized range finding (numpy only).
+
+    The oversampling p sharpens the estimated TOP-r subspace, but the returned factors MUST be
+    exactly r: returning r+p (the first version) meant every caller was charged for r factors
+    while being handed r+p -- the analyzer undercounted LRS's bytes and flattered it, and the
+    packer, which consumes this, wrote rank-16 factors under a rank-8 meta block.
+    """
     m, n = W.shape
     r = int(min(r, min(m, n)))
     if r <= 0:
@@ -58,7 +94,7 @@ def rand_svd(W, r, p=8, seed=0, iters=2):
     Q, _ = np.linalg.qr(Y)
     B = Q.T @ W
     Ub, S, Vt = np.linalg.svd(B, full_matrices=False)
-    return Q @ Ub, S, Vt
+    return (Q @ Ub)[:, :r], S[:r], Vt[:r]
 
 
 def int4_roundtrip(W):
@@ -149,6 +185,11 @@ def self_test():
     err, used = lrs_error(flat, r, expect_nnz)
     check(used == low_bytes + expect_nnz * 6,
           "LRS bytes == factors + nnz*6", f"{used} vs {low_bytes + expect_nnz * 6}")
+    for rr in (4, 8, 32):
+        Uu, Ss, Vv = rand_svd(flat, rr)
+        check(Uu.shape[1] == Vv.shape[0] == Ss.size == rr,
+              f"rand_svd({rr}) returns EXACTLY {rr} factors (not r+oversampling)",
+              f"U{Uu.shape} S{Ss.shape} Vt{Vv.shape}")
     check(abs(used - v_flat["int4_bytes"]) <= 6,
           "at the byte-matched nnz the two representations cost the same",
           f"LRS {used} vs int4 {v_flat['int4_bytes']}")
@@ -169,14 +210,19 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("container", nargs="?")
     ap.add_argument("--classes", default="deltanet,lm_head,attn,mlp",
-                    help="which classes to analyze (comma list, or 'all')")
+                    help="which classes to analyze (comma list, or 'all'). User-facing names "
+                         "map to the repo's internal ones: lm_head->lmhead, mlp->shexp, "
+                         "deltanet->dnproj+dnout; the internal names are accepted too")
     ap.add_argument("--rank-scan", default="8,16,32,64,128")
     ap.add_argument("--max-elems", type=float, default=40e6,
                     help="skip tensors larger than this (a truncated SVD of a 5120x17408 "
                          "matrix costs minutes); use --rows to analyse a row sample instead")
     ap.add_argument("--rows", type=int, default=0,
-                    help="analyse only the first N rows (a sample: its spectrum is NOT the "
-                         "full matrix's, and a row sample flatters low rank)")
+                    help="analyse only the first N rows. A sample's spectrum is NOT the full "
+                         "matrix's and a row sample FAVOURS low rank: measured on the fixture, a "
+                         "1.6%% sample reported x3.93 where the full matrix is x5.72 (~1.5x too "
+                         "kind); >=10%% of rows lands within ~2%%. Below 10%% a 'WINS' verdict "
+                         "is not evidence -- the tool warns.")
     ap.add_argument("--max-tensors", type=int, default=6)
     ap.add_argument("--json")
     ap.add_argument("--self-test", action="store_true")
@@ -187,7 +233,10 @@ def main():
         return self_test()
 
     ranks = [int(x) for x in a.rank_scan.split(",")]
-    want = None if a.classes == "all" else {c.strip() for c in a.classes.split(",")}
+    # Class names come from the shared resolver (module scope): the documented spellings
+    # ("lm_head", "deltanet") are NOT the repo's internal names ("lmhead", dnproj+dnout), so
+    # parsing them here by hand made `--classes lm_head` analyze nothing.
+    want = resolve_classes(a.classes)
     files, headers, owner = pk.build_index(a.container)
     print(f"container: {a.container}\n{len(owner)} tensor(s), {len(files)} shard(s); "
           f"classes: {sorted(want) if want else 'all'}")
@@ -201,7 +250,7 @@ def main():
         if cl is None:
             continue
         role, cls, layer = cl
-        if want and cls not in want and not (cls in ("dnproj", "dnout") and "deltanet" in want):
+        if want is not None and cls not in want:
             continue
         shard = owner[name]
         hdr, dstart = headers[shard]
@@ -215,17 +264,35 @@ def main():
             skipped.append((name, f"shape {shape} (not a 2-D GEMV tensor)"))
             continue
         rows, cols = int(shape[0]), int(shape[1])
-        if rows * cols > a.max_elems:
-            skipped.append((name, f"{rows}x{cols} > --max-elems {a.max_elems:g} "
-                                  f"(a truncated SVD of this costs minutes)"))
-            continue
+        # --rows decides the size gate, not the other way round: testing the FULL size here
+        # made the documented "sample the big tensors" command skip exactly the tensors it
+        # names (lm_head is 248320x5120 = 1.27e9 elements, so every sampled run silently
+        # analyzed nothing).
         take = min(rows, a.rows) if a.rows else rows
+        if take * cols > a.max_elems:
+            skipped.append((name, f"{rows}x{cols}"
+                                  f"{f' (sample {take}x{cols} = {take * cols:,.0f} elements)' if take < rows else ''}"
+                                  f" > --max-elems {a.max_elems:g} -- pass --rows N to sample it"
+                                  f" (a truncated SVD of the full tensor costs minutes)"))
+            continue
         with open(os.path.join(a.container, shard), "rb") as f:
             W = pk.read_rows(f, dstart + ent["data_offsets"][0], take, cols, esz)
-        results.append(verdict_for(W, ranks,
-                                   f"{cls:7} {role:7} {name}"
-                                   + (f" (first {take} of {rows} rows -- a SAMPLE)" if take < rows
-                                      else "")))
+        sampled = take < rows
+        v = verdict_for(W, ranks,
+                        f"{cls:7} {role:7} {name}"
+                        + (f" (first {take} of {rows} rows -- a SAMPLE)" if sampled else ""))
+        if sampled:
+            frac = take / rows
+            v["sample_fraction"] = frac
+            if frac < 0.10:
+                print(f"  WARNING: {100 * frac:.1f}% of the rows. On the fixture a 1.6% sample "
+                      f"reported x3.93 against the full matrix's x5.72, so a 'WINS' here is NOT "
+                      f"evidence -- raise --rows to >=10% of {rows} ({int(0.10 * rows)}) before "
+                      f"believing it.")
+            elif v["lrs_wins"]:
+                print(f"  note: {100 * frac:.0f}% of the rows; the fixture's bias is under ~2% at "
+                      f"this size, but confirm a WINS on the full tensor before building anything.")
+        results.append(v)
         if len(results) >= a.max_tensors:
             break
 

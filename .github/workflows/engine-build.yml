@@ -247,6 +247,11 @@ jobs:
           set -e
           python3 scripts/check_window_readmatrix.py --self-test
 
+      - name: "LRS packer gates - never advertise LRS without the tensors; refuse a loser"
+        run: |
+          set -e
+          python3 tools/pack_lrs.py --self-test
+
       - name: "LRS feasibility gates — the analyzer must be able to say BOTH yes and no"
         run: |
           set -e
