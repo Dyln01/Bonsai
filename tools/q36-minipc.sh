@@ -137,7 +137,7 @@ else
   # per token, and the freed RAM is what the per-token working set needs (see
   # `q36-minipc floor`: +2.54 GB of cache_room, i.e. 265 -> 95 s/token band).
   EMBMAP="${Q36_EMBED_MAP:+Q36_EMBED_MAP=$Q36_EMBED_MAP}"
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMMAP RAM_GB=$RAM_GB"
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMBMAP RAM_GB=$RAM_GB"
   # HOT_LAYERS: explicit knob wins; else a hot_layers.json beside the model is used
   HL="${Q36_HOT_LAYERS:-}"
   if [ -z "$HL" ] && [ -f "$MODEL/hot_layers.json" ]; then
@@ -417,6 +417,7 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc pack      <model_dir> [out]    (dense) int4-pack the trunk offline (needs ~1/4 free)
   q36-minipc fracs     <model_dir> [out]    (dense) per-layer HOT_FRAC schedule (hot_layers.json)
   q36-minipc project   <model_dir>          what this container costs on THIS host
+  q36-minipc floor     <model_dir>          the physical decode floor on THIS host (what must stream)
   q36-minipc doctor    <model_dir>          knob/model/level report
   q36-minipc watch                          live progress bar for a running calibrate/bench
 Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
