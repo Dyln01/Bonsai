@@ -39,6 +39,8 @@ jobs:
           # shellcheck ships on ubuntu-latest; install it only if a runner image drops it,
           # so the misspelled-variable check is enforced rather than silently skipped.
           command -v shellcheck >/dev/null || sudo apt-get install -y -qq shellcheck
+          # the projector (floor/project) imports numpy; later steps install it too, but this one runs first
+          python3 -m pip install --quiet numpy
           bash scripts/check_launcher.sh
 
       - name: runner env-name oracle (E11 — decoy alias / missing TRUNK_MAP detection)

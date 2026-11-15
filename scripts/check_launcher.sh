@@ -42,6 +42,12 @@ run() {  # run <outfile> <env...> -- <args...>  (stdout+stderr -> outfile, retur
   env "$@" > "$out" 2>&1
 }
 
+# ---- 0. prerequisites (fail ONCE and clearly, not as a wall of cryptic per-command errors) ----
+if ! python3 -c "import numpy" 2>/dev/null; then
+  echo "FAIL  python3 cannot import numpy -- the projector behind floor/project needs it (pip install numpy)"
+  echo "launcher gate: FAIL"; exit 1
+fi
+
 # ---- 1. syntax ----
 if bash -n "$LAUNCHER"; then ok "bash -n"; else bad "bash -n: syntax error in $LAUNCHER"; fi
 if command -v shellcheck >/dev/null 2>&1; then
