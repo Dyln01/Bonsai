@@ -371,12 +371,14 @@ PY
     ;;
   floor)
     # the PHYSICAL FLOOR for this container on this host: what must stream after every
-    # lever, and the frac at which nothing streams at all (decode turns compute-bound)
+    # lever, and the frac at which nothing streams at all (decode turns compute-bound).
+    # --kvq follows the launcher's resolved tier ($KVQ, default kv8), NOT the projector's
+    # own f32 default, so the floor models the KV cache the engine will actually run with.
     python3 "$(q36_tool project_q36.py)" --container "$MODEL" --floor \
         ${Q36_PROJ_FRAC:+--frac "$Q36_PROJ_FRAC"} \
         ${Q36_PROJ_CTX:+--ctx "$Q36_PROJ_CTX"} \
         ${Q36_EMBED_STREAMED:+--embed-streamed} \
-        ${Q36_KVQ:+--kvq "$Q36_KVQ"} \
+        --kvq "$KVQ" \
         --ram-gb "$RAM_GB" \
         ${Q36_DECODE_MBS:+--rate-decode-mbs "$Q36_DECODE_MBS"} \
         ${Q36_MTP_DRAFTS:+--spec-tokens "$Q36_MTP_DRAFTS"}
