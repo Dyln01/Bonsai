@@ -29,7 +29,11 @@ fail=0
 ok()  { echo "ok    $*"; }
 bad() { echo "FAIL  $*"; fail=1; }
 
-# Isolate from any installed copy of the tools ($HOME/bin is searched first).
+# Isolate from any installed copy of the tools ($HOME/bin is searched first). Python's user
+# site (where `pip install --user`/PEP 668 systems put numpy) lives under the REAL $HOME, so
+# pin it before HOME moves, or numpy "disappears" on any runner that does not install it
+# system-wide.
+PYTHONUSERBASE="${PYTHONUSERBASE:-$(python3 -m site --user-base 2>/dev/null)}"; export PYTHONUSERBASE
 export HOME="$WORK/home"; mkdir -p "$HOME"
 unset Q36_KVQ Q36_LEVEL Q36_EMBED_MAP Q36_EMBED_STREAMED Q36_ENGINE
 
