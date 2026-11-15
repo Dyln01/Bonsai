@@ -34,6 +34,13 @@ jobs:
       - name: python syntax (tools + scripts)
         run: python3 -m py_compile tools/*.py scripts/*.py
 
+      - name: launcher smoke test (q36-minipc help, project and floor on a dense container; KV default; shellcheck)
+        run: |
+          # shellcheck ships on ubuntu-latest; install it only if a runner image drops it,
+          # so the misspelled-variable check is enforced rather than silently skipped.
+          command -v shellcheck >/dev/null || sudo apt-get install -y -qq shellcheck
+          bash scripts/check_launcher.sh
+
       - name: runner env-name oracle (E11 — decoy alias / missing TRUNK_MAP detection)
         run: python3 scripts/check_runner_env.py
 
