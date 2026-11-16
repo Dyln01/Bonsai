@@ -192,13 +192,60 @@ case "$CMD" in
   bench)
     PF="${ARG3:-/tmp/q36bench_prompt.txt}"
     [ -f "$PF" ] || printf 'def fibonacci(n):\n    if n < 2: return n\n    return fibonacci(n-1) + fibonacci(n-2)\n\nWrite a function to check if a string is a palindrome. ' > "$PF"
+    # Q36_BENCH_TOKENS: tokens to generate. The historical 64 is a ~4 h run on a thrashing box;
+    # 4-8 is enough to see whether a change helped (TTFT + a few decoded tokens + the timers).
+    [ -x /usr/bin/time ] || die "bench needs GNU time at /usr/bin/time (apt install time)"
+    NNEW="${Q36_BENCH_TOKENS:-64}"
+    case "$NNEW" in ''|*[!0-9]*|0) die "Q36_BENCH_TOKENS must be a positive integer (got '$NNEW')" ;; esac
     echo "[minipc] model class: $CLASS (num_experts=$NEXP)"
-    env $COMMON N_NEW=64 COLI_TEMP=0 COLI_TIMERS=1 /usr/bin/time -v \
-        "$ENGINE" "$CAP" 4 "$PF" > /tmp/bench.out 2> >(tee /tmp/bench.err | q36_render >&2)
-    wait 2>/dev/null || true
+    BENV="$COMMON N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1"
+    # ---- the log: ONE file with the machine, the exact settings, what the engine really got,
+    # a timeline (RSS / page faults / disk / CPU / pressure) and the parsed result. ----
+    LOGDIR="${Q36_LOG_DIR:-/home/dylan/sambashare}"
+    if ! { mkdir -p "$LOGDIR" && [ -w "$LOGDIR" ]; } 2>/dev/null; then
+      echo "[minipc] WARNING: cannot write $LOGDIR - writing the log to /tmp instead (set Q36_LOG_DIR)"; LOGDIR=/tmp
+    fi
+    TAG="$(printf '%s' "${Q36_LABEL:+${Q36_LABEL}_}w${WINMB:-0}_g${Q36_GRIFFIN:-1}_e$([ -n "${EMBMAP:-}" ] && echo 1 || echo 0)_f${FRAC}_${KVQ}_n${NNEW}" | tr -c 'A-Za-z0-9._-' '-')"
+    BLOG="$LOGDIR/bench_$(date +%Y%m%d-%H%M%S)_${TAG}.log"
+    BTOOL="$(q36_tool q36_benchlog.py)"
+    BWPID=""; BRC=0; BDONE=0; BT0=$(date +%s)
+    q36_bench_finish() {
+      [ "$BDONE" = 1 ] && return 0
+      BDONE=1
+      if [ -n "$BWPID" ]; then kill "$BWPID" 2>/dev/null || true; wait "$BWPID" 2>/dev/null || true; fi
+      if [ -f "$BTOOL" ]; then
+        python3 "$BTOOL" finish --out "$BLOG" --err /tmp/bench.err --bench-out /tmp/bench.out \
+            --timeline "$BLOG.timeline" --rc "$BRC" --seconds "$(( $(date +%s) - BT0 ))" --env "$BENV" \
+          || echo "[minipc] WARNING: could not finish the log"
+        chown --reference="$LOGDIR" "$BLOG" 2>/dev/null || true
+        chmod a+r "$BLOG" 2>/dev/null || true
+        echo "[minipc] full log: $BLOG"
+      fi
+    }
+    if [ -f "$BTOOL" ]; then
+      python3 "$BTOOL" header --out "$BLOG" --model "$MODEL" --engine "$ENGINE" --launcher "$0" \
+          --env "$BENV" --cmdline "$0 $*" \
+          --meta "level=$LEVEL class=$CLASS trunk=$TRUNKDT sorted=$SORTED frac=$FRAC kvq=$KVQ ram_gb=$RAM_GB cap=$CAP threads=$THREADS ctx=$CTX bench_tokens=$NNEW prompt=$PF" \
+        || echo "[minipc] WARNING: could not write the log header"
+      python3 "$BTOOL" watch --engine "$ENGINE" --out "$BLOG.timeline" --model "$MODEL" \
+          --interval "${Q36_SAMPLE_S:-30}" &
+      BWPID=$!
+      trap q36_bench_finish EXIT
+      trap 'BRC=130; exit 130' INT
+      trap 'BRC=143; exit 143' TERM
+    else
+      echo "[minipc] WARNING: $BTOOL not found - no log will be written (cp tools/q36_benchlog.py ~/bin/)"
+    fi
+    # A plain pipeline (not a process substitution + wait): it returns only after tee has flushed
+    # /tmp/bench.err, so the log/grep below never race it, and pipefail makes BRC the engine's
+    # exit status (GNU time passes it through). stdout (the generated text) goes to bench.out.
+    env $BENV /usr/bin/time -v "$ENGINE" "$CAP" 4 "$PF" 2>&1 > /tmp/bench.out \
+        | tee /tmp/bench.err | q36_render >&2 || BRC=$?
+    q36_bench_finish
     grep -E "== qwen36|RSS after load|hit rate|TTFT|decode: [0-9]+ tokens|TOTAL|PEAK RSS|Speed:|PIN|USAGE|warm|hot]" /tmp/bench.err || true
     echo "---"
     echo "decode tok/s = 1000 / (TOTAL ms/token); Speed: includes prefill."
+    [ "$BRC" -eq 0 ] || exit "$BRC"
     ;;
   seed)
     if [ "$CLASS" != moe ]; then echo "[minipc] seed is a MoE-cache prior; dense models self-adapt via GRIFFIN."; exit 0; fi
@@ -424,6 +471,8 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc watch                          live progress bar for a running calibrate/bench
 Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
+     Q36_BENCH_TOKENS=<n> (bench length, default 64) · Q36_LOG_DIR=<dir> (bench log, default /home/dylan/sambashare)
+     Q36_LABEL=<text> (tag in the bench log name) · Q36_SAMPLE_S=<s> (bench sampler interval, default 30)
      Q36_WIN_MB=<n> (window cache; auto-on for int4 trunks) · Q36_PACK_PROFILE=<prof> · Q36_FRACS_BUDGET=<GB>
 KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)
 Dense profile: TRUNK_MAP + GRIFFIN + HOT_FRAC + TRUNK_WARM + KV tier (frac 1.0 = exact full model)

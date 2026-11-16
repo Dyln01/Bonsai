@@ -115,4 +115,48 @@ fi
 run "$WORK/bad.out" Q36_KVQ=bogus bash "$LAUNCHER" floor "$MODEL"; rc=$?
 [ "$rc" -eq 2 ] && ok "unknown Q36_KVQ rejected (exit 2)" || bad "unknown Q36_KVQ gave exit $rc (want 2)"
 
+# ---- 6. bench writes a complete log (fake engine; needs GNU time like the real bench) ----
+if [ ! -x /usr/bin/time ]; then
+  echo "SKIP  bench-log checks: GNU time not installed (apt install time) -- CI installs it"
+else
+  FAKE="$WORK/fake_engine"
+  cat > "$FAKE" <<'EOS'
+#!/bin/bash
+echo "== qwen36 Phase-2 engine | cache=48/layer bits=4 ctx=8192 hot=0 ==" >&2
+echo "resident weights loaded in 1.0s | RSS after load: 0.01 GB" >&2
+[ "${Q36_WIN_MB:-0}" != 0 ] && echo "[qwen36 win] hits 5 misses 10 (33.3% hit-rate), budget ${Q36_WIN_MB} MB" >&2
+sleep 3
+[ -n "${FAKE_FAIL:-}" ] && { echo "engine exploded" >&2; exit 3; }
+echo "TTFT: 1.50 s (time to first token)" >&2
+echo "[timers] decode: 3 tokens  (shared/router are subsets of moe_total)" >&2
+echo "[timers]   TOTAL      900.0 ms  300.00 ms/token" >&2
+echo "PEAK RSS: 0.04 GB" >&2
+echo "def is_palindrome(s): return s == s[::-1]"
+EOS
+  chmod +x "$FAKE"; mkdir -p "$WORK/logs"
+  bench() { env Q36_ENGINE="$FAKE" Q36_LOG_DIR="$WORK/logs" Q36_SAMPLE_S=1 Q36_WIN_MB=0 Q36_GRIFFIN=0 "$@" bash "$LAUNCHER" bench "$MODEL"; }
+
+  bench Q36_BENCH_TOKENS=3 > "$WORK/b1.out" 2>&1; rc=$?
+  LOGF="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
+  [ "$rc" -eq 0 ] && ok "bench exits 0" || bad "bench exited $rc: $(tail -2 "$WORK/b1.out" | tr '\n' ' ')"
+  if [ -n "$LOGF" ] && [ -s "$LOGF" ]; then
+    ok "bench wrote $(basename "$LOGF")"
+    for needle in "== SUMMARY ==" "DECODE        : 0.30 s/token" "N_NEW=3" "GRIFFIN=0" "ok engine environment matches" \
+                  "== MACHINE ==" "== TIMELINE" "def is_palindrome"; do
+      grep -qF -- "$needle" "$LOGF" && ok "log has: $needle" || bad "log is missing: $needle"
+    done
+    grep -q "KNOB MISMATCH" "$LOGF" && bad "log reports a knob mismatch on a clean run"
+  else
+    bad "bench wrote no log in $WORK/logs"
+  fi
+
+  FAKE_FAIL=1 bench Q36_BENCH_TOKENS=3 > "$WORK/b2.out" 2>&1; rc=$?
+  [ "$rc" -eq 3 ] && ok "a failing engine makes bench exit with ITS status (3)" || bad "failing engine: bench exited $rc (want 3)"
+  F2="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
+  grep -q "ENGINE FAILED OR WAS INTERRUPTED" "$F2" 2>/dev/null && ok "failed run is still logged and flagged" || bad "failed run not flagged in its log"
+
+  bench Q36_BENCH_TOKENS=abc > "$WORK/b3.out" 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && ok "bad Q36_BENCH_TOKENS rejected (exit 2)" || bad "bad Q36_BENCH_TOKENS gave exit $rc (want 2)"
+fi
+
 [ "$fail" -eq 0 ] && echo "launcher gate: PASS" || { echo "launcher gate: FAIL"; exit 1; }

@@ -48,6 +48,8 @@ jobs:
           command -v shellcheck >/dev/null || sudo apt-get install -y -qq shellcheck
           # the projector (floor/project) imports numpy; later steps install it too, but this one runs first
           python3 -m pip install --quiet numpy
+          # bench needs GNU time (and the gate exercises bench with a fake engine)
+          [ -x /usr/bin/time ] || sudo apt-get install -y -qq time
           bash scripts/check_launcher.sh
 
       - name: runner env-name oracle (E11 — decoy alias / missing TRUNK_MAP detection)
