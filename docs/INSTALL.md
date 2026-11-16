@@ -120,9 +120,11 @@ PARITY OK: FWHT, radius, direction, linearity, inert, accounting — all gates p
 
 ```bash
 cp ~/bonsai/tools/q36-minipc.sh ~/bin/q36-minipc
-# the tools the launcher's `sort`, `pack`, `fracs` and `project` subcommands call:
+# the tools the launcher's `sort`, `pack`, `fracs`, `project` and `bench` subcommands call
+# (q36_benchlog.py writes the bench log: machine, exact settings, timeline, result):
 cp ~/bonsai/tools/hot_sort.py ~/bonsai/tools/pack_trunk_i4.py \
-   ~/bonsai/tools/make_layer_fracs.py ~/bonsai/tools/project_q36.py ~/bin/
+   ~/bonsai/tools/make_layer_fracs.py ~/bonsai/tools/project_q36.py \
+   ~/bonsai/tools/q36_benchlog.py ~/bin/
 chmod +x ~/bin/q36-minipc
 # make sure ~/bin is on PATH (usually already is; else add to ~/.profile):
 #   export PATH="$HOME/bin:$PATH"
