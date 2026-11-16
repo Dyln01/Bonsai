@@ -239,8 +239,11 @@ case "$CMD" in
     # A plain pipeline (not a process substitution + wait): it returns only after tee has flushed
     # /tmp/bench.err, so the log/grep below never race it, and pipefail makes BRC the engine's
     # exit status (GNU time passes it through). stdout (the generated text) goes to bench.out.
-    env $BENV /usr/bin/time -v "$ENGINE" "$CAP" 4 "$PF" 2>&1 > /tmp/bench.out \
-        | tee /tmp/bench.err | q36_render >&2 || BRC=$?
+    q36_bench_run() {
+      env $BENV /usr/bin/time -v "$ENGINE" "$CAP" 4 "$PF" 2>&1 > /tmp/bench.out \
+          | tee /tmp/bench.err | q36_render >&2
+    }
+    q36_bench_run || BRC=$?
     q36_bench_finish
     grep -E "== qwen36|RSS after load|hit rate|TTFT|decode: [0-9]+ tokens|TOTAL|PEAK RSS|Speed:|PIN|USAGE|warm|hot]" /tmp/bench.err || true
     echo "---"
