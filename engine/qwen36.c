@@ -308,6 +308,7 @@ static int qwen36_max_ctx(void) {
 #include "kv_prefix.h"
 #include "kv_fp8.h"
 #include "kv8_fused.h"
+#include "mapi4_avx2.h"  /* AVX2 staging / integer dot for matmul_map_i4 (Q36_MAPI4_SCALAR=1, Q36_MAPI4_IDOT=1) */
 /* KV8 tile staging: rows dequantized per pass; 256 rows x 64 f32 = 64 KiB/side */
 #define KV8_TILE_ROWS 256   /* KV8: fp8-e4m3 KV rows (opt-in, qwen36 port of the GLM engine path) */
 #include "kv_tq.h"   /* KV_TQ=<bits> [KV_TQ_CODEC=0|1]: packed KV rows, GLM-side codecs (PolarQuant / rotated int4) */
@@ -1968,21 +1969,22 @@ static void matmul_map_f16(float *y, const float *x, const QW *w, int S, int I, 
 static void matmul_map_i4(float *y, const float *x, const QW *w, int S, int I, int O) {
     const uint8_t *W = (const uint8_t *)w->map;
     const float *sc = w->sc;
-    #pragma omp parallel
+    /* Q36_MAPI4_IDOT=1: int8-activation integer-dot kernel (opt-in, NOT bit-exact). Also
+     * resolves the kernel mode once, before any thread team exists. */
+    if (q36_m4_try_idot(y, x, W, sc, S, I, O)) return;
+    /* mapi4 E26: a one-row call (the GRIFFIN gather issues one per neuron) must not spawn a
+     * thread team and malloc per call; rows are still computed one-per-thread, same order. */
+    #pragma omp parallel if (O >= 32)
     {
         float *st = malloc((size_t)I * sizeof(float));
         if (!st) { fprintf(stderr, "OOM map stage\n"); exit(1); }
         #pragma omp for schedule(static)
         for (int o = 0; o < O; o++) {
             const uint8_t *row = W + (int64_t)o * (I >> 1);
-            for (int i = 0; i < I; i += 2) {
-                uint8_t b = row[i >> 1];
-                int8_t e0 = (int8_t)(b & 0xF);  if (e0 & 8)  e0 -= 16;
-                int8_t e1 = (int8_t)(b >> 4);   if (e1 & 8)  e1 -= 16;
-                st[i] = (float)e0; st[i+1] = (float)e1;
-            }
             float rs = sc ? sc[o] : 1.0f;
-            if (rs != 1.0f) for (int i = 0; i < I; i++) st[i] *= rs;
+            /* AVX2 staging, bit-identical to the scalar unpack + scale loop it replaced
+             * (Q36_MAPI4_SCALAR=1 runs that loop). */
+            q36_m4_stage_row(st, row, I, rs);
             for (int s = 0; s < S; s++)
                 y[(int64_t)s * O + o] = dot_f32_lanes(x + (int64_t)s * I, st, I);
         }

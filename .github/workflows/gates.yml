@@ -18,6 +18,13 @@ jobs:
           gcc -O2 -Iengine -o /tmp/tqp engine/kv_tq_parity_q36.c -lm && /tmp/tqp
           gcc -O2 -mavx2 -mfma -Iengine -o /tmp/smb engine/softmaxbench_q36.c -lm && /tmp/smb
 
+      - name: mapi4 AVX2 kernel parity (bit-exact staging, bounded idot error)
+        run: |
+          # deliberately NOT `gcc && run` on one line: under set -e a failing first command of an
+          # && list does not fail the step, which would turn a compile error into a silent pass.
+          gcc -O2 -fopenmp -Iengine -o /tmp/m4p engine/mapi4_parity.c -lm
+          /tmp/m4p
+
       - name: TQ absorbed-rotation parity (C gate)
         run: |
           set -e
