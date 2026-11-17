@@ -2864,6 +2864,14 @@ static void q36_vis_norm(Model *m, Q38Norm *n, const char *stem, int width) {
 static void q36_load_vision(Model *m) {
     Cfg *c = &m->c;
     if (!c->vis_depth) return;
+    {   /* Q36_NO_VISION=1: text-only run — do not read the ~0.9 GB tower into private RAM. Same
+         * state as a container without one: vis_ready stays 0 and images are refused cleanly. */
+        const char *nv = getenv("Q36_NO_VISION");
+        if (nv && nv[0] == '1') {
+            fprintf(stderr, "[qwen36] vision tower skipped (Q36_NO_VISION=1): text only, images refused\n");
+            c->vis_depth = 0; return;
+        }
+    }
     if (!st_has(&m->S, "model.visual.pos_embed.weight")) {
         fprintf(stderr, "[qwen36] qwen36_meta.json describes a vision tower but the container has none; text only\n");
         c->vis_depth = 0; return;

@@ -178,6 +178,17 @@ def cmd_header(a):
     else:
         L.append("  %-20s (dmidecode unavailable — run as root to see stick count/speed)" % "RAM modules")
 
+    L.append(section("TOP MEMORY USERS BEFORE THE RUN (RSS / swapped-out, MB)").rstrip("\n"))
+    users = []
+    for d in glob.glob("/proc/[0-9]*"):
+        st_ = rd(d + "/status")
+        nm = re.search(r"^Name:\s*(.+)$", st_, re.M)
+        rss = re.search(r"^VmRSS:\s*(\d+)", st_, re.M)
+        sw = re.search(r"^VmSwap:\s*(\d+)", st_, re.M)
+        if nm and (rss or sw):
+            users.append((int(rss.group(1)) if rss else 0, int(sw.group(1)) if sw else 0, nm.group(1), os.path.basename(d)))
+    for r_, sw_, n_, pid_ in sorted(users, key=lambda u: -(u[0] + u[1]))[:10]:
+        L.append("  %-18s pid %-7s RSS %7.0f MB   swapped %7.0f MB" % (n_[:18], pid_, r_ / 1024.0, sw_ / 1024.0))
     L.append(section("STORAGE OF THE MODEL").rstrip("\n"))
     major, minor, part, disk = model_device(a.model)
     L.append("  device       : %s (%s:%s) on disk %s" % (part, major, minor, disk))
@@ -198,6 +209,15 @@ def cmd_header(a):
                 L.append("  %-34s %14d bytes" % (name, os.path.getsize(p)))
     except Exception as e:
         L.append("  (cannot list: %s)" % e)
+    try:
+        sizes = dict((n_, os.path.getsize(os.path.join(a.model, n_))) for n_ in os.listdir(a.model) if n_.endswith(".safetensors"))
+        shards = sum(v for k, v in sizes.items() if re.match(r"model-\d+\.safetensors", k))
+        glob_, vis = sizes.get("model-globals.safetensors", 0), sizes.get("model-vision.safetensors", 0)
+        L.append("  trunk shards (mapped, only the hot part is touched): %.2f GB" % (shards / 1e9))
+        L.append("  model-globals (loaded into anonymous RAM: embedding table etc.): %.2f GB" % (glob_ / 1e9))
+        L.append("  model-vision  (loaded into anonymous RAM unless Q36_NO_VISION=1): %.2f GB" % (vis / 1e9))
+    except Exception:
+        pass
     meta = rd(os.path.join(a.model, "qwen36_meta.json"))
     if meta:
         L.append("  qwen36_meta.json: " + re.sub(r"\s+", " ", meta)[:600])
@@ -296,7 +316,7 @@ def cmd_watch(a):
         out.write("NOTE cannot read engine environ: %s\n" % e)
     out.write("ARGV %s\n" % " ".join(proc_args(pid)))
     out.write("COLS t_s state thr rss_mb anon_mb file_mb majflt_s cpu_pct sys_busy_pct iowait_pct "
-              "disk_mb_s avail_mb cached_mb swap_mb mem_psi io_psi mhz\n")
+              "disk_mb_s avail_mb cached_mb swap_mb mem_psi io_psi mhz free_mb anonpages_mb mapped_mb swapcached_mb\n")
     out.flush()
     prev = (time.time(), pstat(pid), cpu_totals(), disk_sectors(major, minor))
     last = None
@@ -325,7 +345,9 @@ def cmd_watch(a):
             100.0 * (1 - float(idle - prev[2][1]) / dtot), 100.0 * float(iow - prev[2][2]) / dtot,
             (sec - prev[3]) * 512 / 1e6 / dt, g("MemAvailable") / 1024.0, g("Cached") / 1024.0,
             (g("SwapTotal") - g("SwapFree")) / 1024.0, psi("memory"), psi("io"),
-            (sum(fr) / len(fr) / 1000.0) if fr else 0))
+            (sum(fr) / len(fr) / 1000.0) if fr else 0)
+            + " %7.0f %8.0f %7.0f %6.0f" % (g("MemFree") / 1024.0, g("AnonPages") / 1024.0, g("Mapped") / 1024.0,
+                                          g("SwapCached") / 1024.0))
         out.write(row + "\n")
         out.flush()
         prev = (now, ps, (tot, idle, iow), sec)
@@ -439,6 +461,33 @@ def cmd_finish(a):
         S.append("  %s headroom: peak RSS %.2f GB of %.2f GiB RAM (%.0f%% — above ~90%% leaves the page cache nothing)" % (
             "!!" if peak / float(memtot.group(1)) > 0.9 else "ok", peak, float(memtot.group(1)), 100 * peak / float(memtot.group(1))))
 
+    rows_ = [l.split() for l in tl.splitlines() if l and not l.startswith(("ENV ", "ARGV", "COLS", "NOTE", "EXIT"))]
+    cols_ = next((l.split()[1:] for l in tl.splitlines() if l.startswith("COLS")), [])
+    def tcol(name):
+        if name not in cols_:
+            return []
+        i_ = cols_.index(name)
+        out_ = []
+        for r_ in rows_:
+            try:
+                out_.append(float(r_[i_]))
+            except (ValueError, IndexError):
+                pass
+        return out_
+    swap_, anon_, iow_, rss_ = tcol("swap_mb"), tcol("anon_mb"), tcol("iowait_pct"), tcol("rss_mb")
+    memtot_gib = float(memtot.group(1)) if memtot else 0
+    if swap_:
+        sw_start, sw_max = swap_[0], max(swap_)
+        S.append("  %s swap: %.0f MB in use at the first sample, %.0f MB at the peak%s" % (
+            "!!" if sw_max - sw_start > 256 else "ok", sw_start, sw_max,
+            " — the kernel pushed memory to the same disk the weights stream from" if sw_max - sw_start > 256 else ""))
+    if anon_:
+        S.append("  %s anonymous (non-mappable) memory: peak %.2f GB in the engine%s" % (
+            "!!" if memtot_gib and max(anon_) / 1024.0 > 0.4 * memtot_gib else "ok", max(anon_) / 1024.0,
+            " — that is RAM the mapped weights cannot use (embedding table / vision tower / window cache)" if memtot_gib and max(anon_) / 1024.0 > 0.4 * memtot_gib else ""))
+    if iow_:
+        iow_.sort()
+        S.append("  %s iowait: median %.0f%% of CPU time (high = the CPUs are idle waiting for the disk)" % ("!!" if iow_[len(iow_) // 2] > 40 else "ok", iow_[len(iow_) // 2]))
     S.append(section("ENGINE ENVIRONMENT (as the running engine saw it)").rstrip("\n"))
     S.extend("  %s=%s" % kv for kv in sorted(eng_env.items())) if eng_env else S.append("  (not captured)")
     S.append(section("TIMELINE (sampled every few seconds)").rstrip("\n"))

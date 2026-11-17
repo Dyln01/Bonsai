@@ -142,10 +142,13 @@ EOS
   if [ -n "$LOGF" ] && [ -s "$LOGF" ]; then
     ok "bench wrote $(basename "$LOGF")"
     for needle in "== SUMMARY ==" "DECODE        : 0.30 s/token" "N_NEW=3" "GRIFFIN=0" "ok engine environment matches" \
-                  "== MACHINE ==" "== TIMELINE" "def is_palindrome"; do
+                  "== MACHINE ==" "== TIMELINE" "def is_palindrome" "== TOP MEMORY USERS" \
+                  "Q36_NO_VISION=1" "ok swap:" "anonymous (non-mappable) memory"; do
       grep -qF -- "$needle" "$LOGF" && ok "log has: $needle" || bad "log is missing: $needle"
     done
     grep -q "KNOB MISMATCH" "$LOGF" && bad "log reports a knob mismatch on a clean run"
+    grep -E "^command +: .*q36-minipc.* bench " "$LOGF" >/dev/null && ok "log records the command as typed" \
+      || bad "log records the wrong command line: $(grep -m1 '^command' "$LOGF" | cut -c1-90)"
   else
     bad "bench wrote no log in $WORK/logs"
   fi

@@ -8,6 +8,7 @@
 #
 # Commands: serve|chat|bench|seed (MoE) + calibrate|sort (dense pipeline) + doctor
 set -euo pipefail
+ORIGARGS="$*"   # before `set --` below replaces the positional parameters (the bench log records this)
 
 LEVEL="${Q36_LEVEL:-balanced}"
 CMD="${1:-help}"
@@ -198,7 +199,8 @@ case "$CMD" in
     NNEW="${Q36_BENCH_TOKENS:-64}"
     case "$NNEW" in ''|*[!0-9]*|0) die "Q36_BENCH_TOKENS must be a positive integer (got '$NNEW')" ;; esac
     echo "[minipc] model class: $CLASS (num_experts=$NEXP)"
-    BENV="$COMMON N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1"
+    # bench is text-only: do not read the ~0.9 GB vision tower into RAM (Q36_NO_VISION=0 to keep it)
+    BENV="$COMMON N_NEW=$NNEW COLI_TEMP=0 COLI_TIMERS=1 Q36_NO_VISION=${Q36_NO_VISION:-1}"
     # ---- the log: ONE file with the machine, the exact settings, what the engine really got,
     # a timeline (RSS / page faults / disk / CPU / pressure) and the parsed result. ----
     LOGDIR="${Q36_LOG_DIR:-/home/dylan/sambashare}"
@@ -224,7 +226,7 @@ case "$CMD" in
     }
     if [ -f "$BTOOL" ]; then
       python3 "$BTOOL" header --out "$BLOG" --model "$MODEL" --engine "$ENGINE" --launcher "$0" \
-          --env "$BENV" --cmdline "$0 $*" \
+          --env "$BENV" --cmdline "$0 $ORIGARGS" \
           --meta "level=$LEVEL class=$CLASS trunk=$TRUNKDT sorted=$SORTED frac=$FRAC kvq=$KVQ ram_gb=$RAM_GB cap=$CAP threads=$THREADS ctx=$CTX bench_tokens=$NNEW prompt=$PF" \
         || echo "[minipc] WARNING: could not write the log header"
       python3 "$BTOOL" watch --engine "$ENGINE" --out "$BLOG.timeline" --model "$MODEL" \
