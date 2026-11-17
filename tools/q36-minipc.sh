@@ -138,7 +138,8 @@ else
   # per token, and the freed RAM is what the per-token working set needs (see
   # `q36-minipc floor`: +2.54 GB of cache_room, i.e. 265 -> 95 s/token band).
   EMBMAP="${Q36_EMBED_MAP:+Q36_EMBED_MAP=$Q36_EMBED_MAP}"
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMBMAP RAM_GB=$RAM_GB"
+  DCMAP="${Q36_DOWN_COMPACT:+Q36_DOWN_COMPACT=$Q36_DOWN_COMPACT}"   # hot down_proj columns held compact (static prefix path)
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMBMAP $DCMAP RAM_GB=$RAM_GB"
   # HOT_LAYERS: explicit knob wins; else a hot_layers.json beside the model is used
   HL="${Q36_HOT_LAYERS:-}"
   if [ -z "$HL" ] && [ -f "$MODEL/hot_layers.json" ]; then
@@ -478,6 +479,7 @@ Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
      Q36_BENCH_TOKENS=<n> (bench length, default 64) · Q36_LOG_DIR=<dir> (bench log, default /home/dylan/sambashare)
      Q36_LABEL=<text> (tag in the bench log name) · Q36_SAMPLE_S=<s> (bench sampler interval, default 30)
+     Q36_DOWN_COMPACT=1 (read only the hot down_proj columns, copied compact once; for GRIFFIN=0) · Q36_NO_VISION=1 (skip the vision tower)
      Q36_WIN_MB=<n> (window cache; auto-on for int4 trunks) · Q36_PACK_PROFILE=<prof> · Q36_FRACS_BUDGET=<GB>
 KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)
 Dense profile: TRUNK_MAP + GRIFFIN + HOT_FRAC + TRUNK_WARM + KV tier (frac 1.0 = exact full model)

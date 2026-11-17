@@ -4172,6 +4172,52 @@ static int qwen_shared_batch_rows(int S, int D, int I) {
     return S;
 }
 
+/* ---- Q36_DOWN_COMPACT=1: the hot columns of each layer's mapped int4 down_proj, compacted ----
+ * down is [D rows][I cols]; the hot neurons are columns [0,Ik) of EVERY row, so reading them through the
+ * mapping touches ~every page of the matrix. Copy them once into [D rows][(Ik+1)/2 bytes] and read that. */
+typedef struct { const void *key; int Ik; uint8_t *buf; int64_t stride; } Q36DCompact;
+static Q36DCompact g_q36_dc[256];
+static int g_q36_dc_n = 0, g_q36_dc_on = -1;
+static double g_q36_dc_mb = 0.0;
+static void q36_dc_report(void) {
+    fprintf(stderr, "[down-compact] %d layer(s), %.0f MB of hot down_proj columns held compact (anonymous)\n",
+            g_q36_dc_n, g_q36_dc_mb);
+}
+static int q36_dc_on(void) {
+    if (g_q36_dc_on < 0) {
+        const char *e = getenv("Q36_DOWN_COMPACT");
+        g_q36_dc_on = (e && e[0] == '1');
+        if (g_q36_dc_on) atexit(q36_dc_report);
+    }
+    return g_q36_dc_on;
+}
+/* Row pointer + byte stride for the mapped int4 down matrix: the original mapping (stride I/2) when off,
+ * else the compact copy (stride (Ik+1)/2). Called outside any parallel region (first use copies).
+ * Keyed by (mapping address, Ik): safe because this engine never munmaps a matrix, so an address is
+ * never reused for different bytes. */
+static const uint8_t *q36_dc_rows(const QW *dw, int D, int I, int Ik, int64_t *stride) {
+    const uint8_t *mp = (const uint8_t *)dw->map;
+    *stride = I >> 1;
+    if (!q36_dc_on()) return mp;
+    for (int k = 0; k < g_q36_dc_n; k++)
+        if (g_q36_dc[k].key == dw->map && g_q36_dc[k].Ik == Ik) { *stride = g_q36_dc[k].stride; return g_q36_dc[k].buf; }
+    if (g_q36_dc_n >= 256) return mp;                      /* table full: still correct, just not compact */
+    int64_t cb = (Ik + 1) >> 1;
+    uint8_t *buf = (uint8_t *)malloc((size_t)D * (size_t)cb);
+    if (!buf) { fprintf(stderr, "[down-compact] out of memory; this layer stays strided\n"); return mp; }
+    int64_t full = (int64_t)D * (I >> 1);
+    uintptr_t a0 = (uintptr_t)mp & ~(uintptr_t)4095, a1 = (uintptr_t)mp + (uintptr_t)full;
+    madvise((void *)a0, (size_t)(a1 - a0), MADV_SEQUENTIAL);   /* one forward sweep: let readahead work */
+    for (int d = 0; d < D; d++) memcpy(buf + (int64_t)d * cb, mp + (int64_t)d * (I >> 1), (size_t)cb);
+    madvise((void *)a0, (size_t)(a1 - a0), MADV_DONTNEED);     /* read-only mapping: drop it, never touched again */
+    g_q36_dc[g_q36_dc_n].key = dw->map; g_q36_dc[g_q36_dc_n].Ik = Ik;
+    g_q36_dc[g_q36_dc_n].buf = buf;     g_q36_dc[g_q36_dc_n].stride = cb;
+    g_q36_dc_n++;
+    g_q36_dc_mb += (double)D * (double)cb / 1048576.0;
+    *stride = cb;
+    return buf;
+}
+
 static void q36_down_prefix_batch(const QW *dw, float *dst, const float *g,
                                   int S, int D, int I, int Ik) {
     /* dst[s][d] = sum_{i<Ik} down[d][i] * g[s][i]; staged row dequant once per d. */
@@ -4193,14 +4239,14 @@ static void q36_down_prefix_batch(const QW *dw, float *dst, const float *g,
             free(st);
         }
     } else if (dw->map && dw->map_len == (int64_t)D*I/2) {
-        const uint8_t *mp = (const uint8_t*)dw->map; const float *sc = dw->sc;
+        int64_t dstride; const uint8_t *mp = q36_dc_rows(dw, D, I, Ik, &dstride); const float *sc = dw->sc;
         #pragma omp parallel
         {
             float *st = malloc((size_t)Ik * sizeof(float));
             if (!st) { fprintf(stderr, "OOM down stage\n"); exit(1); }
             #pragma omp for schedule(static)
             for (int d = 0; d < D; d++) {
-                const uint8_t *row = mp + (int64_t)d * (I >> 1);
+                const uint8_t *row = mp + (int64_t)d * dstride;
                 for (int i = 0; i < Ik; i++) {
                     uint8_t b = row[i >> 1];
                     int8_t e = (int8_t)((i & 1) ? (b >> 4) : (b & 0xF));
@@ -4260,10 +4306,10 @@ static void q36_down_prefix(const QW *dw, float *dst, const float *g, int D, int
             dst[d] = acc * (sc ? sc[d] : 1.0f);
         }
     } else if (dw->map && dw->map_len == (int64_t)D*I/2) {
-        const uint8_t *mp = (const uint8_t*)dw->map; const float *sc = dw->sc;
+        int64_t dstride; const uint8_t *mp = q36_dc_rows(dw, D, I, Ik, &dstride); const float *sc = dw->sc;
         #pragma omp parallel for schedule(static)
         for (int d = 0; d < D; d++) {
-            const uint8_t *row = mp + (int64_t)d * (I >> 1);
+            const uint8_t *row = mp + (int64_t)d * dstride;
             float acc = 0;
             for (int i = 0; i < Ik; i++) {
                 uint8_t b = row[i >> 1];

@@ -14,7 +14,7 @@
   "kv_fp8.h": "a92762dab601fb885221dd499db21445",
   "kv_tq.h": "6a476ecd475326942ceb345829792196",
   "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-  "qwen36.c": "1466c501f40d2a04b33e698b0636e6f9",
+  "qwen36.c": "5e1e4b1f9c8aecc5209b57a4b51f1bf4",
   "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
   "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
   "qwen36.c.preabsp": "5a90dfd069685530de049bd90f42d5a2",
@@ -46,7 +46,8 @@
   "qwen36.c.premapi4": "8edd817710813d27c52bb9ff4c26008d",
   "mapi4_avx2.h": "e9ab7386210288281e29a57da0840709",
   "mapi4_parity.c": "d1a3c73aded61d735c24a4609f5983a3",
-  "qwen36.c.prenovis": "c1f89cc1b55a7769cb3288d6ae94c1be"
+  "qwen36.c.prenovis": "c1f89cc1b55a7769cb3288d6ae94c1be",
+  "qwen36.c.predcmp": "1466c501f40d2a04b33e698b0636e6f9"
  },
  "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
  "reproducible_segments": [
@@ -262,8 +263,16 @@
    "scripts": [
     "patch_no_vision.py"
    ],
-   "to": "qwen36.c",
+   "to": "qwen36.c.predcmp",
    "added": "E27 Q36_NO_VISION=1 (skip the 0.9 GB vision tower on text-only runs)"
+  },
+  {
+   "from": "qwen36.c.predcmp",
+   "scripts": [
+    "patch_down_compact.py"
+   ],
+   "to": "qwen36.c",
+   "added": "E28 Q36_DOWN_COMPACT=1 (hot down_proj columns held compact; bit-exact)"
   }
  ],
  "drift_audit": {

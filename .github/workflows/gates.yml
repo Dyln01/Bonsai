@@ -25,6 +25,9 @@ jobs:
           gcc -O2 -fopenmp -Iengine -o /tmp/m4p engine/mapi4_parity.c -lm
           /tmp/m4p
 
+      - name: down-compact parity (bit-identical down_proj prefix, compaction off and on)
+        run: python3 scripts/check_down_compact.py
+
       - name: TQ absorbed-rotation parity (C gate)
         run: |
           set -e

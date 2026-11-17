@@ -415,7 +415,7 @@ def cmd_finish(a):
     g = first(r"\[qwen36 win\] hits (\d+) misses (\d+) \(([\d.]+)% hit-rate\), budget (\d+) MB", err)
     S.append("window cache  : %s" % (("hits %s misses %s (%s%% hit rate) budget %s MB" % g) if g else "not active (no [qwen36 win] line)"))
     for rx, label in ((r"^.*\[warm\].*$", "warm"), (r"^.*\[mapi4\].*$", "kernel"), (r"^.*[Ee]mbed.?[Mm]ap.*$", "embed-map"),
-                      (r"^.*HOT_LAYERS.*$", "hot layers"), (r"^.*GRIFFIN.*$", "griffin")):
+                      (r"^.*\[down-compact\].*$", "down compact"), (r"^.*vision tower.*$", "vision"), (r"^.*HOT_LAYERS.*$", "hot layers"), (r"^.*GRIFFIN.*$", "griffin")):
         shown = []
         for line in re.findall(rx, err, re.M):
             line = line.strip()[:170]
