@@ -55,6 +55,9 @@ jobs:
           [ -x /usr/bin/time ] || sudo apt-get install -y -qq time
           bash scripts/check_launcher.sh
 
+      - name: bundle installer (git-free update - verify, back up, rebuild, restore on failure)
+        run: bash scripts/check_bundle.sh
+
       - name: runner env-name oracle (E11 — decoy alias / missing TRUNK_MAP detection)
         run: python3 scripts/check_runner_env.py
 
