@@ -18,6 +18,7 @@ restore() {
   echo "restoring from $BK ..."
   [ -f "$BK/q36-minipc" ]      && cp -a "$BK/q36-minipc" "$BIN/q36-minipc"
   [ -f "$BK/q36_benchlog.py" ] && cp -a "$BK/q36_benchlog.py" "$BIN/q36_benchlog.py"
+  [ -f "$BK/q36_profile.sh" ]  && cp -a "$BK/q36_profile.sh" "$BIN/q36_profile.sh"
   if [ -d "$BK/c" ]; then
     cp -a "$BK/c/." "$CDIR/"
     [ -f "$BK/c/qwen36.bin.old" ] && cp -a "$BK/c/qwen36.bin.old" "$CDIR/qwen36" && rm -f "$CDIR/qwen36.bin.old"
@@ -34,6 +35,7 @@ echo "== 2. back up what will be replaced -> $BK"
 mkdir -p "$BK/c"
 [ -f "$BIN/q36-minipc" ]      && cp -a "$BIN/q36-minipc" "$BK/"
 [ -f "$BIN/q36_benchlog.py" ] && cp -a "$BIN/q36_benchlog.py" "$BK/"
+[ -f "$BIN/q36_profile.sh" ]  && cp -a "$BIN/q36_profile.sh" "$BK/"
 [ -f "$CDIR/qwen36.c" ]       && cp -a "$CDIR/qwen36.c" "$BK/c/"
 for h in "$HERE"/engine/*.h; do
   [ -f "$CDIR/$(basename "$h")" ] && cp -a "$CDIR/$(basename "$h")" "$BK/c/"
@@ -43,6 +45,7 @@ done
 echo "== 3. install"
 cp "$HERE/tools/q36-minipc.sh" "$BIN/q36-minipc" && chmod +x "$BIN/q36-minipc" || fail "copying the launcher"
 cp "$HERE/tools/q36_benchlog.py" "$BIN/q36_benchlog.py" || fail "copying the log tool"
+cp "$HERE/tools/q36_profile.sh" "$BIN/q36_profile.sh" && chmod +x "$BIN/q36_profile.sh" || fail "copying the profiler"
 cp "$HERE/engine/qwen36.c" "$CDIR/qwen36.c" && cp "$HERE"/engine/*.h "$CDIR/" || fail "copying the engine sources"
 
 echo "== 4. rebuild the engine"
@@ -53,6 +56,7 @@ want() { grep " $1\$" "$HERE/MD5SUMS" | cut -d' ' -f1; }
 chk() { [ "$(md5sum "$1" | cut -d' ' -f1)" = "$2" ] || fail "$1 does not match the bundle"; }
 chk "$BIN/q36-minipc"      "$(want tools/q36-minipc.sh)"
 chk "$BIN/q36_benchlog.py" "$(want tools/q36_benchlog.py)"
+chk "$BIN/q36_profile.sh"  "$(want tools/q36_profile.sh)"
 chk "$CDIR/qwen36.c"       "$(want engine/qwen36.c)"
 [ -n "$(find "$CDIR/qwen36" -newer "$HERE/MD5SUMS" 2>/dev/null)" ] || fail "the engine binary was not rebuilt"
 n=0
