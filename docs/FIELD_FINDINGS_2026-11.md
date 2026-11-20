@@ -64,15 +64,49 @@ cache keeps them.
   opt-in integer dot (`Q36_MAPI4_IDOT=1`).
 - E27 `Q36_NO_VISION=1`: skip the 0.9 GB vision tower (bench turns it on).
 - E28 `Q36_DOWN_COMPACT=1`: copy the hot `down` columns once into a compact buffer (bit-exact; verified
-  over 480 single/batched calls by `scripts/check_down_compact.py`). Predicted to cut the `down` working set
-  from ~2.0 GB of page cache to ~0.71 GB at frac 0.25. **No log has run it yet** — every "E28" log so far shows
-  the old launcher/engine; check the header's md5s and for a `[down-compact]` line.
+  over 480 single/batched calls by `scripts/check_down_compact.py`). **Confirmed on the box Nov 19-20 — see
+  "E28 on hardware" below.**
+
+## E28 on hardware (Nov 19–20): the resident regime is reached
+Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `GRIFFIN=0 EMBED_MAP=1 WIN_MB=0`,
+`kv8`). Compaction holds all 64 layers: 462 MB at frac 0.17, 680 MB at 0.25, 816 MB at 0.30.
+
+| frac | tokens | total wall | TTFT | disk read | I/O | tok/s overall | tokens/forward | T(1) ms | down-compact held |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.17 | 6 | 294 s | 271.64 s | 8.0 GB | ok | 0.02 | 1.00 | 2628.6 | 462 MB |
+| 0.17 | 64 | 303 s | 177.60 s | 4.9 GB | ok | 0.21 | 1.66 | 2725.3 | 462 MB |
+| 0.17 | 128 | 483 s | 205.32 s | 5.8 GB | ok | 0.27 | 1.67 | 3277.0 | 462 MB |
+| 0.20 | 64 | 468 s | 189.44 s | 6.9 GB | ok | 0.14 | 1.37 | 5380.3 | 544 MB |
+| 0.22 | 64 | 470 s | 158.49 s | 7.8 GB | ok | 0.14 | 1.37 | 6202.5 | 598 MB |
+| 0.25 | 64 | 499 s | 175.50 s | 8.3 GB | ok | 0.13 | 1.66 | 16079.2 | 680 MB |
+| 0.25 | 128 | 609 s | 158.54 s | 7.6 GB | ok | 0.21 | 1.81 | 15194.1 | 680 MB |
+| 0.30 | 48 | 435 s | 162.54 s | 7.0 GB | ok | 0.11 | 1.47 | 11080.8 | 816 MB |
+| 0.17 | 256 | 710 s | 134.45 s | 5.2 GB | ok | 0.37 | 1.72 | 4357.7 | 462 MB |
+| 0.25 | 256 | 718 s | 102.87 s | 3.4 GB | ok | 0.36 | 1.90 | 5122.1 | 680 MB |
+
+- **Thrash is gone.** Disk read 3.4–8.3 GB per run (was 40–50 GB), I/O verdict "ok" in every run. After a
+  one-time warm-up of ~200–240 s (disk ~30 MB/s while ~5 GB of trunk is read once) the long runs sit at
+  **0.0 MB/s disk, 0 major faults, 399 % CPU, 2.5 GHz steady** — fully resident and compute-bound.
+  Decode went from ~400–500 s/token to ~2.3 s/token.
+- **End-to-end speed** (256 tokens): frac 0.17 → 710 s total, TTFT 134 s, so **2.26 s/token** after the first
+  token (0.37 tok/s overall incl. prefill); frac 0.25 → 718 s, TTFT 103 s, **2.41 s/token**.
+  Raising frac 0.17 → 0.25 (+50 % MLP weights) costs only ~7 % per token: **the MLP is not what limits speed.**
+- `T(1)` in the table is measured early in decode while the cache is still warming at the higher fracs
+  (16 s at 0.25 vs 2.6 s at 0.17), so it is not a steady-state number. Short runs (6/64 tokens) are dominated
+  by warm-up: use 256 tokens or more.
+- Lookup speculation gives 1.4–1.9 tokens per forward.
+- **Compute is slower than the kernels explain.** The long runs are 99.5 % user time (2,183 s user, 10 s system),
+  i.e. ~1.2 ns of CPU time per weight, while the staged matmul benchmarks at 0.135–0.19 ns/weight with
+  colibri's real `dot_f32_lanes` (`-O3`, skylake/v3/generic). So most of each ~2–4 s forward is in code outside
+  `matmul_map_i4`. The engine's phase timers (first 19 tokens, still warming) put DeltaNet (2.6 s/token) and the
+  MLP bucket (2.4 s/token) first; the scalar serial `q36_down_prefix` loop is one known suspect, DeltaNet
+  another. **Unmeasured — run `tools/q36_profile.sh` on a 256-token run.**
 
 ## Open work, in order
-1. Install the current engine/launcher on the box (`tools/make_bundle.sh` builds a git-free installer) and
-   run `Q36_DOWN_COMPACT=1 Q36_GRIFFIN=0 Q36_EMBED_MAP=1 Q36_WIN_MB=0 Q36_HOT_FRAC=0.17`.
-2. If residency is still unreliable: `mlock` the hot set (opt-in) instead of relying on kernel LRU heuristics.
-3. The decode-time `down` loop (`q36_down_prefix`, mapped int4) is scalar and serial; vectorizing it changes
-   the summation order, so it needs a numerics decision.
+1. **Profile the steady state** (`bash tools/q36_profile.sh` in a second terminal during a 256-token
+   `q36-minipc bench`): it ranks functions by time and names what the ~2 s/token actually is.
+2. Fix whatever dominates. Known candidates: the scalar serial `q36_down_prefix` (needs a numerics decision —
+   vectorizing changes the summation order), and the DeltaNet path.
+3. `mlock` the hot set (opt-in) if residency ever proves unreliable on other boxes; with E28 it was stable here.
 4. Teach `q36-minipc floor` the corrected accounting (private RAM, ~0.67 GB overhead, touched `down` pages).
-5. Expected target once resident: roughly 0.5–1.0 s/token on this single-channel box (estimate, unmeasured).
+5. Target: ~1 s/token. Now 2.3 s/token at frac 0.17–0.25 on this single-channel box.
