@@ -102,11 +102,26 @@ Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `
   MLP bucket (2.4 s/token) first; the scalar serial `q36_down_prefix` loop is one known suspect, DeltaNet
   another. **Unmeasured — run `tools/q36_profile.sh` on a 256-token run.**
 
+## First steady-state profile (Nov 21, f=0.17, 256 tokens, gdb sampling, 436 thread samples)
+`tools/q36_profile.sh` (profiled run: 818 s vs 700 s unprofiled — sampling pauses the process):
+- Innermost: **69.5 % in unresolved frames ("??")**, 15.4 % `matmul_map_i4`, 14.2 % `q36_down_prefix_batch`,
+  0.9 % `deltanet`. Inclusive: `q36_down_prefix_batch` 25 %, `matmul_map_i4` 31 %.
+- Only ~30 % of thread time is in named compute kernels. The unresolved 70 % is most plausibly libgomp's
+  internal spin-wait (hypothesis — the first version of the profiler dropped the library name; it now labels
+  unresolved frames `?? [library]`). If so, the four threads spend most of their time waiting for each other
+  (CPU shows 399 % because spinning counts as busy), not computing.
+- `q36_down_prefix_batch` was the biggest named hotspot and still used the original scalar staging loop —
+  although down_proj is only ~8 % of the weights read per token. It is the **only** down routine the decode path
+  calls (one call site). E29 fixes it (bit-exact).
+- At the real shape (5120 rows, Ik 2959, S=1) E29 measures 20.7 → 4.4 ms per call (4.7x; S=4: 2.4x), i.e. about
+  0.25-0.3 s off a forward of ~3-4 s (~7-9 %). The profile's 25 % inclusive share is larger than the kernel
+  alone explains, which again points at threads waiting around this region (stragglers at barriers).
+
 ## Open work, in order
-1. **Profile the steady state** (`bash tools/q36_profile.sh` in a second terminal during a 256-token
-   `q36-minipc bench`): it ranks functions by time and names what the ~2 s/token actually is.
-2. Fix whatever dominates. Known candidates: the scalar serial `q36_down_prefix` (needs a numerics decision —
-   vectorizing changes the summation order), and the DeltaNet path.
+1. Re-profile with the library-labelling profiler (is the 70 % libgomp?). Cheap experiments that test the
+   straggler idea: `Q36_THREADS=3` (leaves a core for the OS), `OMP_WAIT_POLICY=passive`.
+2. E29 (shipped): AVX2 staging in `q36_down_prefix_batch`, bit-exact. The serial `q36_down_prefix` (single-token)
+   has no callers on the decode path; the GRIFFIN gather paths still use scalar loops (off with GRIFFIN=0).
 3. `mlock` the hot set (opt-in) if residency ever proves unreliable on other boxes; with E28 it was stable here.
 4. Teach `q36-minipc floor` the corrected accounting (private RAM, ~0.67 GB overhead, touched `down` pages).
 5. Target: ~1 s/token. Now 2.3 s/token at frac 0.17–0.25 on this single-channel box.
