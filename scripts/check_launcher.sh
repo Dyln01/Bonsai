@@ -158,6 +158,12 @@ EOS
   F2="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
   grep -q "ENGINE FAILED OR WAS INTERRUPTED" "$F2" 2>/dev/null && ok "failed run is still logged and flagged" || bad "failed run not flagged in its log"
 
+  bench Q36_BENCH_TOKENS=3 Q36_THREADS=3 > "$WORK/b4.out" 2>&1
+  LOGT="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
+  grep -q "^  OMP_NUM_THREADS=3" "$LOGT" 2>/dev/null && ok "Q36_THREADS=3 reaches the engine as OMP_NUM_THREADS=3" || bad "Q36_THREADS did not reach the engine"
+  bench Q36_BENCH_TOKENS=3 Q36_THREADS=zero > "$WORK/b5.out" 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && ok "bad Q36_THREADS rejected (exit 2)" || bad "bad Q36_THREADS gave exit $rc (want 2)"
+
   bench Q36_BENCH_TOKENS=abc > "$WORK/b3.out" 2>&1; rc=$?
   [ "$rc" -eq 2 ] && ok "bad Q36_BENCH_TOKENS rejected (exit 2)" || bad "bad Q36_BENCH_TOKENS gave exit $rc (want 2)"
 fi

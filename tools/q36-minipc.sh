@@ -108,6 +108,10 @@ case "$LEVEL" in
   quality)  CAP=64; THREADS=4; CTX=16384; KV8V=0; WIDE=1; FRAC=0.5  ;;
   *) die "unknown Q36_LEVEL '$LEVEL' (eco|balanced|quality)" ;;
 esac
+# Q36_THREADS=<n>: override the level's OpenMP thread count (e.g. 3 on a 4-core box leaves a core for the OS;
+# an OpenMP barrier waits for its slowest thread, so a straggler descheduled by any background task stalls all).
+THREADS="${Q36_THREADS:-$THREADS}"
+case "$THREADS" in ''|*[!0-9]*|0) die "Q36_THREADS must be a positive integer (got '$THREADS')" ;; esac
 
 # ---- KV tier (Q36_KVQ): f32 | kv8 (default) | tq4 | tq3 ----
 #   tq4 = KV_TQ=4 codec 1 (rotated int4, n/2 B/row, ~0.10 rel L2 — 2x under KV8)
@@ -479,6 +483,7 @@ Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
      Q36_BENCH_TOKENS=<n> (bench length, default 64) · Q36_LOG_DIR=<dir> (bench log, default /home/dylan/sambashare)
      Q36_LABEL=<text> (tag in the bench log name) · Q36_SAMPLE_S=<s> (bench sampler interval, default 30)
+     Q36_THREADS=<n> (OpenMP threads; default per level, 4 on balanced)
      Q36_DOWN_COMPACT=1 (read only the hot down_proj columns, copied compact once; for GRIFFIN=0) · Q36_NO_VISION=1 (skip the vision tower)
      Q36_WIN_MB=<n> (window cache; auto-on for int4 trunks) · Q36_PACK_PROFILE=<prof> · Q36_FRACS_BUDGET=<GB>
 KV tiers: f32 exact · kv8 fp8 (default) · tq4 rot-int4 ~0.10 relL2 · tq3 PolarQuant-3 (RAM extreme)
