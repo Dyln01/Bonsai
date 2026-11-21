@@ -205,6 +205,20 @@ static inline void q36_m4_stage_row(float *st, const uint8_t *row, int I, float 
     q36_m4_stage_scalar(st, row, I, rs);
 }
 
+/* Prefix variant: stage the FIRST Ik elements of a packed row (Ik may be ODD) — what the hot-neuron
+ * down_proj path reads (columns [0,Ik) of each row). Bit-identical to the scalar loop it replaces,
+ * `(i & 1) ? (b >> 4) : (b & 0xF)` sign-extended, then one f32 multiply by rs. */
+static inline void q36_m4_stage_prefix(float *st, const uint8_t *row, int Ik, float rs) {
+    int ne = Ik & ~1;
+    if (ne > 0) q36_m4_stage_row(st, row, ne, rs);
+    if (Ik & 1) {
+        uint8_t b = row[ne >> 1];
+        int8_t e = (int8_t)(b & 0xF); if (e & 8) e -= 16;
+        float v = (float)e; if (rs != 1.0f) v *= rs;
+        st[ne] = v;
+    }
+}
+
 /* 1 if the integer-dot path should handle this matrix, and runs it. */
 static inline int q36_m4_try_idot(float *y, const float *x, const uint8_t *W, const float *sc,
                                   int S, int I, int O) {

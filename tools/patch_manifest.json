@@ -14,7 +14,7 @@
   "kv_fp8.h": "a92762dab601fb885221dd499db21445",
   "kv_tq.h": "6a476ecd475326942ceb345829792196",
   "kv_tq_parity_q36.c": "3ec7b08bc422d12d13afec49f511e850",
-  "qwen36.c": "5e1e4b1f9c8aecc5209b57a4b51f1bf4",
+  "qwen36.c": "0d3a445424113cb4b4b549ee55e2d049",
   "qwen36.c.orig": "fb4b73ed5e1644da7e644e046d19c114",
   "qwen36.c.preabsorb": "899731535e9a282de8fa4ce334be47fc",
   "qwen36.c.preabsp": "5a90dfd069685530de049bd90f42d5a2",
@@ -44,10 +44,11 @@
   "tq_absorb_parity.c": "429ac5dd090640e8a7dbbae7ca79ca67",
   "qwen36.c.preebmap": "bf08d9aa9b8194a408a94b13bf16a70b",
   "qwen36.c.premapi4": "8edd817710813d27c52bb9ff4c26008d",
-  "mapi4_avx2.h": "e9ab7386210288281e29a57da0840709",
-  "mapi4_parity.c": "d1a3c73aded61d735c24a4609f5983a3",
+  "mapi4_avx2.h": "84875869651ab732bac535bd20fa6944",
+  "mapi4_parity.c": "0d41bcbef45c7fb0011515b9a68c8c07",
   "qwen36.c.prenovis": "c1f89cc1b55a7769cb3288d6ae94c1be",
-  "qwen36.c.predcmp": "1466c501f40d2a04b33e698b0636e6f9"
+  "qwen36.c.predcmp": "1466c501f40d2a04b33e698b0636e6f9",
+  "qwen36.c.predstage": "5e1e4b1f9c8aecc5209b57a4b51f1bf4"
  },
  "kv_fp8_h_provenance": "vendored byte-identical from colibri bf24429 c/kv_fp8.h (Apache-2.0) so the parity gates compile from this repo alone; see engine/NOTICE.md",
  "reproducible_segments": [
@@ -271,8 +272,16 @@
    "scripts": [
     "patch_down_compact.py"
    ],
-   "to": "qwen36.c",
+   "to": "qwen36.c.predstage",
    "added": "E28 Q36_DOWN_COMPACT=1 (hot down_proj columns held compact; bit-exact)"
+  },
+  {
+   "from": "qwen36.c.predstage",
+   "scripts": [
+    "patch_down_stage.py"
+   ],
+   "to": "qwen36.c",
+   "added": "E29 AVX2 staging for the hot-neuron down_proj (q36_down_prefix_batch); bit-exact"
   }
  ],
  "drift_audit": {

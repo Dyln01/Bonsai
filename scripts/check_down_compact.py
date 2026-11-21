@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """check_down_compact.py — gate for engine patch E28 (Q36_DOWN_COMPACT).
 
-Extracts the down-prefix functions VERBATIM from the two engine snapshots (qwen36.c.predcmp = before,
-qwen36.c = after), compiles both into one harness against a REAL mmap'd file (so madvise acts on a genuine
+Extracts the down-prefix functions VERBATIM from the two engine snapshots (qwen36.c.predcmp = before E28/E29:
+scalar staging, strided reads; qwen36.c = after: compact buffer + AVX2 staging), compiles both into one harness against a REAL mmap'd file (so madvise acts on a genuine
 mapping), and requires bit-identical outputs for single-token and batched calls, odd and even Ik, with
 compaction OFF (the default) and ON (Q36_DOWN_COMPACT=1). The harness clears the compact cache when it
 unmaps a test matrix, mirroring the engine invariant that mappings are never unmapped (so an address can
@@ -33,6 +33,7 @@ typedef struct { const float *w; int8_t *q; float *sc; int I, O; uint8_t *q4; fl
                  void *map; int64_t map_len; void *vk; int vk_off; uint16_t *h;
                  char *vk_name; const char *vk_tag; int vk_quant, vk_fmt, vk_gone, vk_imported; } QW;
 static float map_f16_one(uint16_t h) { return (float)h; }
+#include "mapi4_avx2.h"   /* q36_m4_stage_prefix (E29) — the engine includes this header ahead of these functions */
 static float dot_f32_lanes(const float *a, const float *b, int n) {
     float l[8] = {0,0,0,0,0,0,0,0}; int i = 0;
     for (; i + 8 <= n; i += 8) for (int k = 0; k < 8; k++) l[k] += a[i+k]*b[i+k];
@@ -88,12 +89,22 @@ def build(workdir, mutate=None):
     if mutate == "skip_copy":        # compaction that forgets to copy
         assert "memcpy(buf + (int64_t)d * cb" in new; new = new.replace("memcpy(buf + (int64_t)d * cb", "memset(buf + (int64_t)d * cb, 0", 1)
         new = new.replace("mp + (int64_t)d * (I >> 1), (size_t)cb);", "(size_t)cb);", 1)
+    if mutate in ("prefix_odd_noscale", "prefix_wrong_nibble"):   # mutations of the E29 header helper
+        h = open(os.path.join(ENG, "mapi4_avx2.h")).read()
+        if mutate == "prefix_odd_noscale":
+            a = "float v = (float)e; if (rs != 1.0f) v *= rs;"; assert a in h; h = h.replace(a, "float v = (float)e;", 1)
+        else:
+            a = "int8_t e = (int8_t)(b & 0xF); if (e & 8) e -= 16;\n        float v"; assert a in h
+            h = h.replace(a, "int8_t e = (int8_t)(b >> 4); if (e & 8) e -= 16;\n        float v", 1)
+        os.makedirs(os.path.join(workdir, "inc"), exist_ok=True)
+        open(os.path.join(workdir, "inc", "mapi4_avx2.h"), "w").write(h)
     old = old.replace("q36_down_prefix_batch", "old_down_batch").replace("q36_down_prefix(", "old_down_single(")
     new = new.replace("q36_down_prefix_batch", "new_down_batch").replace("q36_down_prefix(", "new_down_single(")
     c = os.path.join(workdir, "h.c")
     open(c, "w").write(HARNESS_HEAD + old + "\n" + new + HARNESS_MAIN)
     exe = os.path.join(workdir, "h")
-    r = subprocess.run(["gcc", "-O2", "-fopenmp", "-o", exe, c, "-lm"], capture_output=True, text=True)
+    inc = os.path.join(workdir, "inc") if os.path.isdir(os.path.join(workdir, "inc")) else ENG
+    r = subprocess.run(["gcc", "-O2", "-fopenmp", "-I", inc, "-o", exe, c, "-lm"], capture_output=True, text=True)
     if r.returncode:
         print("FAIL  harness did not compile:\n" + r.stderr[-1500:]); sys.exit(2)
     return exe

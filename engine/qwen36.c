@@ -4247,14 +4247,8 @@ static void q36_down_prefix_batch(const QW *dw, float *dst, const float *g,
             #pragma omp for schedule(static)
             for (int d = 0; d < D; d++) {
                 const uint8_t *row = mp + (int64_t)d * dstride;
-                for (int i = 0; i < Ik; i++) {
-                    uint8_t b = row[i >> 1];
-                    int8_t e = (int8_t)((i & 1) ? (b >> 4) : (b & 0xF));
-                    if (e & 8) e -= 16;
-                    st[i] = (float)e;
-                }
-                float rs = sc ? sc[d] : 1.0f;
-                if (rs != 1.0f) for (int i = 0; i < Ik; i++) st[i] *= rs;
+                /* E29: AVX2 staging, bit-identical to the scalar unpack + scale it replaces (odd Ik safe) */
+                q36_m4_stage_prefix(st, row, Ik, sc ? sc[d] : 1.0f);
                 for (int s = 0; s < S; s++)
                     dst[(int64_t)s*D + d] = dot_f32_lanes(g + (int64_t)s*Ik, st, Ik);
             }

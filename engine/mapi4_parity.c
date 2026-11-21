@@ -80,6 +80,36 @@ static void test_stage(void) {
 #endif
 }
 
+/* ---- 1b. prefix staging (odd Ik) is bit-exact with the legacy down_proj loop ---- */
+static void legacy_prefix(float *st, const uint8_t *row, int Ik, float rs) {
+    for (int i = 0; i < Ik; i++) {
+        uint8_t b = row[i >> 1];
+        int8_t e = (int8_t)((i & 1) ? (b >> 4) : (b & 0xF));
+        if (e & 8) e -= 16;
+        st[i] = (float)e;
+    }
+    if (rs != 1.0f) for (int i = 0; i < Ik; i++) st[i] *= rs;
+}
+static void test_prefix(void) {
+    const int Iks[] = {1, 2, 3, 5, 31, 32, 33, 63, 65, 1000, 1001, 2959, 2960, 4352, 17407};
+    const float rss[] = {1.0f, 0.0123f, -3.5f, 6.25e4f};
+    long cases = 0;
+    for (size_t a = 0; a < sizeof Iks / sizeof *Iks; a++) {
+        int Ik = Iks[a];
+        uint8_t *row = malloc((Ik + 1) / 2 + 64);
+        float *s0 = malloc(sizeof(float) * (Ik + 16)), *s1 = malloc(sizeof(float) * (Ik + 16));
+        for (int k = 0; k < (Ik + 1) / 2 + 8; k++) row[k] = (uint8_t)rnd();
+        for (size_t b = 0; b < sizeof rss / sizeof *rss; b++) {
+            memset(s0, 0xA5, sizeof(float) * (Ik + 16)); memset(s1, 0xA5, sizeof(float) * (Ik + 16));
+            legacy_prefix(s0, row, Ik, rss[b]); q36_m4_stage_prefix(s1, row, Ik, rss[b]);
+            CHECK(memcmp(s0, s1, sizeof(float) * (Ik + 16)) == 0, "prefix Ik=%d rs=%g differs", Ik, rss[b]);
+            cases++;
+        }
+        free(row); free(s0); free(s1);
+    }
+    printf("ok    prefix staging (odd/even Ik) bit-identical to the legacy down_proj loop (%ld cases)\n", cases);
+}
+
 /* ---- 2/3. integer dot ---- */
 static void ref_matmul(double *y, const float *x, const uint8_t *W, const float *sc, int S, int I, int O) {
     float *st = malloc(sizeof(float) * I);
@@ -175,6 +205,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     test_stage();
+    test_prefix();
     test_idot();
     if (fails) { printf("mapi4 gate: FAIL (%d)\n", fails); return 1; }
     printf("mapi4 gate: PASS\n");
