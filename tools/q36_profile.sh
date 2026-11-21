@@ -67,7 +67,10 @@ else
     gdb -p "$PID" -batch -ex "set pagination off" -ex "thread apply all bt 8" 2>/dev/null > "$W/s.txt"
     # one block per thread; skip threads parked in a wait (they are not working)
     awk -v LEAF="$W/leaf" -v INCL="$W/incl" '
-      function fn(l,   s) { s=l; sub(/^#[0-9]+ +/,"",s); sub(/^0x[0-9a-f]+ in /,"",s); sub(/ \(.*/,"",s); sub(/ from .*/,"",s); return s }
+      function fn(l,   s, lib) {
+        s=l; sub(/^#[0-9]+ +/,"",s); sub(/^0x[0-9a-f]+ in /,"",s)
+        if (s ~ /^\?\? /) { lib=s; if (lib ~ / from /) { sub(/.* from /,"",lib); sub(/.*\//,"",lib) } else lib="no library"; return "?? [" lib "]" }
+        sub(/ \(.*/,"",s); sub(/ from .*/,"",s); return s }
       /^Thread / { if (nf>0) flush(); nf=0; delete seen; wait=0; next }
       /^#[0-9]+ / { f[nf++]=fn($0); if ($0 ~ /futex|pthread_cond|clock_nanosleep|__poll|epoll_wait|sem_wait|do_wait|gomp_barrier_wait|gomp_team_barrier_wait|gomp_thread_start/ && nf<=2) wait=1 }
       function flush(   i) { if (wait) { print "(idle/waiting)" >> LEAF; return }
@@ -78,6 +81,7 @@ else
   total=$(wc -l < "$W/leaf")
   { echo; echo "== $n gdb snapshots, $total thread samples =="
     echo; echo "== where threads were executing (innermost function) =="; sort "$W/leaf" | uniq -c | sort -rn | head -25 | awk -v t="$total" '{printf "%6.1f%%  %s\n", 100*$1/t, substr($0, index($0,$2))}'
+    echo; echo "== unresolved innermost frames, by library (?? = no symbol; libgomp = OpenMP runtime, i.e. waiting) =="; grep '^?? ' "$W/leaf" | sort | uniq -c | sort -rn | head -8 | awk -v t="$total" '{printf "%6.1f%%  %s\n", 100*$1/t, substr($0, index($0,$2))}'
     echo; echo "== inclusive (function anywhere in the stack; the work a function is responsible for) =="; sort "$W/incl" | uniq -c | sort -rn | head -25 | awk -v t="$total" '{printf "%6.1f%%  %s\n", 100*$1/t, substr($0, index($0,$2))}'; } >> "$OUT"
 fi
 echo; cat "$OUT"; echo; echo "saved: $OUT"
