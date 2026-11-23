@@ -102,6 +102,30 @@ Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `
   MLP bucket (2.4 s/token) first; the scalar serial `q36_down_prefix` loop is one known suspect, DeltaNet
   another. **Unmeasured — run `tools/q36_profile.sh` on a 256-token run.**
 
+## E29 baseline (Nov 21, f=0.17, 256 tokens) — and a quality problem that outranks every speed number
+Launcher `c9aaf9…`, engine built just before the run (`[down-compact]` + `[mapi4]` lines present).
+- Total 579.3 s (0.44 tok/s). TTFT 268.7 s (cold page cache: 8.6 GB read at 14.6 MB/s, 62 k major faults).
+  Decode after the first token: 310.6 s for 255 tokens = **1.22 s/token** (151 forwards, 2.06 s each, 1.69
+  tokens/forward, lookup acceptance 71 %). `T(1)` = 1.74 s.
+- Phase timers over the first 19 decoded tokens — the cache was already warm, so these are the first clean
+  steady-state numbers: DeltaNet 1.05, attention 0.21, MLP (`moe_total`) 0.63, lm_head 0.12 = 2.00 s/token.
+- Versus the last pre-E29 long run (700 s, 2.26 s/token) E29 gains 1.5–1.9x: that run's decode window still
+  contained ~100 s of cache warm-up, so the exact factor is uncertain. The kernel-level estimate (7–9 %) was
+  far too low — the profile's 25 % inclusive share for `q36_down_prefix_batch` was the better guide.
+
+**Quality.** The "generated text" in every bench log is degenerate (`:: ... . .`, `1 ........ / /`,
+`Z: / / / --2222…`) — including the Nov 16 default run (frac 0.25, GRIFFIN on) that exercised none of
+E27–E29. The repo's own record (README, `docs/REALWEIGHTS_QWEN36.md`): full compute ppl **6.74**; UNSORTED
+frac 0.5 / 0.25 → ppl 29.24 / 1791.28 ("documented negatives"); the SORTED-container arm E was never
+measured. The container in use is sorted and still produces garbage at fracs 0.17–0.30, so either
+(a) pruning to 17–30 % is too aggressive for this model even with sorted neurons, or (b) the sort/pack is
+wrong and even frac 1.0 would be broken. These need different fixes. `q36-minipc quality <model> 0.17 0.25 1.0`
+measures it (teacher-forced perplexity through the engine's PPL=1 path, f32 KV, GRIFFIN off) and flags a dead
+trunk (ppl == vocab size). **Until it is run, 1.22 s/token is speed at an unmeasured — probably unusable — quality.**
+Consequence if (a): residency needs frac <= ~0.3 (working set 4.24 GB + MLP), but acceptable quality may need
+>= 0.5, which does not fit in ~7 GB of page cache; other levers (int3 for the non-dial 4.24 GB, fewer layers)
+would be needed.
+
 ## First steady-state profile (Nov 21, f=0.17, 256 tokens, gdb sampling, 436 thread samples)
 `tools/q36_profile.sh` (profiled run: 818 s vs 700 s unprofiled — sampling pauses the process):
 - Innermost: **69.5 % in unresolved frames ("??")**, 15.4 % `matmul_map_i4`, 14.2 % `q36_down_prefix_batch`,
@@ -118,6 +142,8 @@ Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `
   alone explains, which again points at threads waiting around this region (stragglers at barriers).
 
 ## Open work, in order
+0. **Measure quality first:** `q36-minipc quality /root/Models/q27_i4-i4-sorted 0.17 0.25 1.0` (frac 1.0 is slow —
+   it streams ~12.8 GB per pass — but it is the reference that makes the other rows meaningful).
 1. Re-profile with the library-labelling profiler (is the 70 % libgomp?). Cheap experiments that test the
    straggler idea: `Q36_THREADS=3` (leaves a core for the OS), `OMP_WAIT_POLICY=passive`.
 2. E29 (shipped): AVX2 staging in `q36_down_prefix_batch`, bit-exact. The serial `q36_down_prefix` (single-token)
