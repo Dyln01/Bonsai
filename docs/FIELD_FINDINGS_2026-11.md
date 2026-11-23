@@ -102,6 +102,33 @@ Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `
   MLP bucket (2.4 s/token) first; the scalar serial `q36_down_prefix` loop is one known suspect, DeltaNet
   another. **Unmeasured — run `tools/q36_profile.sh` on a 256-token run.**
 
+## Quality measured (Nov 23, `q36-minipc quality … 0.17 0.25 1.0`, 128 scored tokens, f32 KV, GRIFFIN off)
+| frac | TF-NLL | ppl | vs frac 1.0 | wall |
+|---|---|---|---|---|
+| 1.0 (full compute) | 1.535 | **4.64** | reference | 2066 s (streams ~12.8 GB per weight pass, 3 passes) |
+| 0.25 | 7.693 | 2192.84 | x473 — GARBAGE | 706 s |
+| 0.17 | 11.323 | 82711.42 | x17,800 — GARBAGE | 648 s |
+
+- **Full compute is healthy** (4.64 on the probe text; the repo's wikitext reference is 6.74 — different texts, compare
+  rows to each other). So the engine, the container, the sort/pack and E26–E29 are correct at scale (the AVX2
+  staging is active at frac 1.0, and the result is sane).
+- **Static hot-prefix pruning to <= 25 % destroys the model even on the SORTED container.** 0.25 is x473 the
+  reference here versus x266 for the repo's UNSORTED measurement (ppl 1791 vs 6.74) — different texts, so not a
+  proof, but there is no visible benefit from sorting at this fraction.
+- **Consequence:** every speed number at frac <= 0.30 (1.22 s/token, resident, 399 % CPU) describes a model that
+  emits garbage. The bench text being degenerate in every log was this, not a bug.
+- **The bind on this box:** residency needs frac <= ~0.3 (4.24 GB non-MLP + MLP hot set in ~7 GB of page cache);
+  usable quality needs far more (unsorted 0.5 was x4.3 ppl; sorted 0.5 untested). Full compute is 12.8 GB of int4
+  weights: it does not fit in 7.6 GiB.
+
+Estimates (not measured) for the options:
+- Measured resident compute rate ~6.5 G weights/s (T(1) 1.74 s for ~11.4 G weights at frac 0.17). Full model =
+  25.6 G weights -> ~3.9 s per forward -> ~2.3 s/token at 1.69 tokens/forward with today's kernels.
+- Memory-bandwidth floor for 12.8 GB per forward: ~1.1 s single-channel (~12 GB/s real), ~0.5 s dual-channel.
+  The gap between 3.9 s and 0.5-1.1 s is the compute/threading inefficiency the profile points at (70 % of thread
+  samples outside named kernels).
+- Full model resident needs ~12.8 GB weights + ~1 GB private + ~0.7 GB kernel = ~14.5 GB: it fits in 16 GB, not 8.
+
 ## E29 baseline (Nov 21, f=0.17, 256 tokens) — and a quality problem that outranks every speed number
 Launcher `c9aaf9…`, engine built just before the run (`[down-compact]` + `[mapi4]` lines present).
 - Total 579.3 s (0.44 tok/s). TTFT 268.7 s (cold page cache: 8.6 GB read at 14.6 MB/s, 62 k major faults).
@@ -142,12 +169,10 @@ would be needed.
   alone explains, which again points at threads waiting around this region (stragglers at barriers).
 
 ## Open work, in order
-0. **Measure quality first:** `q36-minipc quality /root/Models/q27_i4-i4-sorted 0.17 0.25 1.0` (frac 1.0 is slow —
-   it streams ~12.8 GB per pass — but it is the reference that makes the other rows meaningful).
-1. Re-profile with the library-labelling profiler (is the 70 % libgomp?). Cheap experiments that test the
-   straggler idea: `Q36_THREADS=3` (leaves a core for the OS), `OMP_WAIT_POLICY=passive`.
-2. E29 (shipped): AVX2 staging in `q36_down_prefix_batch`, bit-exact. The serial `q36_down_prefix` (single-token)
-   has no callers on the decode path; the GRIFFIN gather paths still use scalar loops (off with GRIFFIN=0).
-3. `mlock` the hot set (opt-in) if residency ever proves unreliable on other boxes; with E28 it was stable here.
-4. Teach `q36-minipc floor` the corrected accounting (private RAM, ~0.67 GB overhead, touched `down` pages).
-5. Target: ~1 s/token. Now 2.3 s/token at frac 0.17–0.25 on this single-channel box.
+0. **Decide the path** (quality is now measured): the pruning dial cannot reach usable quality at a resident
+   fraction. Options: 16 GB RAM (second DIMM; also dual-channel) for full-compute 27B; a smaller model that
+   fits int4 in ~7 GB; stronger compression than int4 (research); or retraining-free tricks (per-layer schedule
+   `q36-minipc fracs`, GRIFFIN) which are unlikely to close a x473 gap.
+1. If full compute becomes resident: kernel/threading work has large headroom (3.9 s/forward estimated vs a
+   0.5-1.1 s bandwidth floor): re-profile with the library-labelling profiler, `Q36_THREADS=3`, DeltaNet path.
+2. `mlock` the hot set (opt-in) if residency proves unreliable; teach `floor` the corrected accounting.
