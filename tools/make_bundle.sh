@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${1:-.}"; mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 B="$W/q36_bundle"; mkdir -p "$B/engine" "$B/tools"
-cp "$ROOT/tools/q36-minipc.sh" "$ROOT/tools/q36_benchlog.py" "$ROOT/tools/q36_profile.sh" "$B/tools/"
+cp "$ROOT/tools/q36-minipc.sh" "$ROOT/tools/q36_benchlog.py" "$ROOT/tools/q36_profile.sh" "$ROOT/tools/quality_probe_text.txt" "$ROOT/scripts/make_wikitest_ref.py" "$B/tools/"
 cp "$ROOT/engine/qwen36.c" "$ROOT"/engine/*.h "$B/engine/"
 cp "$ROOT/tools/install_bundle.sh" "$B/install.sh"; chmod +x "$B/install.sh"
 ( cd "$B" && md5sum tools/* engine/* > MD5SUMS )

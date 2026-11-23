@@ -20,7 +20,7 @@ TOOLS="$HOME/bin"
 # was run from, else the historical harness dir. Keeps `q36-minipc pack|fracs|project`
 # working when only the launcher was installed (or when running it in-tree).
 q36_tool() {
-  for c in "$TOOLS/$1" "$(dirname "$0")/$1" "$HOME/colibri-harness/$1"; do
+  for c in "$TOOLS/$1" "$(dirname "$0")/$1" "$(dirname "$0")/../scripts/$1" "$HOME/colibri-harness/$1"; do
     [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
   done
   printf '%s\n' "$TOOLS/$1"
@@ -257,6 +257,88 @@ case "$CMD" in
     echo "decode tok/s = 1000 / (TOTAL ms/token); Speed: includes prefill."
     [ "$BRC" -eq 0 ] || exit "$BRC"
     ;;
+  quality)
+    # Teacher-forced perplexity (the repo's own PPL=1 contract) of a dense container at several HOT_FRACs, on a
+    # fixed text. Answers "is the output any good at this frac?" - speed numbers mean nothing without it.
+    #   q36-minipc quality <model_dir> [frac ...]       default: 0.17 0.25 1.0 (cheap arms first)
+    [ "$CLASS" = dense ] || die "quality: dense containers only"
+    [ -x /usr/bin/time ] || die "quality needs GNU time at /usr/bin/time (apt install time)"
+    QTXT="$(q36_tool quality_probe_text.txt)"; QREFPY="$(q36_tool make_wikitest_ref.py)"
+    { [ -f "$QTXT" ] && [ -f "$QREFPY" ]; } || die "quality needs quality_probe_text.txt and make_wikitest_ref.py next to the launcher (cp tools/quality_probe_text.txt scripts/make_wikitest_ref.py ~/bin/)"
+    QSC="${Q36_QUALITY_SCORED:-128}"; QCTX=512
+    case "$QSC" in ''|*[!0-9]*|0) die "Q36_QUALITY_SCORED must be a positive integer (got '$QSC')" ;; esac
+    read -r -a QARGS <<< "$ORIGARGS"; QFRACS=("${QARGS[@]:2}"); [ "${#QFRACS[@]}" -gt 0 ] || QFRACS=(0.17 0.25 1.0)
+    for f in "${QFRACS[@]}"; do
+      awk -v f="$f" 'BEGIN { exit !(f ~ /^[0-9]*\.?[0-9]+$/ && f + 0 > 0 && f + 0 <= 1) }' || die "bad frac '$f' (want 0 < frac <= 1)"
+    done
+    QVOCAB="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1] + "/config.json")).get("vocab_size", 248320))' "$MODEL" 2>/dev/null || echo 248320)"
+    LOGDIR="${Q36_LOG_DIR:-/home/dylan/sambashare}"
+    { mkdir -p "$LOGDIR" && [ -w "$LOGDIR" ]; } 2>/dev/null || { echo "[minipc] WARNING: cannot write $LOGDIR - using /tmp"; LOGDIR=/tmp; }
+    QLOG="$LOGDIR/quality_$(date +%Y%m%d-%H%M%S)_${Q36_LABEL:+${Q36_LABEL}_}n${QSC}.log"
+    QW="$(mktemp -d)"; trap 'rm -rf "$QW"' EXIT
+    BTOOL="$(q36_tool q36_benchlog.py)"
+    if [ -f "$BTOOL" ]; then
+      python3 "$BTOOL" header --out "$QLOG" --model "$MODEL" --engine "$ENGINE" --launcher "$0" --env "SNAP=$MODEL PPL=1 GRIFFIN=0 KV8=0" \
+          --cmdline "$0 $ORIGARGS" --meta "mode=quality fracs=${QFRACS[*]} scored=$QSC ctx=$QCTX threads=$THREADS vocab=$QVOCAB" >/dev/null 2>&1 || true
+    else
+      : > "$QLOG"
+    fi
+    QREF="/tmp/q36_quality_ref_n${QSC}.json"
+    if [ ! -s "$QREF" ]; then
+      echo "[minipc] building the reference (tokenizes the probe text through the engine; one cheap pass at frac 0.17) ..."
+      q36_quality_ref() {
+        # the helper (not the engine) reads these three; the helper passes the rest through to the engine
+        export Q36_ENGINE="$ENGINE" Q36_CAP="$CAP" Q36_THREADS="$THREADS"
+        env TRUNK_MAP=1 TRUNK_WARM=1 HOT_FRAC=0.17 GRIFFIN=0 Q36_DOWN_COMPACT=1 Q36_EMBED_MAP=1 Q36_NO_VISION=1 Q36_WIN_MB=0 \
+            Q36_MAXT=2048 KV8=0 \
+            python3 "$QREFPY" "$MODEL" "$QTXT" "$QREF" --ctx="$QCTX" --len="$((QCTX + QSC))" --bytes="$(( (QCTX + QSC + 128) * 6 ))"   # NB: --opt=value form
+      }
+      q36_quality_ref || die "building the reference failed (see above)"
+    fi
+    q36_quality_arm() {   # $1 = frac; the engine's PPL=1 branch scores the reference text
+      local f="$1" dc=""
+      awk -v f="$f" 'BEGIN { exit !(f + 0 < 1) }' && dc="Q36_DOWN_COMPACT=1"
+      # shellcheck disable=SC2086
+      env SNAP="$MODEL" PPL=1 COLI_TEMP=0 COLI_NO_OMP_TUNE=1 KVSAVE=0 OMP_NUM_THREADS="$THREADS" TRUNK_MAP=1 TRUNK_WARM=1 \
+          HOT_FRAC="$f" GRIFFIN=0 Q36_TF_CHUNK=64 Q36_EMBED_MAP=1 Q36_NO_VISION=1 Q36_WIN_MB=0 Q36_MAXT=2048 KV8=0 $dc \
+          /usr/bin/time -v "$ENGINE" "$CAP" "$THREADS" "$QREF"
+    }
+    : > "$QW/results"
+    for f in "${QFRACS[@]}"; do
+      echo "[minipc] arm frac=$f ... (frac<=0.3 is resident and quick; larger fracs stream from disk and can take an hour)"
+      T0=$(date +%s); QRC=0
+      q36_quality_arm "$f" > "$QW/arm_$f.out" 2> "$QW/arm_$f.err" || QRC=$?
+      WALL=$(( $(date +%s) - T0 ))
+      PPL="$(sed -n 's/.*ppl = \([0-9.eE+-]*\).*/\1/p' "$QW/arm_$f.out" | head -1)"
+      NLL="$(sed -n 's/^TF-NLL: \([0-9.eE+-]*\) nats.*/\1/p' "$QW/arm_$f.out" | head -1)"
+      NTOK="$(sed -n 's/^TF-NLL: .* over \([0-9]*\) tokens.*/\1/p' "$QW/arm_$f.out" | head -1)"
+      printf '%s %s %s %s %s %s\n' "$f" "${NLL:-NA}" "${PPL:-NA}" "${NTOK:-0}" "$WALL" "$QRC" >> "$QW/results"
+      echo "    -> ${PPL:+ppl $PPL (TF-NLL $NLL over $NTOK tokens)}${PPL:-no result (engine rc=$QRC)}  in ${WALL}s"
+    done
+    q36_quality_report() {
+      echo
+      echo "== QUALITY (teacher-forced perplexity; lower is better; repo reference on wikitext-2: frac 1.0 -> 6.74) =="
+      echo "text: tools/quality_probe_text.txt, ctx $QCTX + $QSC scored tokens, f32 KV, GRIFFIN off, vocab $QVOCAB"
+      printf '%-6s %9s %12s %8s %8s  %s\n' frac TF-NLL ppl tokens wall_s verdict
+      REFP="$(awk '$1 == "1.0" || $1 == "1" { print $3 }' "$QW/results" | head -1)"
+      while read -r f nll ppl ntok wall rc; do
+        v="no result (engine rc=$rc)"
+        if [ "$ppl" != NA ]; then
+          if awk -v p="$ppl" -v n="$QVOCAB" 'BEGIN { d = p - n; if (d < 0) d = -d; exit !(d <= 1e-4 * n) }'; then
+            v="DEAD TRUNK: ppl == vocab size (uniform logits) - the engine/container is broken, not just pruned"
+          elif [ -n "$REFP" ] && [ "$f" != 1.0 ] && [ "$f" != 1 ]; then
+            v="$(awk -v p="$ppl" -v r="$REFP" 'BEGIN { d = 100 * (p / r - 1); if (d <= 5) s = "OK (within +5% of full compute)"; else if (d <= 25) s = "DEGRADED"; else if (p > 100) s = "GARBAGE"; else s = "BAD"; printf "%+.1f%% vs frac 1.0 - %s", d, s }')"
+          elif [ "$f" = 1.0 ] || [ "$f" = 1 ]; then v="reference (full compute)"
+          else v="(run frac 1.0 too for a verdict)"; fi
+        fi
+        printf '%-6s %9s %12s %8s %8s  %s\n' "$f" "$nll" "$ppl" "$ntok" "$wall" "$v"
+      done < "$QW/results"
+    }
+    { q36_quality_report; echo; for f in "${QFRACS[@]}"; do echo "---- arm frac=$f: engine stdout"; cat "$QW/arm_$f.out"; echo "---- arm frac=$f: engine stderr (tail)"; tail -n 25 "$QW/arm_$f.err"; done; } >> "$QLOG"
+    q36_quality_report
+    chown --reference="$LOGDIR" "$QLOG" 2>/dev/null || true; chmod a+r "$QLOG" 2>/dev/null || true
+    echo; echo "[minipc] full log: $QLOG"
+    ;;
   seed)
     if [ "$CLASS" != moe ]; then echo "[minipc] seed is a MoE-cache prior; dense models self-adapt via GRIFFIN."; exit 0; fi
     if [ ! -f "$MODEL/.coli_usage" ]; then
@@ -476,6 +558,7 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc pack      <model_dir> [out]    (dense) int4-pack the trunk offline (needs ~1/4 free)
   q36-minipc fracs     <model_dir> [out]    (dense) per-layer HOT_FRAC schedule (hot_layers.json)
   q36-minipc project   <model_dir>          what this container costs on THIS host
+  q36-minipc quality   <model_dir> [frac...] perplexity at each HOT_FRAC on a fixed text (is the output any good?)
   q36-minipc floor     <model_dir>          the physical decode floor on THIS host (what must stream)
   q36-minipc doctor    <model_dir>          knob/model/level report
   q36-minipc watch                          live progress bar for a running calibrate/bench

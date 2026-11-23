@@ -124,7 +124,8 @@ cp ~/bonsai/tools/q36-minipc.sh ~/bin/q36-minipc
 # (q36_benchlog.py writes the bench log: machine, exact settings, timeline, result):
 cp ~/bonsai/tools/hot_sort.py ~/bonsai/tools/pack_trunk_i4.py \
    ~/bonsai/tools/make_layer_fracs.py ~/bonsai/tools/project_q36.py \
-   ~/bonsai/tools/q36_benchlog.py ~/bin/
+   ~/bonsai/tools/q36_benchlog.py ~/bonsai/tools/q36_profile.sh \
+   ~/bonsai/tools/quality_probe_text.txt ~/bonsai/scripts/make_wikitest_ref.py ~/bin/   # `quality` needs the last two
 chmod +x ~/bin/q36-minipc
 # make sure ~/bin is on PATH (usually already is; else add to ~/.profile):
 #   export PATH="$HOME/bin:$PATH"

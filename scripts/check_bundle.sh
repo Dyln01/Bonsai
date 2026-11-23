@@ -31,6 +31,7 @@ reset_box; out="$(install)"; rc=$?
 [ "$rc" -eq 0 ] && echo "$out" | grep -q "UPDATED OK" && ok "good bundle installs (UPDATED OK)" || bad "good bundle did not install: $(echo "$out" | tail -2 | tr '\n' ' ')"
 [ "$(md5 "$W/box/home/bin/q36-minipc")" = "$(md5 "$HERE/tools/q36-minipc.sh")" ] && ok "installed launcher == repo launcher" || bad "installed launcher differs from the repo's"
 [ "$(md5 "$W/box/home/bin/q36_profile.sh")" = "$(md5 "$HERE/tools/q36_profile.sh")" ] && ok "installed profiler == repo profiler" || bad "installed profiler differs from the repo's"
+{ [ "$(md5 "$W/box/home/bin/quality_probe_text.txt")" = "$(md5 "$HERE/tools/quality_probe_text.txt")" ] && [ "$(md5 "$W/box/home/bin/make_wikitest_ref.py")" = "$(md5 "$HERE/scripts/make_wikitest_ref.py")" ]; } && ok "installed quality helpers == repo files" || bad "quality helpers missing or different after install"
 [ "$(md5 "$W/box/c/qwen36.c")" = "$(md5 "$HERE/engine/qwen36.c")" ] && ok "installed engine source == repo engine source" || bad "installed engine source differs"
 ls "$W/box/home"/q36-backup-*/q36-minipc >/dev/null 2>&1 && grep -q OLD-LAUNCHER "$W/box/home"/q36-backup-*/q36-minipc && ok "previous launcher was backed up" || bad "no backup of the previous launcher"
 

@@ -168,4 +168,48 @@ EOS
   [ "$rc" -eq 2 ] && ok "bad Q36_BENCH_TOKENS rejected (exit 2)" || bad "bad Q36_BENCH_TOKENS gave exit $rc (want 2)"
 fi
 
+# ---- 7. quality: perplexity arms through the engine's PPL=1 contract (fake engine) ----
+if [ ! -x /usr/bin/time ]; then
+  echo "SKIP  quality checks: GNU time not installed"
+else
+  FAKEQ="$WORK/fake_q"
+  cat > "$FAKEQ" <<'EOS'
+#!/bin/bash
+# honours the two contracts make_wikitest_ref.py and the quality arms rely on
+if [ -n "${DUMP_IDS:-}" ]; then seq 1 900 > "$DUMP_IDS"; exit 0; fi          # reference build: ids of the text + 1 generated
+if [ "${PPL:-}" = 1 ]; then
+  echo "[tf] chunk=64: 128 scored tokens in 3 weight passes (0 per-token)" >&2
+  echo "ARM HOT_FRAC=${HOT_FRAC:-?} DOWN_COMPACT=${Q36_DOWN_COMPACT:-unset} GRIFFIN=${GRIFFIN:-?} KV8=${KV8:-?}" >&2
+  if [ -n "${FAKE_DEAD:-}" ]; then ppl=248320.00; elif [ "${HOT_FRAC:-}" = 1.0 ]; then ppl=6.74; else ppl=1791.28; fi
+  echo "TF-NLL: 1.9076 nats/token over 128 tokens | ppl = $ppl"
+  exit 0
+fi
+exit 1
+EOS
+  chmod +x "$FAKEQ"; mkdir -p "$WORK/qlogs"; rm -f /tmp/q36_quality_ref_n128.json
+  quality() { env Q36_ENGINE="$FAKEQ" Q36_LOG_DIR="$WORK/qlogs" "$@" bash "$LAUNCHER" quality "$MODEL" 0.25 1.0; }
+
+  quality > "$WORK/q1.out" 2>&1; rc=$?
+  QLOGF="$(ls -t "$WORK"/qlogs/quality_*.log 2>/dev/null | head -1)"
+  [ "$rc" -eq 0 ] && ok "quality exits 0" || bad "quality exited $rc: $(tail -2 "$WORK/q1.out" | tr '\n' ' ')"
+  if [ -n "$QLOGF" ] && [ -s "$QLOGF" ]; then
+    ok "quality wrote $(basename "$QLOGF")"
+    grep -qE "^0\.25 +1\.9076 +1791\.28 .*GARBAGE" "$QLOGF" && ok "frac 0.25 at ppl 1791 is called GARBAGE vs the frac 1.0 reference" || bad "garbage verdict missing: $(grep -m1 '^0.25' "$QLOGF")"
+    grep -qE "^1\.0 +1\.9076 +6\.74 .*reference" "$QLOGF" && ok "frac 1.0 is the reference" || bad "reference row missing"
+    grep -q "ARM HOT_FRAC=0.25 DOWN_COMPACT=1 GRIFFIN=0 KV8=0" "$QLOGF" && ok "arm 0.25: GRIFFIN off, f32 KV, down-compact on" || bad "arm 0.25 settings wrong: $(grep -m1 'ARM HOT_FRAC=0.25' "$QLOGF")"
+    grep -q "ARM HOT_FRAC=1.0 DOWN_COMPACT=unset" "$QLOGF" && ok "arm 1.0 does not compact the full-width down_proj" || bad "arm 1.0 got Q36_DOWN_COMPACT"
+  else
+    bad "quality wrote no log in $WORK/qlogs"
+  fi
+  quality FAKE_DEAD=1 > "$WORK/q2.out" 2>&1
+  grep -q "DEAD TRUNK" "$WORK/q2.out" && ok "ppl == vocab size is flagged DEAD TRUNK" || bad "dead-trunk tripwire did not fire"
+  env Q36_ENGINE="$FAKEQ" Q36_LOG_DIR="$WORK/qlogs" bash "$LAUNCHER" quality "$MODEL" abc > "$WORK/q3.out" 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && ok "non-numeric frac rejected (exit 2)" || bad "frac 'abc' gave exit $rc (want 2)"
+  env Q36_ENGINE="$FAKEQ" Q36_LOG_DIR="$WORK/qlogs" bash "$LAUNCHER" quality "$MODEL" 1.5 > "$WORK/q4.out" 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && ok "frac above 1 rejected (exit 2)" || bad "frac 1.5 gave exit $rc (want 2)"
+  mkdir -p "$WORK/solo" && cp "$LAUNCHER" "$WORK/solo/q36-minipc.sh"
+  env Q36_ENGINE="$FAKEQ" Q36_LOG_DIR="$WORK/qlogs" bash "$WORK/solo/q36-minipc.sh" quality "$MODEL" 0.25 > "$WORK/q5.out" 2>&1; rc=$?
+  [ "$rc" -eq 2 ] && grep -q "quality_probe_text.txt" "$WORK/q5.out" && ok "missing helper files give a clear error (exit 2)" || bad "missing helpers not reported (rc=$rc)"
+fi
+
 [ "$fail" -eq 0 ] && echo "launcher gate: PASS" || { echo "launcher gate: FAIL"; exit 1; }
