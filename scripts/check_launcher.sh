@@ -158,6 +158,12 @@ EOS
   F2="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
   grep -q "ENGINE FAILED OR WAS INTERRUPTED" "$F2" 2>/dev/null && ok "failed run is still logged and flagged" || bad "failed run not flagged in its log"
 
+  bench Q36_BENCH_TOKENS=3 > "$WORK/b6.out" 2>&1
+  LOGD="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
+  grep -q "^  HOT_FRAC=1.0$" "$LOGD" 2>/dev/null && ok "default HOT_FRAC is 1.0 (exact full model)" || bad "default HOT_FRAC is not 1.0: $(grep -m1 'HOT_FRAC=' "$LOGD" 2>/dev/null)"
+  grep -q "WARNING: HOT_FRAC" "$WORK/b6.out" && bad "the default run warned about pruning" || ok "no pruning warning at the default"
+  bench Q36_BENCH_TOKENS=3 Q36_HOT_FRAC=0.25 > "$WORK/b7.out" 2>&1
+  grep -q "WARNING: HOT_FRAC=0.25 prunes the MLP" "$WORK/b7.out" && grep -q "garbage" "$WORK/b7.out" && ok "pruning (0.25) prints the quality warning" || bad "no quality warning for HOT_FRAC=0.25"
   bench Q36_BENCH_TOKENS=3 Q36_THREADS=3 > "$WORK/b4.out" 2>&1
   LOGT="$(ls -t "$WORK"/logs/bench_*.log 2>/dev/null | head -1)"
   grep -q "^  OMP_NUM_THREADS=3" "$LOGT" 2>/dev/null && ok "Q36_THREADS=3 reaches the engine as OMP_NUM_THREADS=3" || bad "Q36_THREADS did not reach the engine"

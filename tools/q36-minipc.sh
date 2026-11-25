@@ -136,7 +136,15 @@ else
   QUIET=0; case "$CMD" in serve|chat|bench|calibrate) ;; *) QUIET=1 ;; esac
   # dense: trunk on disk; GRIFFIN by default (works on unmodified containers);
   # TRUNK_WARM fills the page cache once. HOT_LAYERS/FRAC still honored if user sets them.
-  FRAC="${Q36_HOT_FRAC:-$FRAC}"
+  # DEFAULT = 1.0, the exact full model. The levels' older defaults (0.25 / 0.5) prune the MLP of every layer
+  # and were measured as unusable on this model (docs/FIELD_FINDINGS_2026-11.md: perplexity 4.64 at 1.0,
+  # 2193 at 0.25, 82711 at 0.17 - degenerate text). Pruning is now opt-in via Q36_HOT_FRAC and says so.
+  FRAC="${Q36_HOT_FRAC:-1.0}"
+  if [ "$QUIET" = 0 ] && awk -v f="$FRAC" 'BEGIN { exit !(f + 0 < 1) }'; then
+    echo "[minipc] WARNING: HOT_FRAC=$FRAC prunes the MLP of every layer. Measured on the sorted int4 27B container:" >&2
+    echo "[minipc]          perplexity 4.64 at frac 1.0, 2193 at 0.25, 82711 at 0.17 -> the text is garbage." >&2
+    echo "[minipc]          OK for speed experiments only. 'q36-minipc quality <model> $FRAC 1.0' measures it." >&2
+  fi
   # Q36_EMBED_MAP=1 keeps the vocabulary table on disk and reads rows on demand: on a
   # 7.62 GB box the table is 2.5 GB f16 (5 GB f32) held resident to serve one 20 KB row
   # per token, and the freed RAM is what the per-token working set needs (see
@@ -566,6 +574,7 @@ Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
      Q36_BENCH_TOKENS=<n> (bench length, default 64) · Q36_LOG_DIR=<dir> (bench log, default /home/dylan/sambashare)
      Q36_LABEL=<text> (tag in the bench log name) · Q36_SAMPLE_S=<s> (bench sampler interval, default 30)
+     Q36_HOT_FRAC=<f> (MLP fraction kept; DEFAULT 1.0 = exact full model; <1 prunes and is garbage on this model)
      Q36_THREADS=<n> (OpenMP threads; default per level, 4 on balanced)
      Q36_DOWN_COMPACT=1 (read only the hot down_proj columns, copied compact once; for GRIFFIN=0) · Q36_NO_VISION=1 (skip the vision tower)
      Q36_WIN_MB=<n> (window cache; auto-on for int4 trunks) · Q36_PACK_PROFILE=<prof> · Q36_FRACS_BUDGET=<GB>

@@ -121,6 +121,10 @@ Ten runs with E28 active (launcher `9c4935…`, `[down-compact]` line present; `
   usable quality needs far more (unsorted 0.5 was x4.3 ppl; sorted 0.5 untested). Full compute is 12.8 GB of int4
   weights: it does not fit in 7.6 GiB.
 
+**Launcher default changed (Nov 23):** `chat`, `serve` and `bench` used to default to frac 0.25 (levels: 0.25 / 0.25 /
+0.5), i.e. garbage. The default is now **1.0 (exact full model)**; any `Q36_HOT_FRAC < 1` prints a warning with the
+numbers above. Full compute on this box is slow (the whole 12.8 GB trunk streams from the HDD each pass) but correct.
+
 Estimates (not measured) for the options:
 - Measured resident compute rate ~6.5 G weights/s (T(1) 1.74 s for ~11.4 G weights at frac 0.17). Full model =
   25.6 G weights -> ~3.9 s per forward -> ~2.3 s/token at 1.69 tokens/forward with today's kernels.
