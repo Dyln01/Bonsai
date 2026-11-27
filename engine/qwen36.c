@@ -303,6 +303,7 @@ static int qwen36_max_ctx(void) {
 #include "cli_args.h"
 #include "st.h"
 #include <sys/mman.h>   /* TRUNK_MAP: mmap-backed dense weights */
+#include <errno.h>      /* Q36_MLOCK error report */
 #include <fcntl.h>
 #include "omp_tune.h"
 #include "kv_prefix.h"
@@ -8698,6 +8699,14 @@ int main(int argc, char **argv) {
     if (getenv("TRUNK_WARM") && getenv("TRUNK_WARM")[0]=='1') {
         double cover = q36_hot_frac();
         double w0 = now_s(); int64_t warmed = 0;
+        const char *mlk_e = getenv("Q36_MLOCK");
+        int mlk_on = (mlk_e && *mlk_e == '1'), mlk_failed = 0;
+        int64_t mlk_bytes = 0, mlk_cap = 0;
+        if (mlk_on) {
+            const char *mb = getenv("Q36_MLOCK_MB");
+            long long phys = (long long)sysconf(_SC_PHYS_PAGES) * (long long)sysconf(_SC_PAGESIZE);
+            mlk_cap = (mb && *mb) ? (int64_t)atoll(mb) * 1024 * 1024 : (int64_t)(phys * 0.70);
+        }
         for (int li = 0; li < m.c.n_layers; li++) {
             Layer *l = &m.L[li];
             const QW *ws[10] = { &l->q, &l->k, &l->v, &l->o, &l->sh_g, &l->sh_u, &l->sh_d, &l->dn_qkv, &l->dn_z, &l->dn_out };
@@ -8713,11 +8722,27 @@ int main(int argc, char **argv) {
 #ifdef MADV_WILLNEED
                 madvise(base, span, MADV_WILLNEED);
 #endif
+                /* Q36_MLOCK=1: pin the hot trunk so the kernel cannot evict it under pressure
+                 * (WILLNEED is only advisory; the field log shows the same config at 52 s and
+                 * 531 s/token when the cache thrashes). Best-effort, capped by Q36_MLOCK_MB
+                 * (default 70% of physical RAM) so it can never lock the box into OOM. */
+                if (mlk_on && mlk_bytes + span <= mlk_cap) {
+                    if (mlock(base, (size_t)span) == 0) mlk_bytes += span;
+                    else if (!mlk_failed) {
+                        mlk_failed = 1;
+                        fprintf(stderr, "[warm] mlock failed (%s) - raise RLIMIT_MEMLOCK "
+                                "(ulimit -l unlimited / LimitMEMLOCK=infinity); continuing unpinned\n",
+                                strerror(errno));
+                    }
+                }
                 warmed += span;
             }
         }
         fprintf(stderr, "[warm] madvise(WILLNEED) over %.2f GB of mapped trunk (frac %.2f)\n",
                 warmed/1e9, cover);
+        if (mlk_on)
+            fprintf(stderr, "[warm] mlock pinned %.2f GB of %.2f GB cap%s\n", mlk_bytes/1e9, mlk_cap/1e9,
+                    mlk_bytes < warmed ? " (rest left to the page cache)" : "");
     }
     generate(&m, prompt, np, n_new, out);
     double dt = now_s() - t;

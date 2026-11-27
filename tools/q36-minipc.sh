@@ -151,7 +151,7 @@ else
   # `q36-minipc floor`: +2.54 GB of cache_room, i.e. 265 -> 95 s/token band).
   EMBMAP="${Q36_EMBED_MAP:+Q36_EMBED_MAP=$Q36_EMBED_MAP}"
   DCMAP="${Q36_DOWN_COMPACT:+Q36_DOWN_COMPACT=$Q36_DOWN_COMPACT}"   # hot down_proj columns held compact (static prefix path)
-  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMBMAP $DCMAP RAM_GB=$RAM_GB"
+  COMMON="SNAP=$MODEL Q36_MAXT=$CTX OMP_NUM_THREADS=$THREADS COLI_NO_OMP_TUNE=1 TRUNK_MAP=1 GRIFFIN=${Q36_GRIFFIN:-1} HOT_FRAC=$FRAC TRUNK_WARM=1 $KVENV $EMBMAP $DCMAP RAM_GB=$RAM_GB ${Q36_MLOCK:+Q36_MLOCK=$Q36_MLOCK} ${Q36_MLOCK_MB:+Q36_MLOCK_MB=$Q36_MLOCK_MB} ${Q36_MAPI4_IDOT:+Q36_MAPI4_IDOT=$Q36_MAPI4_IDOT}"
   # HOT_LAYERS: explicit knob wins; else a hot_layers.json beside the model is used
   HL="${Q36_HOT_LAYERS:-}"
   if [ -z "$HL" ] && [ -f "$MODEL/hot_layers.json" ]; then
@@ -199,6 +199,44 @@ else
     }
   fi
 fi
+
+# ---- host preflight (dense): the field log shows the three things that cost the most on the target box ----
+# Q36_TUNE=1 applies the fixes (needs passwordless sudo); otherwise they are only reported.
+q36_host_preflight() {
+  [ "$QUIET" = 1 ] && return 0
+  local gov sw
+  gov=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)
+  if [ "$gov" != performance ] && [ "$gov" != unknown ]; then
+    if [ "${Q36_TUNE:-0}" = 1 ]; then
+      for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance | sudo -n tee "$g" >/dev/null 2>&1 || true; done
+      echo "[minipc] tune: CPU governor $gov -> performance"
+    else
+      echo "[minipc] WARNING: CPU governor is '$gov' (field log: powersave). Q36_TUNE=1 sets performance." >&2
+    fi
+  fi
+  sw=$(awk 'NR>1 {n++} END {print n+0}' /proc/swaps 2>/dev/null || echo 0)
+  if [ "$sw" -gt 0 ]; then
+    if [ "${Q36_TUNE:-0}" = 1 ]; then
+      sudo -n swapoff -a 2>/dev/null && echo "[minipc] tune: swap off" || echo "[minipc] tune: could not disable swap (needs sudo)" >&2
+    else
+      echo "[minipc] WARNING: swap is active ($sw device(s)); on an HDD box it competes with the weights for the same disk. Q36_TUNE=1 disables it." >&2
+    fi
+  fi
+  if [ "${Q36_MLOCK:-0}" = 1 ]; then
+    ulimit -l unlimited 2>/dev/null || echo "[minipc] WARNING: cannot raise memlock limit ($(ulimit -l) KB); Q36_MLOCK will fall back to unpinned. Add '$USER - memlock unlimited' to /etc/security/limits.conf and re-login." >&2
+  fi
+}
+
+# fail closed: pruning below ~half the MLP was measured as garbage on this model (ppl 4.64 -> 2193 at 0.25).
+if [ "$CLASS" = dense ] && awk -v f="${FRAC:-1.0}" 'BEGIN { exit !(f + 0 < 0.5) }'; then
+  case "$CMD" in
+    serve|chat)
+      if [ "${Q36_ALLOW_GARBAGE:-0}" != 1 ]; then
+        die "HOT_FRAC=$FRAC (<0.5) was measured as degenerate output (docs/FIELD_FINDINGS_2026-11.md). Refusing to serve. Set Q36_ALLOW_GARBAGE=1 to override, or use Q36_HOT_FRAC=1.0 with a smaller-bit trunk."
+      fi ;;
+  esac
+fi
+[ "$CLASS" = dense ] && q36_host_preflight
 
 case "$CMD" in
   serve)  exec env $COMMON SERVE=1 OPENAI=1 ${Q36_SLOTS:+KV_SLOTS=$Q36_SLOTS} "$ENGINE" "$CAP" 4 ;;
@@ -553,6 +591,10 @@ PY
     fi
     echo "== level: $LEVEL (cap=$CAP threads=$THREADS ctx=$CTX kv8=$KV8V frac=$FRAC)"
     echo "== ram: $(free -h | awk '/Mem:/ {print $2}')"
+    echo "== governor: $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown) (want performance; Q36_TUNE=1 fixes)"
+    echo "== swap devices: $(awk 'NR>1 {n++} END {print n+0}' /proc/swaps) (want 0 on an HDD box)"
+    echo "== memlock limit: $(ulimit -l) KB (Q36_MLOCK=1 needs unlimited)"
+    echo "== idot: set Q36_MAPI4_IDOT=1 for the integer-dot kernel (NOT bit-exact; run 'quality' first)"
     ;;
   help|*)
     cat <<EOF
@@ -570,6 +612,7 @@ q36-minipc v2 - one-knob qwen36 launcher for small boxes (MoE AND dense)
   q36-minipc floor     <model_dir>          the physical decode floor on THIS host (what must stream)
   q36-minipc doctor    <model_dir>          knob/model/level report
   q36-minipc watch                          live progress bar for a running calibrate/bench
+Env: Q36_MLOCK=1 [Q36_MLOCK_MB=n] pin hot trunk · Q36_TUNE=1 governor+swap · Q36_ALLOW_GARBAGE=1 allow HOT_FRAC<0.5 · Q36_MAPI4_IDOT=1 int-dot kernel
 Env: Q36_LEVEL=eco|balanced|quality · Q36_KVQ=f32|kv8|tq4|tq3 (KV tier) · Q36_HOT_FRAC=<f> · Q36_GRIFFIN=0|1 (dense)
      Q36_HOT_LAYERS=<file> · Q36_CORPUS=<file> · Q36_SORT_OUT=<dir> · Q36_RAM_GB=<n>
      Q36_BENCH_TOKENS=<n> (bench length, default 64) · Q36_LOG_DIR=<dir> (bench log, default /home/dylan/sambashare)

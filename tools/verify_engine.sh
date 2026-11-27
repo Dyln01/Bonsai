@@ -19,7 +19,7 @@
 #        -trunk_stream-> preprog2 -progress_dt-> prewin -window-> pretdw
 #        -tokdump_w-> pretfc -tf_chunk-> premapf16 -mapf16_bias-> preebmap
 
-#        -embed_map-> premapi4 -mapi4_avx2-> prenovis -no_vision-> predcmp -down_compact-> predstage -down_stage-> qwen36.c
+#        -embed_map-> premapi4 -mapi4_avx2-> prenovis -no_vision-> predcmp -down_compact-> predstage -down_stage-> premlock -mlock-> qwen36.c
 # The historical per-feature patchers for the two regenerated windows live in
 # tools/attic/ (see tools/attic/ATTIC.md).
 set -uo pipefail
@@ -81,7 +81,8 @@ step qwen36.c.preebmap  qwen36.c.premapi4 patch_embed_map.py
 step qwen36.c.premapi4  qwen36.c.prenovis patch_mapi4_avx2.py
 step qwen36.c.prenovis  qwen36.c.predcmp patch_no_vision.py
 step qwen36.c.predcmp   qwen36.c.predstage patch_down_compact.py
-step qwen36.c.predstage FINAL           patch_down_stage.py
+step qwen36.c.predstage qwen36.c.premlock patch_down_stage.py
+step qwen36.c.premlock  FINAL           patch_mlock.py
 
 COLIBI="${COLIBI_DIR:-$HOME/colibri}"
 if [ -d "$COLIBI/.git" ]; then
